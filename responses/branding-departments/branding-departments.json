@@ -1,0 +1,70 @@
+[
+  {
+    "name": "Belly Band",
+    "code": "BLB",
+    "fileExtensions": [
+      "AI",
+      "CDR",
+      "EPS",
+      "JPEG",
+      "JPG",
+      "PDF",
+      "TIFF",
+      "PSD",
+      "SVG",
+      "PNG"
+    ]
+  },
+  {
+    "name": "Debossing",
+    "code": "DBS",
+    "fileExtensions": ["AI", "CDR", "EPS", "PDF", "SVG"]
+  },
+  {
+    "name": "Catalogue",
+    "code": "CAT",
+    "fileExtensions": [
+      "AI",
+      "CDR",
+      "EPS",
+      "JPEG",
+      "JPG",
+      "PDF",
+      "PNG",
+      "PSD",
+      "TIFF",
+      "SVG"
+    ]
+  },
+  {
+    "name": "Digital",
+    "code": "DGT",
+    "fileExtensions": [
+      "AI",
+      "CDR",
+      "EPS",
+      "PNG",
+      "SVG",
+      "JPEG",
+      "JPG",
+      "PDF",
+      "TIFF",
+      "PSD"
+    ]
+  },
+  {
+    "name": "Digital Direct",
+    "code": "DDT",
+    "fileExtensions": ["AI", "CDR", "EPS", "PDF", "PSD", "SVG", "JPEG", "JPG"]
+  },
+  {
+    "name": "Digital Display",
+    "code": "DSP",
+    "fileExtensions": ["PDF"]
+  },
+  {
+    "name": "Digital Transfer",
+    "code": "DTB",
+    "fileExtensions": ["AI", "CDR", "EPS", "PDF", "PSD", "SVG", "JPEG", "JPG"]
+  }
+]

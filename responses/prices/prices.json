@@ -1,0 +1,27 @@
+[
+    {
+        "simplecode": "AF-AM-7-D",
+        "fullCode": "AF-AM-7-D-0-0",
+        "price": 450.62
+    },
+    {
+        "simplecode": "AF-AM-8-D",
+        "fullCode": "AF-AM-8-D-0-0",
+        "price": 577.49
+    },
+    {
+        "simplecode": "SKIN-8000",
+        "fullCode": "SKIN-8000",
+        "price": 360.49
+    },
+    {
+        "simplecode": "SKIN-8005",
+        "fullCode": "SKIN-8005",
+        "price": 487.37
+    },
+    {
+        "simplecode": "SKIN-8010",
+        "fullCode": "SKIN-8010",
+        "price": 405.99
+    }
+]
