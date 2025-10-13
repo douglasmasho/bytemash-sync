@@ -104,6 +104,7 @@ class ByteMash_Product_Sync {
             'current_batch' => 0,
             'processed' => 0,
             'errors' => 0,
+            'skipped' => 0,
             'status' => 'ready',
             'started' => current_time('mysql'),
         ), false);
@@ -113,14 +114,14 @@ class ByteMash_Product_Sync {
             'batch_count' => $batch_count,
         ), 'product_sync');
         
-        return array(
-            'success' => true,
+            return array(
+                'success' => true,
             'message' => "Ready to sync {$total} products in {$batch_count} batches",
-            'sync_id' => $sync_id,
-            'total' => $total,
+                'sync_id' => $sync_id,
+                'total' => $total,
             'batch_count' => $batch_count,
             'batches' => $batches, // Send batches to JavaScript
-        );
+            );
     }
     
     /**
@@ -153,42 +154,332 @@ class ByteMash_Product_Sync {
         $total = count($products);
         $sync_id = 'products_update_' . time() . '_' . wp_generate_password(8, false);
         
-        // Use chunk-based approach for memory efficiency
-        $chunks = array_chunk($products, $this->batch_size);
-        $chunk_count = count($chunks);
+        // Split into batches (same as full sync)
+        $batches = array_chunk($products, $this->batch_size);
+        $batch_count = count($batches);
         
-        // Store metadata
-        set_transient("bytemash_sync_{$sync_id}_meta", array(
-            'total' => $total,
-            'chunks' => $chunk_count,
+        $this->logger->log('info', "Split into {$batch_count} batches", array(
+            'total_products' => $total,
             'batch_size' => $this->batch_size,
-            'started' => time(),
-        ), 2 * HOUR_IN_SECONDS);
+            'batch_count' => $batch_count,
+        ), 'product_sync');
         
-        // Store chunks separately
-        foreach ($chunks as $index => $chunk) {
-            set_transient("bytemash_sync_{$sync_id}_chunk_{$index}", $chunk, 2 * HOUR_IN_SECONDS);
-        }
+        // Store minimal sync info
+        update_option("bytemash_sync_{$sync_id}", array(
+            'type' => 'products',
+            'total' => $total,
+            'batch_count' => $batch_count,
+            'batch_size' => $this->batch_size,
+            'current_batch' => 0,
+            'processed' => 0,
+            'errors' => 0,
+            'skipped' => 0,
+            'status' => 'ready',
+            'started' => current_time('mysql'),
+        ), false);
         
-        // Free memory
-        unset($products, $chunks);
-        if (function_exists('gc_collect_cycles')) {
-            gc_collect_cycles();
-        }
-        
-        $batch_processor = new ByteMash_Batch_Processor();
-        $scheduled = $batch_processor->schedule_products_sync_chunked($sync_id, $chunk_count, $total);
-        
-        if ($scheduled) {
-            return array(
-                'success' => true,
-                'message' => "Incremental sync scheduled: {$total} products to update in {$chunk_count} chunks",
+        return array(
+            'success' => true,
+            'message' => "Ready to sync {$total} updated products in {$batch_count} batches",
                 'sync_id' => $sync_id,
                 'total' => $total,
+            'batch_count' => $batch_count,
+            'batches' => $batches,
             );
+    }
+    
+    /**
+     * Sync variable product with size/color variations
+     */
+    private function sync_variable_product($product_data, $parent_sku, $force = false) {
+        try {
+            $this->logger->log('info', 'Creating/updating variable product with variations', array(
+                'sku' => $parent_sku,
+                'variant_count' => count($product_data['variants']),
+            ), 'product_sync');
+            
+            // Check if parent product exists
+            $product_id = wc_get_product_id_by_sku($parent_sku);
+            
+            if ($product_id) {
+                $product = wc_get_product($product_id);
+                
+                // If exists but is not variable, delete and recreate
+                if ($product && !$product->is_type('variable')) {
+                    $this->logger->log('info', 'Converting simple product to variable', array('product_id' => $product_id), 'product_sync');
+                    wp_delete_post($product_id, true);
+                    $product_id = null;
+                }
+            }
+            
+            // Create new variable product if doesn't exist
+            if (!$product_id) {
+                $product = new WC_Product_Variable();
+            } else {
+                $product = wc_get_product($product_id);
+            }
+        } catch (Exception $e) {
+            $this->logger->log('error', 'Failed to initialize variable product', array(
+                'sku' => $parent_sku,
+                'error' => $e->getMessage(),
+            ), 'product_sync');
+            return array('success' => false, 'message' => 'Failed to initialize variable product: ' . $e->getMessage());
         }
         
-        return array('success' => false, 'message' => 'Failed to schedule sync');
+        // Set parent product data
+        $product->set_sku($parent_sku);
+        $product->set_name(sanitize_text_field($product_data['productName'] ?? ''));
+        $product->set_description(wp_kses_post($product_data['description'] ?? ''));
+        
+        // Set categories
+        if (!empty($product_data['categories']) && is_array($product_data['categories'])) {
+            $category_ids = $this->sync_product_categories($product_data['categories']);
+            $product->set_category_ids($category_ids);
+        }
+        
+        // Set brand
+        if (!empty($product_data['brand'])) {
+            $this->set_product_brand($product, $product_data['brand']);
+        }
+        
+        // Save parent product
+        $product_id = $product->save();
+        
+        // Sync parent images
+        if (!empty($product_data['images']) && is_array($product_data['images'])) {
+            try {
+                $this->sync_product_images($product_id, $product_data['images']);
+            } catch (Exception $e) {
+                $this->logger->log('warning', 'Parent image sync failed', array(
+                    'product_id' => $product_id,
+                    'error' => $e->getMessage(),
+                ), 'image_sync');
+            }
+        }
+        
+        // Store parent metadata
+        $this->sync_product_meta($product_id, $product_data);
+        
+        // Create product attributes (Size and Color)
+        $attribute_data = $this->create_product_attributes($product_data['variants']);
+        $product->set_attributes($attribute_data['attributes']);
+        $product->save();
+        
+        // Store color code mapping for frontend color swatches
+        if (!empty($attribute_data['color_mapping'])) {
+            update_post_meta($product_id, '_amrod_color_mapping', $attribute_data['color_mapping']);
+        }
+        
+        // Create/update variations
+        $variation_count = 0;
+        $variation_errors = 0;
+        
+        foreach ($product_data['variants'] as $variant_data) {
+            try {
+                $result = $this->create_product_variation($product_id, $variant_data, $product_data);
+                if ($result) {
+                    $variation_count++;
+                } else {
+                    $variation_errors++;
+                }
+            } catch (Exception $e) {
+                $variation_errors++;
+                $this->logger->log('error', 'Failed to create variation', array(
+                    'parent_id' => $product_id,
+                    'variant_sku' => $variant_data['fullCode'] ?? 'unknown',
+                    'error' => $e->getMessage(),
+                ), 'product_sync');
+            }
+        }
+        
+        $this->logger->log('success', "Variable product synced: {$variation_count} variations created, {$variation_errors} errors", array(
+            'product_id' => $product_id,
+            'sku' => $parent_sku,
+            'variations_created' => $variation_count,
+            'variation_errors' => $variation_errors,
+        ), 'product_sync');
+        
+        return array('success' => true, 'product_id' => $product_id, 'message' => "Variable product created with {$variation_count} variations");
+    }
+    
+    /**
+     * Create product attributes from variants
+     */
+    private function create_product_attributes($variants) {
+        $attributes = array();
+        
+        // Collect all unique sizes and colors
+        $sizes = array();
+        $colors = array();
+        $color_code_mapping = array(); // Map color name to color code
+        
+        foreach ($variants as $variant) {
+            if (!empty($variant['codeSizeName'])) {
+                $sizes[$variant['codeSizeName']] = $variant['codeSizeName'];
+            }
+            if (!empty($variant['codeColourName']) && !empty($variant['codeColour'])) {
+                $color_name = $variant['codeColourName'];
+                $color_code = $variant['codeColour'];
+                
+                $colors[$color_name] = $color_name;
+                
+                // Store the mapping of color name to code
+                // Use lowercase for consistent matching
+                $color_code_mapping[strtolower($color_name)] = $color_code;
+            }
+        }
+        
+        // Create Size attribute if sizes exist
+        if (!empty($sizes)) {
+            $attribute = new WC_Product_Attribute();
+            $attribute->set_name('size'); // Custom attribute name
+            $attribute->set_options(array_values($sizes));
+            $attribute->set_position(0);
+            $attribute->set_visible(true);
+            $attribute->set_variation(true);
+            $attributes[] = $attribute;
+        }
+        
+        // Create Color attribute if colors exist
+        if (!empty($colors)) {
+            $attribute = new WC_Product_Attribute();
+            $attribute->set_name('color'); // Custom attribute name
+            $attribute->set_options(array_values($colors));
+            $attribute->set_position(1);
+            $attribute->set_visible(true);
+            $attribute->set_variation(true);
+            $attributes[] = $attribute;
+        }
+        
+        return array(
+            'attributes' => $attributes,
+            'color_mapping' => $color_code_mapping,
+        );
+    }
+    
+    /**
+     * Create single product variation
+     */
+    private function create_product_variation($parent_id, $variant_data, $parent_data) {
+        $variant_sku = $variant_data['fullCode'] ?? '';
+        
+        if (empty($variant_sku)) {
+            $this->logger->log('warning', 'Variation missing SKU', array('parent_id' => $parent_id), 'product_sync');
+            return false;
+        }
+        
+        $this->logger->log('info', 'Creating variation', array(
+            'parent_id' => $parent_id,
+            'sku' => $variant_sku,
+            'size' => $variant_data['codeSizeName'] ?? 'N/A',
+            'color' => $variant_data['codeColourName'] ?? 'N/A',
+        ), 'product_sync');
+        
+        // Check if variation exists
+        $variation_id = wc_get_product_id_by_sku($variant_sku);
+        
+        if ($variation_id) {
+            $this->logger->log('info', 'Updating existing variation', array('variation_id' => $variation_id), 'product_sync');
+            $variation = new WC_Product_Variation($variation_id);
+        } else {
+            $this->logger->log('info', 'Creating new variation', array('sku' => $variant_sku), 'product_sync');
+            $variation = new WC_Product_Variation();
+            $variation->set_parent_id($parent_id);
+        }
+        
+        // Set variation data
+        $variation->set_sku($variant_sku);
+        
+        // Set variation attributes (keys must match parent attribute names EXACTLY)
+        $variation_attributes = array();
+        
+        if (!empty($variant_data['codeSizeName'])) {
+            $variation_attributes['size'] = $variant_data['codeSizeName'];
+        }
+        
+        if (!empty($variant_data['codeColourName'])) {
+            $variation_attributes['color'] = $variant_data['codeColourName'];
+        }
+        
+        $variation->set_attributes($variation_attributes);
+        
+        // Set description from categorised attributes (measurements)
+        if (!empty($variant_data['categorisedAttribute'])) {
+            $measurements = array();
+            foreach ($variant_data['categorisedAttribute'] as $attr) {
+                if (isset($attr['key']) && isset($attr['value'])) {
+                    $measurements[] = $attr['key'] . ': ' . $attr['value'];
+                }
+            }
+            if (!empty($measurements)) {
+                $variation->set_description(implode(' | ', $measurements));
+            }
+        }
+        
+        // Set weight and dimensions if available
+        if (!empty($variant_data['productDimension'])) {
+            $dim = $variant_data['productDimension'];
+            if (isset($dim['weight'])) {
+                $variation->set_weight($dim['weight']);
+            }
+            if (isset($dim['length']) && isset($dim['width'])) {
+                $variation->set_length($dim['length']);
+                $variation->set_width($dim['width']);
+            }
+        }
+        
+        // Save variation
+        $variation_id = $variation->save();
+        
+        if (!$variation_id) {
+            $this->logger->log('error', 'Failed to save variation - save() returned false', array(
+                'parent_id' => $parent_id,
+                'sku' => $variant_sku,
+            ), 'product_sync');
+            return false;
+        }
+        
+        $this->logger->log('success', 'Variation saved successfully', array(
+            'variation_id' => $variation_id,
+            'sku' => $variant_sku,
+        ), 'product_sync');
+        
+        // Set variation image from colourImages if available
+        if (!empty($parent_data['colourImages']) && !empty($variant_data['codeColour'])) {
+            $color_code = $variant_data['codeColour'];
+            
+            foreach ($parent_data['colourImages'] as $color_data) {
+                if ($color_data['code'] === $color_code && !empty($color_data['images'])) {
+                    // Get the first image for this color
+                    $color_image = $color_data['images'][0] ?? null;
+                    if ($color_image && !empty($color_image['urls'])) {
+                        // Get highest res URL
+                        $highest_res = null;
+                        $max_width = 0;
+                        foreach ($color_image['urls'] as $url_data) {
+                            $width = $url_data['width'] ?? 0;
+                            if ($width > $max_width && !empty($url_data['url'])) {
+                                $highest_res = $url_data['url'];
+                                $max_width = $width;
+                            }
+                        }
+                        
+                        if ($highest_res) {
+                            update_post_meta($variation_id, '_thumbnail_external_url', $highest_res);
+                            update_post_meta($variation_id, '_amrod_variation_image', $highest_res);
+                        }
+                    }
+                    break;
+                }
+            }
+        }
+        
+        // Store variant-specific metadata
+        if (!empty($variant_data['packagingAndDimension'])) {
+            update_post_meta($variation_id, '_amrod_packaging', $variant_data['packagingAndDimension']);
+        }
+        
+        return $variation_id;
     }
     
     /**
@@ -205,14 +496,47 @@ class ByteMash_Product_Sync {
         
         $sku = sanitize_text_field($sku);
         
-        // Check if product exists
+        // Check if product has variants (sizes/colors)
+        // TEMPORARY: Can disable variable products via option for testing
+        $enable_variable_products = get_option('bytemash_enable_variable_products', true);
+        $has_variants = $enable_variable_products && !empty($product_data['variants']) && is_array($product_data['variants']) && count($product_data['variants']) > 0;
+        
+        $this->logger->log('info', 'Product variant check', array(
+            'sku' => $sku,
+            'has_variants' => $has_variants,
+            'variant_count' => isset($product_data['variants']) ? count($product_data['variants']) : 0,
+            'variable_products_enabled' => $enable_variable_products,
+        ), 'product_sync');
+        
+        if ($has_variants) {
+            // Create/update as Variable Product with variations
+            $this->logger->log('info', 'Routing to variable product sync', array('sku' => $sku), 'product_sync');
+            
+            try {
+                return $this->sync_variable_product($product_data, $sku, $force);
+            } catch (Exception $e) {
+                $this->logger->log('error', 'Variable product sync failed - falling back to simple product', array(
+                    'sku' => $sku,
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ), 'product_sync');
+                
+                // Fallback: Create as simple product to prevent total failure
+                $this->logger->log('warning', 'Creating as simple product instead', array('sku' => $sku), 'product_sync');
+                $has_variants = false; // Force simple product creation
+            }
+        }
+        
+        $this->logger->log('info', 'Routing to simple product sync', array('sku' => $sku), 'product_sync');
+        
+        // Otherwise create/update as Simple Product
         $product_id = wc_get_product_id_by_sku($sku);
         
         if ($product_id && !$force) {
             // Update existing product
             $product = wc_get_product($product_id);
         } else {
-            // Create new product (will be simple for now, converted to variable if needed)
+            // Create new simple product
             $product = new WC_Product_Simple();
         }
         
@@ -243,7 +567,7 @@ class ByteMash_Product_Sync {
             // Images are optional - if they fail, product still syncs
             if (!empty($product_data['images']) && is_array($product_data['images'])) {
                 try {
-                    $this->sync_product_images($product_id, $product_data['images']);
+                $this->sync_product_images($product_id, $product_data['images']);
                 } catch (Exception $e) {
                     $this->logger->log('warning', 'Image sync failed but product created', array(
                         'product_id' => $product_id,
@@ -252,54 +576,15 @@ class ByteMash_Product_Sync {
                 }
             }
             
-            // Store Amrod-specific metadata
+            // Store Amrod-specific metadata (includes branding guides, color swatches, etc.)
             $this->sync_product_meta($product_id, $product_data);
             
-            // Store branding information if available
-            if (!empty($product_data['brandings'])) {
-                update_post_meta($product_id, '_amrod_brandings', $product_data['brandings']);
-            }
-            
-            // Store color swatches (for future swatch functionality)
-            if (!empty($product_data['colourImages'])) {
-                // Store raw data
-                update_post_meta($product_id, '_amrod_colour_images', $product_data['colourImages']);
-                
-                // Extract simplified swatch data for easy use
-                $swatches = array();
-                foreach ($product_data['colourImages'] as $color) {
-                    $swatch_images = array();
-                    
-                    if (!empty($color['images']) && is_array($color['images'])) {
-                        foreach ($color['images'] as $img) {
-                            if (!empty($img['urls']) && is_array($img['urls'])) {
-                                // Get highest res URL
-                                foreach ($img['urls'] as $url_data) {
-                                    if (!empty($url_data['url'])) {
-                                        $swatch_images[] = $url_data['url'];
-                                        break; // Just get first URL for each image
-                                    }
-                                }
-                            }
-                        }
-                    }
-                    
-                    $swatches[] = array(
-                        'name' => $color['name'] ?? '',
-                        'code' => $color['code'] ?? '',
-                        'images' => $swatch_images,
-                    );
-                }
-                
-                // Store simplified format for future swatch implementation
-                if (!empty($swatches)) {
-                    update_post_meta($product_id, '_amrod_color_swatches', $swatches);
-                }
-            }
-            
-            // Store branding guides
-            if (!empty($product_data['fullBrandingGuide'])) {
-                update_post_meta($product_id, '_amrod_branding_guide', $product_data['fullBrandingGuide']);
+            // Store stock from product data if available
+            if (isset($product_data['stock']) && is_numeric($product_data['stock'])) {
+                $stock_qty = (int) $product_data['stock'];
+                $product->set_manage_stock(true);
+                $product->set_stock_quantity($stock_qty);
+                $product->set_stock_status($stock_qty > 0 ? 'instock' : 'outofstock');
             }
             
             $this->logger->log('success', "Product synced: {$sku}", array(
@@ -424,20 +709,20 @@ class ByteMash_Product_Sync {
             }
             
             // Store image URL (don't download - use Amrod CDN directly!)
-            if (!empty($image_data['isDefault'])) {
+                if (!empty($image_data['isDefault'])) {
                 $default_image_id = $image_url; // Store URL, not attachment ID
-            } else {
+                } else {
                 $image_ids[] = $image_url; // Store URL, not attachment ID
             }
         }
         
         // Store image URLs as meta (not WordPress attachments)
-        if ($default_image_id) {
+            if ($default_image_id) {
             update_post_meta($product_id, '_thumbnail_external_url', $default_image_id);
             update_post_meta($product_id, '_amrod_featured_image', $default_image_id);
-        }
-        
-        if (!empty($image_ids)) {
+            }
+            
+            if (!empty($image_ids)) {
             update_post_meta($product_id, '_amrod_gallery_images', $image_ids);
         }
         
@@ -587,6 +872,54 @@ class ByteMash_Product_Sync {
             update_post_meta($product_id, '_amrod_full_code', sanitize_text_field($product_data['fullCode']));
         }
         
+        // Store branding guides (important for customer downloads!)
+        if (!empty($product_data['fullBrandingGuide'])) {
+            update_post_meta($product_id, '_amrod_full_branding_guide', esc_url_raw($product_data['fullBrandingGuide']));
+        }
+        
+        if (!empty($product_data['logo24BrandingGuide'])) {
+            update_post_meta($product_id, '_amrod_logo24_branding_guide', esc_url_raw($product_data['logo24BrandingGuide']));
+        }
+        
+        // Store branding information if available
+        if (!empty($product_data['brandings'])) {
+            update_post_meta($product_id, '_amrod_brandings', $product_data['brandings']);
+        }
+        
+        // Store color swatches for future swatch functionality
+        if (!empty($product_data['colourImages'])) {
+            update_post_meta($product_id, '_amrod_colour_images', $product_data['colourImages']);
+            
+            // Extract simplified swatch data
+            $swatches = array();
+            foreach ($product_data['colourImages'] as $color) {
+                $swatch_images = array();
+                
+                if (!empty($color['images']) && is_array($color['images'])) {
+                    foreach ($color['images'] as $img) {
+                        if (!empty($img['urls']) && is_array($img['urls'])) {
+                            foreach ($img['urls'] as $url_data) {
+                                if (!empty($url_data['url'])) {
+                                    $swatch_images[] = $url_data['url'];
+                                    break;
+                                }
+                            }
+                        }
+                    }
+                }
+                
+                $swatches[] = array(
+                    'name' => $color['name'] ?? '',
+                    'code' => $color['code'] ?? '',
+                    'images' => $swatch_images,
+                );
+            }
+            
+            if (!empty($swatches)) {
+                update_post_meta($product_id, '_amrod_color_swatches', $swatches);
+            }
+        }
+        
         // Store inventory type and behavior
         if (isset($product_data['inventoryType'])) {
             update_post_meta($product_id, '_amrod_inventory_type', $product_data['inventoryType']);
@@ -688,18 +1021,19 @@ class ByteMash_Product_Sync {
             'current_batch' => 0,
             'processed' => 0,
             'errors' => 0,
+            'skipped' => 0,
             'status' => 'ready',
             'started' => current_time('mysql'),
         ), false);
         
-        return array(
-            'success' => true,
+            return array(
+                'success' => true,
             'message' => "Ready to sync {$total} stock items in {$batch_count} batches",
-            'sync_id' => $sync_id,
-            'total' => $total,
+                'sync_id' => $sync_id,
+                'total' => $total,
             'batch_count' => $batch_count,
             'batches' => $batches,
-        );
+            );
     }
     
     /**
@@ -724,19 +1058,38 @@ class ByteMash_Product_Sync {
         $total = count($stock_data);
         $sync_id = 'stock_update_' . time() . '_' . wp_generate_password(8, false);
         
-        $batch_processor = new ByteMash_Batch_Processor();
-        $scheduled = $batch_processor->schedule_stock_sync($stock_data, $sync_id);
+        // Split into batches (same as full stock sync)
+        $batches = array_chunk($stock_data, 100);
+        $batch_count = count($batches);
         
-        if ($scheduled) {
+        $this->logger->log('info', "Split into {$batch_count} batches", array(
+            'total_items' => $total,
+            'batch_size' => 100,
+            'batch_count' => $batch_count,
+        ), 'stock_sync');
+        
+        // Store minimal sync info
+        update_option("bytemash_sync_{$sync_id}", array(
+            'type' => 'stock',
+            'total' => $total,
+            'batch_count' => $batch_count,
+            'batch_size' => 100,
+            'current_batch' => 0,
+            'processed' => 0,
+            'errors' => 0,
+            'skipped' => 0,
+            'status' => 'ready',
+            'started' => current_time('mysql'),
+        ), false);
+        
             return array(
                 'success' => true,
-                'message' => "Stock update scheduled: {$total} items to update",
+            'message' => "Ready to sync {$total} stock updates in {$batch_count} batches",
                 'sync_id' => $sync_id,
                 'total' => $total,
+            'batch_count' => $batch_count,
+            'batches' => $batches,
             );
-        }
-        
-        return array('success' => false, 'message' => 'Failed to schedule stock sync');
     }
     
     /**
@@ -783,18 +1136,19 @@ class ByteMash_Product_Sync {
             'current_batch' => 0,
             'processed' => 0,
             'errors' => 0,
+            'skipped' => 0,
             'status' => 'ready',
             'started' => current_time('mysql'),
         ), false);
         
-        return array(
-            'success' => true,
+            return array(
+                'success' => true,
             'message' => "Ready to sync {$total} prices in {$batch_count} batches",
-            'sync_id' => $sync_id,
-            'total' => $total,
+                'sync_id' => $sync_id,
+                'total' => $total,
             'batch_count' => $batch_count,
             'batches' => $batches,
-        );
+            );
     }
     
     /**
@@ -819,90 +1173,794 @@ class ByteMash_Product_Sync {
         $total = count($prices_data);
         $sync_id = 'prices_update_' . time() . '_' . wp_generate_password(8, false);
         
-        $batch_processor = new ByteMash_Batch_Processor();
-        $scheduled = $batch_processor->schedule_prices_sync($prices_data, $sync_id);
+        // Split into batches (same as full price sync)
+        $batches = array_chunk($prices_data, 100);
+        $batch_count = count($batches);
         
-        if ($scheduled) {
+        $this->logger->log('info', "Split into {$batch_count} batches", array(
+            'total_items' => $total,
+            'batch_size' => 100,
+            'batch_count' => $batch_count,
+        ), 'price_sync');
+        
+        // Store minimal sync info
+        update_option("bytemash_sync_{$sync_id}", array(
+            'type' => 'prices',
+            'total' => $total,
+            'batch_count' => $batch_count,
+            'batch_size' => 100,
+            'current_batch' => 0,
+            'processed' => 0,
+            'errors' => 0,
+            'skipped' => 0,
+            'status' => 'ready',
+            'started' => current_time('mysql'),
+        ), false);
+        
             return array(
                 'success' => true,
-                'message' => "Price update scheduled: {$total} items to update",
+            'message' => "Ready to sync {$total} price updates in {$batch_count} batches",
                 'sync_id' => $sync_id,
                 'total' => $total,
-            );
-        }
-        
-        return array('success' => false, 'message' => 'Failed to schedule price sync');
+            'batch_count' => $batch_count,
+            'batches' => $batches,
+        );
     }
     
     /**
      * Update stock for a single product
      */
     public function update_single_stock($stock_item) {
-        // Stock item structure: {simpleCode, fullCode, stock}
-        $sku = $stock_item['fullCode'] ?? $stock_item['simpleCode'] ?? '';
+        // Stock item structure: {simpleCode/simplecode, fullCode, stock}
+        // Note: API sometimes uses 'simplecode' (lowercase) and sometimes 'simpleCode' (camelCase)
+        $fullCode = $stock_item['fullCode'] ?? '';
+        $simpleCode = $stock_item['simpleCode'] ?? $stock_item['simplecode'] ?? '';
         
-        if (empty($sku)) {
+        if (empty($fullCode) && empty($simpleCode)) {
             return array('success' => false, 'message' => 'No SKU in stock data');
         }
         
-        // Find product by SKU
-        $product_id = wc_get_product_id_by_sku($sku);
+        // Try multiple SKU variations (products might be stored with different formats)
+        $skus_to_try = array_filter(array(
+            $fullCode,                              // Try full code first (e.g., "AF-AM-7-D-0-0")
+            $simpleCode,                            // Try simple code (e.g., "AF-AM-7-D")
+            preg_replace('/-0-0$/', '', $fullCode) // Try fullCode without "-0-0" suffix
+        ));
         
-        if (!$product_id) {
-            return array('success' => false, 'message' => "Product not found: {$sku}");
+        $this->logger->log('info', '🔍 Attempting to match stock SKU', array(
+            'fullCode' => $fullCode,
+            'simpleCode' => $simpleCode,
+            'trying_skus' => $skus_to_try,
+            'stock' => $stock_item['stock'] ?? 'N/A',
+        ), 'stock_sync');
+        
+        $product_ids = array();
+        $matched_sku = '';
+        $exact_match_found = false;
+        
+        // Try exact matches first
+        foreach ($skus_to_try as $sku) {
+            $product_id = wc_get_product_id_by_sku($sku);
+            if ($product_id) {
+                $product_ids[] = $product_id;
+                $matched_sku = $sku;
+                $exact_match_found = true;
+                $this->logger->log('success', "✅ Exact SKU matched: {$sku} (Product ID: {$product_id})", array(), 'stock_sync');
+                break;
+            }
         }
         
-        $product = wc_get_product($product_id);
-        
-        if (!$product) {
-            return array('success' => false, 'message' => "Failed to load product: {$sku}");
+        // ALWAYS try pattern matching with simpleCode to catch all variants
+        // Example: Even if "ALT-1603" exists, also update "ALT-1603-Y", "ALT-1603-R", etc.
+        if (!empty($simpleCode)) {
+            global $wpdb;
+            $like_pattern = $wpdb->esc_like($simpleCode) . '%';
+            
+            $matching_products = $wpdb->get_results($wpdb->prepare(
+                "SELECT post_id, meta_value as sku FROM {$wpdb->postmeta} 
+                WHERE meta_key = '_sku' AND meta_value LIKE %s",
+                $like_pattern
+            ));
+            
+            if ($matching_products) {
+                $pattern_matched_count = 0;
+                foreach ($matching_products as $match) {
+                    // Avoid duplicates
+                    if (!in_array($match->post_id, $product_ids)) {
+                        $product_ids[] = $match->post_id;
+                        $pattern_matched_count++;
+                    }
+                }
+                
+                if ($pattern_matched_count > 0) {
+                    $matched_sku = $simpleCode . '*';
+                    $log_msg = $exact_match_found 
+                        ? "✅ Pattern matched {$pattern_matched_count} additional variant(s) with SKU starting with: {$simpleCode}"
+                        : "✅ Pattern matched {$pattern_matched_count} product(s) with SKU starting with: {$simpleCode}";
+                    
+                    $this->logger->log('success', $log_msg, array(
+                        'total_products' => count($product_ids),
+                        'pattern_matched' => $pattern_matched_count,
+                        'exact_match' => $exact_match_found,
+                    ), 'stock_sync');
+                }
+            }
         }
         
-        // Update stock
+        if (empty($product_ids)) {
+            $attempted = implode(', ', $skus_to_try);
+            $this->logger->log('warning', "⚠️ No SKU match found", array(
+                'tried_skus' => $skus_to_try,
+                'tried_pattern' => $simpleCode . '%',
+                'fullCode' => $fullCode,
+                'simpleCode' => $simpleCode,
+            ), 'stock_sync');
+            return array('success' => false, 'message' => "Product not found. Tried SKUs: {$attempted}, Pattern: {$simpleCode}%");
+        }
+        
+        // Update all matched products
+        $updated_count = 0;
+        $failed_count = 0;
         $stock_qty = isset($stock_item['stock']) ? (int) $stock_item['stock'] : 0;
-        $product->set_stock_quantity($stock_qty);
-        $product->set_stock_status($stock_qty > 0 ? 'instock' : 'outofstock');
-        $product->save();
         
-        return array('success' => true, 'sku' => $sku, 'stock' => $stock_qty);
+        foreach ($product_ids as $pid) {
+            $product = wc_get_product($pid);
+            
+            if (!$product) {
+                $failed_count++;
+                continue;
+            }
+            
+            // Update stock
+            $product->set_manage_stock(true);
+            $product->set_stock_quantity($stock_qty);
+            $product->set_stock_status($stock_qty > 0 ? 'instock' : 'outofstock');
+            $product->save();
+            $updated_count++;
+        }
+        
+        if ($updated_count === 0) {
+            return array('success' => false, 'message' => "Failed to update any products");
+        }
+        
+        $message = $updated_count > 1 ? " ({$updated_count} variants)" : "";
+        return array('success' => true, 'sku' => $matched_sku, 'stock' => $stock_qty, 'updated_count' => $updated_count, 'message' => $message);
     }
     
     /**
      * Update price for a single product
      */
     public function update_single_price($price_item) {
-        // Price item structure: {simpleCode, fullCode, price, salePrice}
-        $sku = $price_item['fullCode'] ?? $price_item['simpleCode'] ?? '';
+        // Price item structure: {simpleCode/simplecode, fullCode, price, salePrice}
+        // Note: API sometimes uses 'simplecode' (lowercase) and sometimes 'simpleCode' (camelCase)
+        $fullCode = $price_item['fullCode'] ?? '';
+        $simpleCode = $price_item['simpleCode'] ?? $price_item['simplecode'] ?? '';
         
-        if (empty($sku)) {
+        if (empty($fullCode) && empty($simpleCode)) {
             return array('success' => false, 'message' => 'No SKU in price data');
         }
         
-        // Find product by SKU
-        $product_id = wc_get_product_id_by_sku($sku);
+        // Try multiple SKU variations (products might be stored with different formats)
+        $skus_to_try = array_filter(array(
+            $fullCode,                              // Try full code first (e.g., "AF-AM-7-D-0-0")
+            $simpleCode,                            // Try simple code (e.g., "AF-AM-7-D")
+            preg_replace('/-0-0$/', '', $fullCode) // Try fullCode without "-0-0" suffix
+        ));
         
-        if (!$product_id) {
-            return array('success' => false, 'message' => "Product not found: {$sku}");
+        $this->logger->log('info', '🔍 Attempting to match price SKU', array(
+            'fullCode' => $fullCode,
+            'simpleCode' => $simpleCode,
+            'trying_skus' => $skus_to_try,
+            'price' => $price_item['price'] ?? 'N/A',
+        ), 'price_sync');
+        
+        $product_ids = array();
+        $matched_sku = '';
+        $exact_match_found = false;
+        
+        // Try exact matches first
+        foreach ($skus_to_try as $sku) {
+            $product_id = wc_get_product_id_by_sku($sku);
+            if ($product_id) {
+                $product_ids[] = $product_id;
+                $matched_sku = $sku;
+                $exact_match_found = true;
+                $this->logger->log('success', "✅ Exact SKU matched: {$sku} (Product ID: {$product_id})", array(), 'price_sync');
+                break;
+            }
         }
         
+        // ALWAYS try pattern matching with simpleCode to catch all variants
+        // Example: Even if "ALT-1603" exists, also update "ALT-1603-Y", "ALT-1603-R", etc.
+        if (!empty($simpleCode)) {
+            global $wpdb;
+            $like_pattern = $wpdb->esc_like($simpleCode) . '%';
+            
+            $matching_products = $wpdb->get_results($wpdb->prepare(
+                "SELECT post_id, meta_value as sku FROM {$wpdb->postmeta} 
+                WHERE meta_key = '_sku' AND meta_value LIKE %s",
+                $like_pattern
+            ));
+            
+            if ($matching_products) {
+                $pattern_matched_count = 0;
+                foreach ($matching_products as $match) {
+                    // Avoid duplicates
+                    if (!in_array($match->post_id, $product_ids)) {
+                        $product_ids[] = $match->post_id;
+                        $pattern_matched_count++;
+                    }
+                }
+                
+                if ($pattern_matched_count > 0) {
+                    $matched_sku = $simpleCode . '*';
+                    $log_msg = $exact_match_found 
+                        ? "✅ Pattern matched {$pattern_matched_count} additional variant(s) with SKU starting with: {$simpleCode}"
+                        : "✅ Pattern matched {$pattern_matched_count} product(s) with SKU starting with: {$simpleCode}";
+                    
+                    $this->logger->log('success', $log_msg, array(
+                        'total_products' => count($product_ids),
+                        'pattern_matched' => $pattern_matched_count,
+                        'exact_match' => $exact_match_found,
+                    ), 'price_sync');
+                }
+            }
+        }
+        
+        if (empty($product_ids)) {
+            $attempted = implode(', ', $skus_to_try);
+            $this->logger->log('warning', "⚠️ No SKU match found", array(
+                'tried_skus' => $skus_to_try,
+                'tried_pattern' => $simpleCode . '%',
+                'fullCode' => $fullCode,
+                'simpleCode' => $simpleCode,
+            ), 'price_sync');
+            return array('success' => false, 'message' => "Product not found. Tried SKUs: {$attempted}, Pattern: {$simpleCode}%");
+        }
+        
+        // Update all matched products
+        $updated_count = 0;
+        $failed_count = 0;
+        
+        foreach ($product_ids as $pid) {
+            $product = wc_get_product($pid);
+            
+            if (!$product) {
+                $failed_count++;
+                continue;
+            }
+            
+            // Update prices
+            if (isset($price_item['price'])) {
+                $product->set_regular_price($price_item['price']);
+            }
+            
+            if (isset($price_item['salePrice']) && $price_item['salePrice'] > 0) {
+                $product->set_sale_price($price_item['salePrice']);
+            }
+            
+            $product->save();
+            $updated_count++;
+        }
+        
+        if ($updated_count === 0) {
+            return array('success' => false, 'message' => "Failed to update any products");
+        }
+        
+        $message = $updated_count > 1 ? " ({$updated_count} variants)" : "";
+        return array('success' => true, 'sku' => $matched_sku, 'price' => $price_item['price'] ?? 0, 'updated_count' => $updated_count, 'message' => $message);
+    }
+    
+    /**
+     * Sync orphan products - products without prices using prefix matching
+     * This is Phase 2 of price sync - run AFTER normal price sync
+     */
+    public function sync_orphan_product_prices() {
+        $this->logger->log('info', 'Starting orphan product price sync (Phase 2)', array(), 'price_sync_orphan');
+        
+        // Step 1: Find all orphan products (products without prices)
+        global $wpdb;
+        $orphan_products = $wpdb->get_results(
+            "SELECT pm.post_id, pm.meta_value as sku 
+            FROM {$wpdb->postmeta} pm
+            LEFT JOIN {$wpdb->postmeta} price ON pm.post_id = price.post_id AND price.meta_key = '_price'
+            WHERE pm.meta_key = '_sku' 
+            AND (price.meta_value IS NULL OR price.meta_value = '' OR price.meta_value = '0')
+            LIMIT 5000"
+        );
+        
+        if (empty($orphan_products)) {
+            $this->logger->log('info', 'No orphan products found', array(), 'price_sync_orphan');
+            return array('success' => true, 'message' => 'No products without prices found', 'total' => 0);
+        }
+        
+        $total = count($orphan_products);
+        $this->logger->log('info', "Found {$total} orphan products without prices", array('total' => $total), 'price_sync_orphan');
+        
+        // Step 2: Fetch all prices for matching
+        $prices_data = $this->api_client->get_prices();
+        
+        if (is_wp_error($prices_data)) {
+            return array('success' => false, 'message' => $prices_data->get_error_message());
+        }
+        
+        if (!is_array($prices_data) || empty($prices_data)) {
+            return array('success' => true, 'message' => 'No price data available', 'total' => 0);
+        }
+        
+        // Step 3: Create batches of orphan products with price data
+        $sync_id = 'orphan_prices_' . time() . '_' . wp_generate_password(8, false);
+        
+        $batches = array_chunk($orphan_products, 50); // Process 50 orphans per batch
+        $batch_count = count($batches);
+        
+        $this->logger->log('info', "Split into {$batch_count} batches", array(
+            'total_orphans' => $total,
+            'batch_size' => 50,
+            'batch_count' => $batch_count,
+        ), 'price_sync_orphan');
+        
+        // Store minimal sync info
+        update_option("bytemash_sync_{$sync_id}", array(
+            'type' => 'orphan_prices',
+            'total' => $total,
+            'batch_count' => $batch_count,
+            'batch_size' => 50,
+            'current_batch' => 0,
+            'processed' => 0,
+            'errors' => 0,
+            'skipped' => 0,
+            'status' => 'ready',
+            'started' => current_time('mysql'),
+        ), false);
+        
+        // Store price data for reference during batch processing
+        update_option("bytemash_sync_{$sync_id}_prices_lookup", $prices_data, false);
+        
+        return array(
+            'success' => true,
+            'message' => "Ready to match {$total} products without prices in {$batch_count} batches",
+            'sync_id' => $sync_id,
+            'total' => $total,
+            'batch_count' => $batch_count,
+            'batches' => $batches,
+        );
+    }
+    
+    /**
+     * Process single orphan product - find matching price and update
+     * Called during batch processing
+     */
+    public function update_single_orphan_product($orphan_data, $prices_lookup) {
+        $product_id = $orphan_data->post_id;
+        $sku = $orphan_data->sku;
+        
+        // Try to find matching price by extracting prefix from product SKU
+        $prefix = $this->extract_sku_prefix($sku);
+        
+        if (strlen($prefix) < 6) {
+            return array('success' => false, 'message' => "SKU prefix too short: {$sku}");
+        }
+        
+        // Search for matching price in the lookup data
+        $matched_price = null;
+        
+        foreach ($prices_lookup as $price_item) {
+            $price_fullCode = $price_item['fullCode'] ?? '';
+            $price_simpleCode = $price_item['simpleCode'] ?? $price_item['simplecode'] ?? '';
+            
+            $price_prefix = $this->extract_sku_prefix($price_fullCode ?: $price_simpleCode);
+            
+            // If prefixes match, use this price
+            if ($price_prefix === $prefix) {
+                $matched_price = $price_item;
+                break;
+            }
+        }
+        
+        if (!$matched_price) {
+            return array('success' => false, 'message' => "No price found for prefix: {$prefix}");
+        }
+        
+        // Update product with matched price
         $product = wc_get_product($product_id);
         
         if (!$product) {
             return array('success' => false, 'message' => "Failed to load product: {$sku}");
         }
         
-        // Update prices
-        if (isset($price_item['price'])) {
-            $product->set_regular_price($price_item['price']);
+        if (isset($matched_price['price'])) {
+            $product->set_regular_price($matched_price['price']);
         }
         
-        if (isset($price_item['salePrice']) && $price_item['salePrice'] > 0) {
-            $product->set_sale_price($price_item['salePrice']);
+        if (isset($matched_price['salePrice']) && $matched_price['salePrice'] > 0) {
+            $product->set_sale_price($matched_price['salePrice']);
         }
         
         $product->save();
         
-        return array('success' => true, 'sku' => $sku, 'price' => $price_item['price'] ?? 0);
+        $this->logger->log('success', "✅ Orphan matched: {$sku} → prefix: {$prefix} → price: " . ($matched_price['price'] ?? 0), array(
+            'sku' => $sku,
+            'product_id' => $product_id,
+            'prefix' => $prefix,
+            'price' => $matched_price['price'] ?? 0,
+        ), 'price_sync_orphan');
+        
+        return array('success' => true, 'sku' => $sku, 'price' => $matched_price['price'] ?? 0);
+    }
+    
+    /**
+     * Extract SKU prefix following ABC-123 pattern
+     * Returns first 6-7 chars like "ALT-GCG" from "ALT-GCG-NT-32"
+     */
+    private function extract_sku_prefix($sku) {
+        if (empty($sku)) {
+            return '';
+        }
+        
+        // Match pattern: 2-3 letters/numbers, dash, 2-3 letters/numbers
+        // Examples: ALT-GCG, ABC-123, AM-7, SKN-8
+        if (preg_match('/^([A-Z0-9]{2,3}-[A-Z0-9]{2,3})/', strtoupper($sku), $matches)) {
+            return $matches[1];
+        }
+        
+        // Fallback: return first 7 characters
+        return strlen($sku) >= 7 ? substr(strtoupper($sku), 0, 7) : strtoupper($sku);
+    }
+    
+    /**
+     * Sync brands from Amrod
+     * 
+     * @return array Result
+     */
+    public function sync_brands() {
+        $this->logger->log('info', 'Starting brands sync', array(), 'brands_sync');
+        
+        $brands = $this->api_client->get_brands();
+        
+        if (is_wp_error($brands)) {
+            return array('success' => false, 'message' => $brands->get_error_message());
+        }
+        
+        if (!is_array($brands) || empty($brands)) {
+            return array('success' => true, 'message' => 'No brands available', 'total' => 0);
+        }
+        
+        $total = count($brands);
+        $sync_id = 'brands_' . time() . '_' . wp_generate_password(8, false);
+        
+        // Split into batches
+        $batches = array_chunk($brands, 50);
+        $batch_count = count($batches);
+        
+        $this->logger->log('info', "Split into {$batch_count} batches", array(
+            'total_brands' => $total,
+            'batch_size' => 50,
+            'batch_count' => $batch_count,
+        ), 'brands_sync');
+        
+        // Store minimal sync info
+        update_option("bytemash_sync_{$sync_id}", array(
+            'type' => 'brands',
+            'total' => $total,
+            'batch_count' => $batch_count,
+            'batch_size' => 50,
+            'current_batch' => 0,
+            'processed' => 0,
+            'errors' => 0,
+            'skipped' => 0,
+            'status' => 'ready',
+            'started' => current_time('mysql'),
+        ), false);
+        
+        return array(
+            'success' => true,
+            'message' => "Ready to sync {$total} brands in {$batch_count} batches",
+            'sync_id' => $sync_id,
+            'total' => $total,
+            'batch_count' => $batch_count,
+            'batches' => $batches,
+        );
+    }
+    
+    /**
+     * Sync single brand
+     */
+    public function sync_single_brand($brand_data) {
+        $brand_name = $brand_data['name'] ?? '';
+        $brand_code = $brand_data['code'] ?? '';
+        $brand_image = $brand_data['image'] ?? '';
+        $brand_order = $brand_data['order'] ?? 99999;
+        
+        if (empty($brand_name)) {
+            return array('success' => false, 'message' => 'Brand missing name');
+        }
+        
+        // Store in options table
+        update_option("amrod_brand_{$brand_code}", array(
+            'name' => $brand_name,
+            'code' => $brand_code,
+            'image' => $brand_image,
+            'order' => $brand_order,
+        ));
+        
+        return array('success' => true, 'code' => $brand_code, 'name' => $brand_name);
+    }
+    
+    /**
+     * Sync branding departments
+     * 
+     * @return array Result
+     */
+    public function sync_branding_departments() {
+        $this->logger->log('info', 'Starting branding departments sync', array(), 'branding_sync');
+        
+        $departments = $this->api_client->get_branding_departments();
+        
+        if (is_wp_error($departments)) {
+            return array('success' => false, 'message' => $departments->get_error_message());
+        }
+        
+        if (!is_array($departments) || empty($departments)) {
+            return array('success' => true, 'message' => 'No branding departments available', 'total' => 0);
+        }
+        
+        $total = count($departments);
+        $sync_id = 'branding_depts_' . time() . '_' . wp_generate_password(8, false);
+        
+        // These are small, batch them anyway for consistency
+        $batches = array_chunk($departments, 25);
+        $batch_count = count($batches);
+        
+        $this->logger->log('info', "Split into {$batch_count} batches", array(
+            'total_departments' => $total,
+            'batch_count' => $batch_count,
+        ), 'branding_sync');
+        
+        update_option("bytemash_sync_{$sync_id}", array(
+            'type' => 'branding_departments',
+            'total' => $total,
+            'batch_count' => $batch_count,
+            'batch_size' => 25,
+            'current_batch' => 0,
+            'processed' => 0,
+            'errors' => 0,
+            'skipped' => 0,
+            'status' => 'ready',
+            'started' => current_time('mysql'),
+        ), false);
+        
+        return array(
+            'success' => true,
+            'message' => "Ready to sync {$total} branding departments in {$batch_count} batches",
+            'sync_id' => $sync_id,
+            'total' => $total,
+            'batch_count' => $batch_count,
+            'batches' => $batches,
+        );
+    }
+    
+    /**
+     * Sync single branding department
+     */
+    public function sync_single_branding_department($dept_data) {
+        $dept_name = $dept_data['name'] ?? '';
+        $dept_code = $dept_data['code'] ?? '';
+        
+        if (empty($dept_name)) {
+            return array('success' => false, 'message' => 'Department missing name');
+        }
+        
+        // Store as individual option
+        update_option("amrod_branding_dept_{$dept_code}", $dept_data);
+        
+        return array('success' => true, 'code' => $dept_code, 'name' => $dept_name);
+    }
+    
+    /**
+     * Sync branding prices
+     * 
+     * @return array Result
+     */
+    public function sync_branding_prices() {
+        $this->logger->log('info', 'Starting branding prices sync', array(), 'branding_sync');
+        
+        $prices = $this->api_client->get_branding_prices();
+        
+        if (is_wp_error($prices)) {
+            return array('success' => false, 'message' => $prices->get_error_message());
+        }
+        
+        if (!is_array($prices) || empty($prices)) {
+            return array('success' => true, 'message' => 'No branding prices available', 'total' => 0);
+        }
+        
+        $total = count($prices);
+        $sync_id = 'branding_prices_' . time() . '_' . wp_generate_password(8, false);
+        
+        $batches = array_chunk($prices, 25);
+        $batch_count = count($batches);
+        
+        $this->logger->log('info', "Split into {$batch_count} batches", array(
+            'total_price_groups' => $total,
+            'batch_count' => $batch_count,
+        ), 'branding_sync');
+        
+        update_option("bytemash_sync_{$sync_id}", array(
+            'type' => 'branding_prices',
+            'total' => $total,
+            'batch_count' => $batch_count,
+            'batch_size' => 25,
+            'current_batch' => 0,
+            'processed' => 0,
+            'errors' => 0,
+            'skipped' => 0,
+            'status' => 'ready',
+            'started' => current_time('mysql'),
+        ), false);
+        
+        return array(
+            'success' => true,
+            'message' => "Ready to sync {$total} branding price groups in {$batch_count} batches",
+            'sync_id' => $sync_id,
+            'total' => $total,
+            'batch_count' => $batch_count,
+            'batches' => $batches,
+        );
+    }
+    
+    /**
+     * Sync single branding price group
+     */
+    public function sync_single_branding_price($price_data) {
+        $branding_code = $price_data['brandingCode'] ?? '';
+        
+        if (empty($branding_code)) {
+            return array('success' => false, 'message' => 'Branding price missing code');
+        }
+        
+        // Store as individual option
+        update_option("amrod_branding_price_{$branding_code}", $price_data);
+        
+        return array('success' => true, 'code' => $branding_code);
+    }
+    
+    /**
+     * Sync inclusive brandings
+     * 
+     * @return array Result
+     */
+    public function sync_inclusive_brandings() {
+        $this->logger->log('info', 'Starting inclusive brandings sync', array(), 'branding_sync');
+        
+        $brandings = $this->api_client->get_inclusive_brandings();
+        
+        if (is_wp_error($brandings)) {
+            return array('success' => false, 'message' => $brandings->get_error_message());
+        }
+        
+        if (!is_array($brandings) || empty($brandings)) {
+            return array('success' => true, 'message' => 'No inclusive brandings available', 'total' => 0);
+        }
+        
+        $total = count($brandings);
+        $sync_id = 'inclusive_brandings_' . time() . '_' . wp_generate_password(8, false);
+        
+        $batches = array_chunk($brandings, 50);
+        $batch_count = count($batches);
+        
+        $this->logger->log('info', "Split into {$batch_count} batches", array(
+            'total_brandings' => $total,
+            'batch_count' => $batch_count,
+        ), 'branding_sync');
+        
+        update_option("bytemash_sync_{$sync_id}", array(
+            'type' => 'inclusive_brandings',
+            'total' => $total,
+            'batch_count' => $batch_count,
+            'batch_size' => 50,
+            'current_batch' => 0,
+            'processed' => 0,
+            'errors' => 0,
+            'skipped' => 0,
+            'status' => 'ready',
+            'started' => current_time('mysql'),
+        ), false);
+        
+        return array(
+            'success' => true,
+            'message' => "Ready to sync {$total} inclusive brandings in {$batch_count} batches",
+            'sync_id' => $sync_id,
+            'total' => $total,
+            'batch_count' => $batch_count,
+            'batches' => $batches,
+        );
+    }
+    
+    /**
+     * Sync single inclusive branding
+     */
+    public function sync_single_inclusive_branding($branding_data) {
+        $branding_id = $branding_data['inclusiveBrandingId'] ?? '';
+        $simple_code = $branding_data['simpleCode'] ?? '';
+        
+        if (empty($branding_id)) {
+            return array('success' => false, 'message' => 'Inclusive branding missing ID');
+        }
+        
+        // Store as individual option
+        update_option("amrod_inclusive_branding_{$branding_id}", $branding_data);
+        
+        return array('success' => true, 'id' => $branding_id, 'simple_code' => $simple_code);
+    }
+    
+    /**
+     * Sync color swatches from Amrod
+     * 
+     * @return array Result
+     */
+    public function sync_color_swatches() {
+        $this->logger->log('info', 'Starting color swatches sync', array(), 'color_swatches_sync');
+        
+        $swatches = $this->api_client->get_colour_swatches();
+        
+        if (is_wp_error($swatches)) {
+            return array('success' => false, 'message' => $swatches->get_error_message());
+        }
+        
+        if (!is_array($swatches) || empty($swatches)) {
+            return array('success' => true, 'message' => 'No color swatches available', 'total' => 0);
+        }
+        
+        $total = count($swatches);
+        $sync_id = 'color_swatches_' . time() . '_' . wp_generate_password(8, false);
+        
+        $batches = array_chunk($swatches, 50);
+        $batch_count = count($batches);
+        
+        $this->logger->log('info', "Split into {$batch_count} batches", array(
+            'total_swatches' => $total,
+            'batch_count' => $batch_count,
+        ), 'color_swatches_sync');
+        
+        update_option("bytemash_sync_{$sync_id}", array(
+            'type' => 'color_swatches',
+            'total' => $total,
+            'batch_count' => $batch_count,
+            'batch_size' => 50,
+            'current_batch' => 0,
+            'processed' => 0,
+            'errors' => 0,
+            'skipped' => 0,
+            'status' => 'ready',
+            'started' => current_time('mysql'),
+        ), false);
+        
+        return array(
+            'success' => true,
+            'message' => "Ready to sync {$total} color swatches in {$batch_count} batches",
+            'sync_id' => $sync_id,
+            'total' => $total,
+            'batch_count' => $batch_count,
+            'batches' => $batches,
+        );
+    }
+    
+    /**
+     * Sync single color swatch
+     */
+    public function sync_single_color_swatch($swatch_data) {
+        $color_name = $swatch_data['name'] ?? '';
+        $color_code = $swatch_data['code'] ?? '';
+        
+        if (empty($color_name)) {
+            return array('success' => false, 'message' => 'Color swatch missing name');
+        }
+        
+        // Store as individual option with color code as key
+        update_option("amrod_color_swatch_{$color_code}", $swatch_data);
+        
+        return array('success' => true, 'code' => $color_code, 'name' => $color_name);
     }
     
     /**
@@ -924,15 +1982,81 @@ class ByteMash_Product_Sync {
             return array('success' => false, 'message' => 'No categories available');
         }
         
-        // Process categories synchronously (tree structure requires sequential processing)
-        $batch_processor = new ByteMash_Batch_Processor();
-        wp_schedule_single_event(time(), 'bytemash_process_categories_batch', array($categories));
+        $total = count($categories);
+        $sync_id = 'categories_' . time() . '_' . wp_generate_password(8, false);
+        
+        // Split into batches (smaller batches for categories due to hierarchical processing)
+        $batches = array_chunk($categories, 25);
+        $batch_count = count($batches);
+        
+        $this->logger->log('info', "Split into {$batch_count} batches", array(
+            'total_categories' => $total,
+            'batch_size' => 25,
+            'batch_count' => $batch_count,
+        ), 'category_sync');
+        
+        // Store minimal sync info
+        update_option("bytemash_sync_{$sync_id}", array(
+            'type' => 'categories',
+            'total' => $total,
+            'batch_count' => $batch_count,
+            'batch_size' => 25,
+            'current_batch' => 0,
+            'processed' => 0,
+            'errors' => 0,
+            'skipped' => 0,
+            'status' => 'ready',
+            'started' => current_time('mysql'),
+        ), false);
         
         return array(
             'success' => true,
-            'message' => 'Category sync scheduled',
-            'total' => count($categories),
+            'message' => "Ready to sync {$total} categories in {$batch_count} batches",
+            'sync_id' => $sync_id,
+            'total' => $total,
+            'batch_count' => $batch_count,
+            'batches' => $batches,
         );
+    }
+    
+    /**
+     * Sync single category
+     */
+    public function sync_single_category($category_data) {
+        $category_name = $category_data['name'] ?? '';
+        $category_path = $category_data['path'] ?? '';
+        $category_code = $category_data['code'] ?? '';
+        
+        if (empty($category_name)) {
+            return array('success' => false, 'message' => 'Category missing name');
+        }
+        
+        // Create or update category
+        $term = term_exists($category_name, 'product_cat');
+        
+        if ($term) {
+            // Update existing
+            $term_id = $term['term_id'];
+        } else {
+            // Create new
+            $result = wp_insert_term($category_name, 'product_cat');
+            
+            if (is_wp_error($result)) {
+                return array('success' => false, 'message' => 'Failed to create category: ' . $result->get_error_message());
+            }
+            
+            $term_id = $result['term_id'];
+        }
+        
+        // Store Amrod metadata
+        update_term_meta($term_id, '_amrod_category_path', $category_path);
+        update_term_meta($term_id, '_amrod_category_code', $category_code);
+        
+        if (!empty($category_data['image'])) {
+            update_term_meta($term_id, '_amrod_category_image', esc_url_raw($category_data['image']));
+        }
+        
+        return array('success' => true, 'term_id' => $term_id, 'name' => $category_name);
     }
 }
 

@@ -157,6 +157,14 @@ class ByteMash_Admin_Dashboard {
                                     <span class="dashicons dashicons-download"></span>
                                     <?php esc_html_e('Incremental', 'bytemash-woo-sync'); ?>
                                 </button>
+                                <button type="button" 
+                                        class="button button-secondary" 
+                                        data-action="orphan_price_sync"
+                                        data-ajax-action="bytemash_sync_orphan_prices"
+                                        title="Match prices for products missing prices using SKU prefix">
+                                    <span class="dashicons dashicons-search"></span>
+                                    <?php esc_html_e('Fix Missing', 'bytemash-woo-sync'); ?>
+                                </button>
                             </div>
                         </div>
                         
@@ -166,9 +174,62 @@ class ByteMash_Admin_Dashboard {
                                 <button type="button" 
                                         class="button button-primary" 
                                         data-action="category_sync"
-                                        data-ajax-action="bytemash_category_sync">
+                                        data-ajax-action="bytemash_sync_categories">
                                     <span class="dashicons dashicons-category"></span>
                                     <?php esc_html_e('Sync Categories', 'bytemash-woo-sync'); ?>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="bytemash-sync-section">
+                            <h3><?php esc_html_e('Color Swatches', 'bytemash-woo-sync'); ?></h3>
+                            <div class="bytemash-button-group">
+                                <button type="button" 
+                                        class="button button-primary" 
+                                        data-action="color_swatches_sync"
+                                        data-ajax-action="bytemash_sync_color_swatches">
+                                    <span class="dashicons dashicons-art"></span>
+                                    <?php esc_html_e('Sync Swatches', 'bytemash-woo-sync'); ?>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="bytemash-sync-section">
+                            <h3><?php esc_html_e('Brands', 'bytemash-woo-sync'); ?></h3>
+                            <div class="bytemash-button-group">
+                                <button type="button" 
+                                        class="button button-primary" 
+                                        data-action="brands_sync"
+                                        data-ajax-action="bytemash_sync_brands">
+                                    <span class="dashicons dashicons-star-filled"></span>
+                                    <?php esc_html_e('Sync Brands', 'bytemash-woo-sync'); ?>
+                                </button>
+                            </div>
+                        </div>
+                        
+                        <div class="bytemash-sync-section">
+                            <h3><?php esc_html_e('Branding Options', 'bytemash-woo-sync'); ?></h3>
+                            <div class="bytemash-button-group">
+                                <button type="button" 
+                                        class="button button-primary" 
+                                        data-action="branding_departments_sync"
+                                        data-ajax-action="bytemash_sync_branding_departments">
+                                    <span class="dashicons dashicons-admin-tools"></span>
+                                    <?php esc_html_e('Departments', 'bytemash-woo-sync'); ?>
+                                </button>
+                                <button type="button" 
+                                        class="button button-primary" 
+                                        data-action="branding_prices_sync"
+                                        data-ajax-action="bytemash_sync_branding_prices">
+                                    <span class="dashicons dashicons-money-alt"></span>
+                                    <?php esc_html_e('Prices', 'bytemash-woo-sync'); ?>
+                                </button>
+                                <button type="button" 
+                                        class="button button-primary" 
+                                        data-action="inclusive_brandings_sync"
+                                        data-ajax-action="bytemash_sync_inclusive_brandings">
+                                    <span class="dashicons dashicons-yes-alt"></span>
+                                    <?php esc_html_e('Inclusive', 'bytemash-woo-sync'); ?>
                                 </button>
                             </div>
                         </div>

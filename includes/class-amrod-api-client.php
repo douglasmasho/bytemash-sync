@@ -165,18 +165,51 @@ class ByteMash_Amrod_API_Client {
             $data = json_decode($response_body, true);
         }
         
-        // Free up memory immediately
-        unset($response_body, $response);
-        
+        // Check for JSON errors BEFORE freeing memory
         if (json_last_error() !== JSON_ERROR_NONE) {
+            // Log first 500 chars of response to see what we actually got
+            $response_preview = substr($response_body, 0, 500);
+            $is_empty = ($response_size === 0 || trim($response_body) === '');
+            
+            // Write FULL response body to debug.log for inspection
+            if (defined('WP_DEBUG') && WP_DEBUG) {
+                error_log('[ByteMash] FULL API RESPONSE BODY for ' . $url . ':');
+                error_log('===== START RESPONSE =====');
+                error_log($response_body ?: '(completely empty)');
+                error_log('===== END RESPONSE =====');
+                error_log('Response size: ' . $response_size . ' bytes');
+                error_log('Status code: ' . $status_code);
+            }
+            
             $this->logger->log('error', 'Invalid JSON response', array(
                 'url' => $url,
                 'error' => json_last_error_msg(),
                 'status_code' => $status_code,
+                'response_preview' => $response_preview,
+                'response_size' => $response_size,
+                'is_completely_empty' => $is_empty,
             ), 'api_request');
+            
+            // Free up memory
+            unset($response_body, $response);
             @ini_set('memory_limit', $original_memory_limit);
-            return new WP_Error('invalid_json', 'Invalid JSON response: ' . json_last_error_msg());
+            
+            // ONLY treat as "no updates" if response is COMPLETELY EMPTY (likely means no data)
+            // Empty response (0 bytes) from "updated" endpoints typically means no changes since last fetch
+            if ($is_empty && (strpos($url, 'GetUpdated') !== false || strpos($url, 'Updated') !== false)) {
+                $this->logger->log('info', 'Updated endpoint returned empty response - no updates available', array(
+                    'url' => $url,
+                    'endpoint_type' => 'incremental',
+                ), 'api_request');
+                return array(); // Return empty array = no updates
+            }
+            
+            // For non-empty invalid JSON or non-incremental endpoints, return error
+            return new WP_Error('invalid_json', 'Invalid JSON response: ' . json_last_error_msg() . ' (size: ' . $response_size . ' bytes)');
         }
+        
+        // Free up memory after successful decode
+        unset($response_body, $response);
         
         $this->logger->log('info', 'API Request Success', array(
             'url' => $url,

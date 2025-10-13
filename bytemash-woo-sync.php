@@ -284,6 +284,11 @@ class ByteMash_Woo_Sync {
      * Use external image URL instead of attachment ID
      */
     public function use_external_image_url($image_id, $product) {
+        // Ensure $product is an object
+        if (!is_object($product) || !method_exists($product, 'get_id')) {
+            return $image_id;
+        }
+        
         $external_url = get_post_meta($product->get_id(), '_thumbnail_external_url', true);
         
         if ($external_url) {
@@ -332,6 +337,11 @@ class ByteMash_Woo_Sync {
      * Use external URLs for gallery images
      */
     public function use_external_gallery_urls($gallery_ids, $product) {
+        // Ensure $product is an object
+        if (!is_object($product) || !method_exists($product, 'get_id')) {
+            return $gallery_ids;
+        }
+        
         // If product has external gallery images, return fake IDs
         $gallery_urls = get_post_meta($product->get_id(), '_amrod_gallery_images', true);
         
