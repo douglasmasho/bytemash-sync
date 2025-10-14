@@ -106,8 +106,18 @@ class ByteMash_Woo_Sync {
             add_action('wp_ajax_bytemash_get_sync_progress', array($this, 'ajax_get_sync_progress'));
             add_action('wp_ajax_bytemash_stop_sync', array($this, 'ajax_stop_sync'));
             add_action('wp_ajax_bytemash_manual_sync', array($this, 'ajax_manual_sync'));
+            add_action('wp_ajax_bytemash_sync_products_incremental', array($this, 'ajax_sync_products_incremental'));
             add_action('wp_ajax_bytemash_sync_stock', array($this, 'ajax_sync_stock'));
+            add_action('wp_ajax_bytemash_stock_sync_incremental', array($this, 'ajax_sync_stock_incremental'));
             add_action('wp_ajax_bytemash_sync_prices', array($this, 'ajax_sync_prices'));
+            add_action('wp_ajax_bytemash_price_sync_incremental', array($this, 'ajax_sync_prices_incremental'));
+            add_action('wp_ajax_bytemash_sync_orphan_prices', array($this, 'ajax_sync_orphan_prices'));
+            add_action('wp_ajax_bytemash_sync_categories', array($this, 'ajax_sync_categories'));
+            add_action('wp_ajax_bytemash_sync_color_swatches', array($this, 'ajax_sync_color_swatches'));
+            add_action('wp_ajax_bytemash_sync_brands', array($this, 'ajax_sync_brands'));
+            add_action('wp_ajax_bytemash_sync_branding_departments', array($this, 'ajax_sync_branding_departments'));
+            add_action('wp_ajax_bytemash_sync_branding_prices', array($this, 'ajax_sync_branding_prices'));
+            add_action('wp_ajax_bytemash_sync_inclusive_brandings', array($this, 'ajax_sync_inclusive_brandings'));
             add_action('wp_ajax_bytemash_process_batch', array($this, 'ajax_process_batch'));
             add_action('wp_ajax_bytemash_get_batch', array($this, 'ajax_get_batch'));
         }
@@ -770,11 +780,340 @@ class ByteMash_Woo_Sync {
     }
     
     /**
+     * AJAX: Sync updated products (incremental)
+     */
+    public function ajax_sync_products_incremental() {
+        check_ajax_referer('bytemash_woo_sync_nonce', 'nonce');
+        
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(array('message' => __('Insufficient permissions', 'bytemash-woo-sync')));
+        }
+        
+        $logger = new ByteMash_Logger();
+        $logger->log('info', 'Incremental product sync triggered', array('user' => get_current_user_id()), 'product_sync');
+        
+        delete_transient('bytemash_sync_running');
+        
+        $product_sync = new ByteMash_Product_Sync();
+        $result = $product_sync->sync_updated_products(true);
+        
+        if ($result['success'] && isset($result['batches'])) {
+            $this->store_batches_in_queue($result['sync_id'], $result['batches']);
+            
+            wp_send_json_success(array(
+                'message' => $result['message'],
+                'sync_id' => $result['sync_id'],
+                'total' => $result['total'],
+                'batch_count' => $result['batch_count']
+            ));
+        } else {
+            wp_send_json_success(array('message' => $result['message']));
+        }
+    }
+    
+    /**
+     * AJAX: Sync stock incremental
+     */
+    public function ajax_sync_stock_incremental() {
+        check_ajax_referer('bytemash_woo_sync_nonce', 'nonce');
+        
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(array('message' => __('Insufficient permissions', 'bytemash-woo-sync')));
+        }
+        
+        $logger = new ByteMash_Logger();
+        $logger->log('info', 'Incremental stock sync triggered', array('user' => get_current_user_id()), 'stock_sync');
+        
+        delete_transient('bytemash_sync_running');
+        
+        $product_sync = new ByteMash_Product_Sync();
+        $result = $product_sync->sync_stock_updated();
+        
+        if ($result['success'] && isset($result['batches'])) {
+            $this->store_batches_in_queue($result['sync_id'], $result['batches']);
+            
+            wp_send_json_success(array(
+                'message' => $result['message'],
+                'sync_id' => $result['sync_id'],
+                'total' => $result['total'],
+                'batch_count' => $result['batch_count']
+            ));
+        } else {
+            wp_send_json_success(array('message' => $result['message']));
+        }
+    }
+    
+    /**
+     * AJAX: Sync prices incremental
+     */
+    public function ajax_sync_prices_incremental() {
+        check_ajax_referer('bytemash_woo_sync_nonce', 'nonce');
+        
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(array('message' => __('Insufficient permissions', 'bytemash-woo-sync')));
+        }
+        
+        $logger = new ByteMash_Logger();
+        $logger->log('info', 'Incremental price sync triggered', array('user' => get_current_user_id()), 'price_sync');
+        
+        delete_transient('bytemash_sync_running');
+        
+        $product_sync = new ByteMash_Product_Sync();
+        $result = $product_sync->sync_prices_updated();
+        
+        if ($result['success'] && isset($result['batches'])) {
+            $this->store_batches_in_queue($result['sync_id'], $result['batches']);
+            
+            wp_send_json_success(array(
+                'message' => $result['message'],
+                'sync_id' => $result['sync_id'],
+                'total' => $result['total'],
+                'batch_count' => $result['batch_count']
+            ));
+        } else {
+            wp_send_json_success(array('message' => $result['message']));
+        }
+    }
+    
+    /**
+     * AJAX: Sync orphan prices (products without prices)
+     */
+    public function ajax_sync_orphan_prices() {
+        check_ajax_referer('bytemash_woo_sync_nonce', 'nonce');
+        
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(array('message' => __('Insufficient permissions', 'bytemash-woo-sync')));
+        }
+        
+        $logger = new ByteMash_Logger();
+        $logger->log('info', 'Orphan price sync triggered', array('user' => get_current_user_id()), 'price_sync_orphan');
+        
+        delete_transient('bytemash_sync_running');
+        
+        $product_sync = new ByteMash_Product_Sync();
+        $result = $product_sync->sync_orphan_product_prices();
+        
+        if ($result['success'] && isset($result['batches'])) {
+            $this->store_batches_in_queue($result['sync_id'], $result['batches']);
+            
+            wp_send_json_success(array(
+                'message' => $result['message'],
+                'sync_id' => $result['sync_id'],
+                'total' => $result['total'],
+                'batch_count' => $result['batch_count']
+            ));
+        } else {
+            wp_send_json_success(array('message' => $result['message']));
+        }
+    }
+    
+    /**
+     * AJAX: Sync categories
+     */
+    public function ajax_sync_categories() {
+        check_ajax_referer('bytemash_woo_sync_nonce', 'nonce');
+        
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(array('message' => __('Insufficient permissions', 'bytemash-woo-sync')));
+        }
+        
+        $logger = new ByteMash_Logger();
+        $logger->log('info', 'Categories sync triggered', array('user' => get_current_user_id()), 'category_sync');
+        
+        delete_transient('bytemash_sync_running');
+        
+        $product_sync = new ByteMash_Product_Sync();
+        $result = $product_sync->sync_categories();
+        
+        if ($result['success'] && isset($result['batches'])) {
+            $this->store_batches_in_queue($result['sync_id'], $result['batches']);
+            
+            wp_send_json_success(array(
+                'message' => $result['message'],
+                'sync_id' => $result['sync_id'],
+                'total' => $result['total'],
+                'batch_count' => $result['batch_count']
+            ));
+        } else {
+            wp_send_json_success(array('message' => $result['message']));
+        }
+    }
+    
+    /**
+     * AJAX: Sync color swatches
+     */
+    public function ajax_sync_color_swatches() {
+        check_ajax_referer('bytemash_woo_sync_nonce', 'nonce');
+        
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(array('message' => __('Insufficient permissions', 'bytemash-woo-sync')));
+        }
+        
+        $logger = new ByteMash_Logger();
+        $logger->log('info', 'Color swatches sync triggered', array('user' => get_current_user_id()), 'color_swatches_sync');
+        
+        delete_transient('bytemash_sync_running');
+        
+        $product_sync = new ByteMash_Product_Sync();
+        $result = $product_sync->sync_color_swatches();
+        
+        if ($result['success'] && isset($result['batches'])) {
+            $this->store_batches_in_queue($result['sync_id'], $result['batches']);
+            
+            wp_send_json_success(array(
+                'message' => $result['message'],
+                'sync_id' => $result['sync_id'],
+                'total' => $result['total'],
+                'batch_count' => $result['batch_count']
+            ));
+        } else {
+            wp_send_json_success(array('message' => $result['message']));
+        }
+    }
+    
+    /**
+     * AJAX: Sync brands
+     */
+    public function ajax_sync_brands() {
+        check_ajax_referer('bytemash_woo_sync_nonce', 'nonce');
+        
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(array('message' => __('Insufficient permissions', 'bytemash-woo-sync')));
+        }
+        
+        $logger = new ByteMash_Logger();
+        $logger->log('info', 'Brands sync triggered', array('user' => get_current_user_id()), 'brands_sync');
+        
+        delete_transient('bytemash_sync_running');
+        
+        $product_sync = new ByteMash_Product_Sync();
+        $result = $product_sync->sync_brands();
+        
+        if ($result['success'] && isset($result['batches'])) {
+            $this->store_batches_in_queue($result['sync_id'], $result['batches']);
+            
+            wp_send_json_success(array(
+                'message' => $result['message'],
+                'sync_id' => $result['sync_id'],
+                'total' => $result['total'],
+                'batch_count' => $result['batch_count']
+            ));
+        } else {
+            wp_send_json_success(array('message' => $result['message']));
+        }
+    }
+    
+    /**
+     * AJAX: Sync branding departments
+     */
+    public function ajax_sync_branding_departments() {
+        check_ajax_referer('bytemash_woo_sync_nonce', 'nonce');
+        
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(array('message' => __('Insufficient permissions', 'bytemash-woo-sync')));
+        }
+        
+        $logger = new ByteMash_Logger();
+        $logger->log('info', 'Branding departments sync triggered', array('user' => get_current_user_id()), 'branding_sync');
+        
+        delete_transient('bytemash_sync_running');
+        
+        $product_sync = new ByteMash_Product_Sync();
+        $result = $product_sync->sync_branding_departments();
+        
+        if ($result['success'] && isset($result['batches'])) {
+            $this->store_batches_in_queue($result['sync_id'], $result['batches']);
+            
+            wp_send_json_success(array(
+                'message' => $result['message'],
+                'sync_id' => $result['sync_id'],
+                'total' => $result['total'],
+                'batch_count' => $result['batch_count']
+            ));
+        } else {
+            wp_send_json_success(array('message' => $result['message']));
+        }
+    }
+    
+    /**
+     * AJAX: Sync branding prices
+     */
+    public function ajax_sync_branding_prices() {
+        check_ajax_referer('bytemash_woo_sync_nonce', 'nonce');
+        
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(array('message' => __('Insufficient permissions', 'bytemash-woo-sync')));
+        }
+        
+        $logger = new ByteMash_Logger();
+        $logger->log('info', 'Branding prices sync triggered', array('user' => get_current_user_id()), 'branding_sync');
+        
+        delete_transient('bytemash_sync_running');
+        
+        $product_sync = new ByteMash_Product_Sync();
+        $result = $product_sync->sync_branding_prices();
+        
+        if ($result['success'] && isset($result['batches'])) {
+            $this->store_batches_in_queue($result['sync_id'], $result['batches']);
+            
+            wp_send_json_success(array(
+                'message' => $result['message'],
+                'sync_id' => $result['sync_id'],
+                'total' => $result['total'],
+                'batch_count' => $result['batch_count']
+            ));
+        } else {
+            wp_send_json_success(array('message' => $result['message']));
+        }
+    }
+    
+    /**
+     * AJAX: Sync inclusive brandings
+     */
+    public function ajax_sync_inclusive_brandings() {
+        check_ajax_referer('bytemash_woo_sync_nonce', 'nonce');
+        
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(array('message' => __('Insufficient permissions', 'bytemash-woo-sync')));
+        }
+        
+        $logger = new ByteMash_Logger();
+        $logger->log('info', 'Inclusive brandings sync triggered', array('user' => get_current_user_id()), 'branding_sync');
+        
+        delete_transient('bytemash_sync_running');
+        
+        $product_sync = new ByteMash_Product_Sync();
+        $result = $product_sync->sync_inclusive_brandings();
+        
+        if ($result['success'] && isset($result['batches'])) {
+            $this->store_batches_in_queue($result['sync_id'], $result['batches']);
+            
+            wp_send_json_success(array(
+                'message' => $result['message'],
+                'sync_id' => $result['sync_id'],
+                'total' => $result['total'],
+                'batch_count' => $result['batch_count']
+            ));
+        } else {
+            wp_send_json_success(array('message' => $result['message']));
+        }
+    }
+    
+    /**
      * Helper: Store batches in queue table
      */
     private function store_batches_in_queue($sync_id, $batches) {
         global $wpdb;
         $table_name = $wpdb->prefix . 'bytemash_sync_queue';
+        
+        // Ensure we have enough memory for this operation
+        $current_limit = ini_get('memory_limit');
+        $current_bytes = wp_convert_hr_to_bytes($current_limit);
+        $desired_bytes = 512 * 1024 * 1024; // 512MB
+        
+        if ($current_bytes < $desired_bytes) {
+            @ini_set('memory_limit', '512M');
+        }
         
         // Create table if not exists
         $wpdb->query("CREATE TABLE IF NOT EXISTS {$table_name} (
@@ -796,6 +1135,12 @@ class ByteMash_Woo_Sync {
                 'batch_data' => json_encode($batch),
                 'status' => 'pending'
             ));
+            
+            // Free memory after every 10 batches to prevent buildup
+            if ($index % 10 === 0) {
+                wp_cache_flush();
+                gc_collect_cycles();
+            }
         }
     }
     
@@ -882,7 +1227,23 @@ class ByteMash_Woo_Sync {
                 $result = $product_sync->update_single_stock($item_data);
             } elseif ($sync_type === 'prices') {
                 $result = $product_sync->update_single_price($item_data);
+            } elseif ($sync_type === 'orphan_prices') {
+                $prices_lookup = get_option("bytemash_sync_{$sync_id}_prices_lookup");
+                $result = $product_sync->update_single_orphan_product($item_data, $prices_lookup);
+            } elseif ($sync_type === 'categories') {
+                $result = $product_sync->sync_single_category($item_data);
+            } elseif ($sync_type === 'brands') {
+                $result = $product_sync->sync_single_brand($item_data);
+            } elseif ($sync_type === 'branding_departments') {
+                $result = $product_sync->sync_single_branding_department($item_data);
+            } elseif ($sync_type === 'branding_prices') {
+                $result = $product_sync->sync_single_branding_price($item_data);
+            } elseif ($sync_type === 'inclusive_brandings') {
+                $result = $product_sync->sync_single_inclusive_branding($item_data);
+            } elseif ($sync_type === 'color_swatches') {
+                $result = $product_sync->sync_single_color_swatch($item_data);
             } else {
+                // Default: product sync
                 $result = $product_sync->sync_single_product($item_data);
             }
             
@@ -914,7 +1275,10 @@ class ByteMash_Woo_Sync {
             'batch' => $batch_index,
             'processed' => $processed,
             'errors' => $errors,
+            'skipped' => 0, // Not tracking skipped in current version
             'total_processed' => $sync_info['processed'],
+            'total_errors' => $sync_info['errors'],
+            'total_skipped' => 0, // Not tracking skipped in current version
             'total_products' => $sync_info['total'],
             'woo_product_count' => $product_counts->publish,
             'done' => false

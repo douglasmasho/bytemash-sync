@@ -1626,6 +1626,11 @@ class ByteMash_Product_Sync {
             return array('success' => true, 'message' => 'No brands available', 'total' => 0);
         }
         
+        // Extract from 'value' wrapper if it exists (Amrod API returns {value: [...], Count: X})
+        if (isset($brands['value']) && is_array($brands['value'])) {
+            $brands = $brands['value'];
+        }
+        
         $total = count($brands);
         $sync_id = 'brands_' . time() . '_' . wp_generate_password(8, false);
         
@@ -1683,6 +1688,10 @@ class ByteMash_Product_Sync {
             'image' => $brand_image,
             'order' => $brand_order,
         ));
+        
+        $this->logger->log('success', "Brand synced: {$brand_name}", array(
+            'code' => $brand_code,
+        ), 'brands_sync');
         
         return array('success' => true, 'code' => $brand_code, 'name' => $brand_name);
     }
@@ -1912,6 +1921,11 @@ class ByteMash_Product_Sync {
             return array('success' => true, 'message' => 'No color swatches available', 'total' => 0);
         }
         
+        // Extract from 'value' wrapper if it exists (Amrod API returns {value: [...], Count: X})
+        if (isset($swatches['value']) && is_array($swatches['value'])) {
+            $swatches = $swatches['value'];
+        }
+        
         $total = count($swatches);
         $sync_id = 'color_swatches_' . time() . '_' . wp_generate_password(8, false);
         
@@ -1960,7 +1974,45 @@ class ByteMash_Product_Sync {
         // Store as individual option with color code as key
         update_option("amrod_color_swatch_{$color_code}", $swatch_data);
         
+        $this->logger->log('success', "Color swatch synced: {$color_name}", array(
+            'code' => $color_code,
+            'hex' => $swatch_data['hexValue'] ?? 'N/A',
+        ), 'color_swatches_sync');
+        
         return array('success' => true, 'code' => $color_code, 'name' => $color_name);
+    }
+    
+    /**
+     * Flatten hierarchical category structure
+     * Recursively extracts all categories and their children into a flat array
+     * 
+     * @param array $categories Hierarchical category array
+     * @param string $parent_path Parent path for tracking hierarchy
+     * @return array Flat array of all categories with parent info
+     */
+    private function flatten_categories($categories, $parent_path = '') {
+        $flat = array();
+        
+        foreach ($categories as $category) {
+            // Add the current category with parent info
+            $category_copy = $category;
+            $category_copy['_parent_path'] = $parent_path;
+            
+            // Don't include children in the category data (we'll process them separately)
+            $has_children = !empty($category['children']) && is_array($category['children']);
+            unset($category_copy['children']);
+            
+            $flat[] = $category_copy;
+            
+            // Recursively add children if they exist
+            if ($has_children) {
+                $current_path = $category['categoryPath'] ?? '';
+                $child_categories = $this->flatten_categories($category['children'], $current_path);
+                $flat = array_merge($flat, $child_categories);
+            }
+        }
+        
+        return $flat;
     }
     
     /**
@@ -1982,11 +2034,24 @@ class ByteMash_Product_Sync {
             return array('success' => false, 'message' => 'No categories available');
         }
         
-        $total = count($categories);
+        // Extract from 'value' wrapper if it exists (Amrod API returns {value: [...], Count: X})
+        if (isset($categories['value']) && is_array($categories['value'])) {
+            $categories = $categories['value'];
+        }
+        
+        // Flatten hierarchical categories (include all children)
+        $flat_categories = $this->flatten_categories($categories);
+        
+        $this->logger->log('info', "Flattened hierarchical categories", array(
+            'original_count' => count($categories),
+            'flattened_count' => count($flat_categories),
+        ), 'category_sync');
+        
+        $total = count($flat_categories);
         $sync_id = 'categories_' . time() . '_' . wp_generate_password(8, false);
         
         // Split into batches (smaller batches for categories due to hierarchical processing)
-        $batches = array_chunk($categories, 25);
+        $batches = array_chunk($flat_categories, 25);
         $batch_count = count($batches);
         
         $this->logger->log('info', "Split into {$batch_count} batches", array(
@@ -2023,40 +2088,100 @@ class ByteMash_Product_Sync {
      * Sync single category
      */
     public function sync_single_category($category_data) {
-        $category_name = $category_data['name'] ?? '';
-        $category_path = $category_data['path'] ?? '';
-        $category_code = $category_data['code'] ?? '';
+        $category_name = $category_data['categoryName'] ?? '';
+        $category_path = $category_data['categoryPath'] ?? '';
+        $category_code = $category_data['categoryCode'] ?? '';
+        $category_image = $category_data['categoryImage'] ?? '';
+        $parent_path = $category_data['_parent_path'] ?? '';
         
         if (empty($category_name)) {
+            $this->logger->log('error', 'Category missing name', array(
+                'data' => $category_data,
+            ), 'category_sync');
             return array('success' => false, 'message' => 'Category missing name');
         }
         
-        // Create or update category
-        $term = term_exists($category_name, 'product_cat');
-        
-        if ($term) {
-            // Update existing
-            $term_id = $term['term_id'];
-        } else {
-            // Create new
-            $result = wp_insert_term($category_name, 'product_cat');
-            
-            if (is_wp_error($result)) {
-                return array('success' => false, 'message' => 'Failed to create category: ' . $result->get_error_message());
+        try {
+            // Find parent category ID if this is a child category
+            $parent_id = 0;
+            if (!empty($parent_path)) {
+                // Try to find parent by its path
+                $parent_terms = get_terms(array(
+                    'taxonomy' => 'product_cat',
+                    'meta_key' => '_amrod_category_path',
+                    'meta_value' => $parent_path,
+                    'hide_empty' => false,
+                    'number' => 1,
+                ));
+                
+                if (!empty($parent_terms) && !is_wp_error($parent_terms)) {
+                    $parent_id = $parent_terms[0]->term_id;
+                    $this->logger->log('info', "Found parent category for: {$category_name}", array(
+                        'parent_path' => $parent_path,
+                        'parent_id' => $parent_id,
+                    ), 'category_sync');
+                }
             }
             
-            $term_id = $result['term_id'];
+            // Create or update category
+            $term = term_exists($category_name, 'product_cat');
+            
+            if ($term) {
+                // Update existing
+                $term_id = $term['term_id'];
+                
+                // Update parent if needed
+                if ($parent_id > 0) {
+                    wp_update_term($term_id, 'product_cat', array('parent' => $parent_id));
+                }
+                
+                $this->logger->log('info', "Category already exists: {$category_name}", array(
+                    'term_id' => $term_id,
+                    'parent_id' => $parent_id,
+                ), 'category_sync');
+            } else {
+                // Create new with parent
+                $args = array('slug' => sanitize_title($category_name));
+                if ($parent_id > 0) {
+                    $args['parent'] = $parent_id;
+                }
+                
+                $result = wp_insert_term($category_name, 'product_cat', $args);
+                
+                if (is_wp_error($result)) {
+                    $this->logger->log('error', "Failed to create category: {$category_name}", array(
+                        'error' => $result->get_error_message(),
+                        'error_code' => $result->get_error_code(),
+                        'category_data' => $category_data,
+                        'parent_id' => $parent_id,
+                    ), 'category_sync');
+                    return array('success' => false, 'message' => 'Failed to create category: ' . $result->get_error_message());
+                }
+                
+                $term_id = $result['term_id'];
+            }
+            
+            // Store Amrod metadata
+            update_term_meta($term_id, '_amrod_category_path', $category_path);
+            update_term_meta($term_id, '_amrod_category_code', $category_code);
+            
+            if (!empty($category_image)) {
+                update_term_meta($term_id, '_amrod_category_image', esc_url_raw($category_image));
+            }
+            
+            $this->logger->log('success', "Category synced: {$category_name}", array(
+                'term_id' => $term_id,
+                'code' => $category_code,
+            ), 'category_sync');
+            
+            return array('success' => true, 'term_id' => $term_id, 'name' => $category_name);
+        } catch (Exception $e) {
+            $this->logger->log('error', "Exception syncing category: {$category_name}", array(
+                'exception' => $e->getMessage(),
+                'category_data' => $category_data,
+            ), 'category_sync');
+            return array('success' => false, 'message' => 'Exception: ' . $e->getMessage());
         }
-        
-        // Store Amrod metadata
-        update_term_meta($term_id, '_amrod_category_path', $category_path);
-        update_term_meta($term_id, '_amrod_category_code', $category_code);
-        
-        if (!empty($category_data['image'])) {
-            update_term_meta($term_id, '_amrod_category_image', esc_url_raw($category_data['image']));
-        }
-        
-        return array('success' => true, 'term_id' => $term_id, 'name' => $category_name);
     }
 }
 

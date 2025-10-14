@@ -220,8 +220,8 @@ class ByteMash_Amrod_API_Client {
             'memory_peak_mb' => round(memory_get_peak_usage(true) / 1024 / 1024, 2),
         ), 'api_request');
         
-        // Restore original memory limit
-        @ini_set('memory_limit', $original_memory_limit);
+        // Keep the increased memory limit for subsequent operations (e.g., storing batches in DB)
+        // Don't restore to original - let PHP cleanup handle it at end of request
         
         return $data;
     }
