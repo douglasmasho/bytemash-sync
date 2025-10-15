@@ -483,6 +483,42 @@ class ByteMash_Product_Sync {
     }
     
     /**
+     * Enable performance optimizations for batch sync
+     */
+    private function enable_performance_mode() {
+        // Defer term counting (HUGE performance boost - recounts only once at end)
+        wp_defer_term_counting(true);
+        
+        // Defer comment counting
+        wp_defer_comment_counting(true);
+        
+        // Suspend cache invalidation (speeds up database operations)
+        wp_suspend_cache_invalidation(true);
+        
+        // Remove unnecessary WordPress actions
+        remove_action('transition_post_status', '_update_blog_date_on_post_publish', 10);
+        remove_action('transition_post_status', '_update_posts_count_on_transition_post_status', 10);
+        
+        $this->logger->log('info', 'Performance mode enabled for batch processing', array(), 'product_sync');
+    }
+    
+    /**
+     * Disable performance optimizations after batch sync
+     */
+    private function disable_performance_mode() {
+        // Re-enable term counting
+        wp_defer_term_counting(false);
+        
+        // Re-enable comment counting  
+        wp_defer_comment_counting(false);
+        
+        // Re-enable cache invalidation
+        wp_suspend_cache_invalidation(false);
+        
+        $this->logger->log('info', 'Performance mode disabled', array(), 'product_sync');
+    }
+    
+    /**
      * Sync single product (handles Amrod's data structure)
      */
     public function sync_single_product($product_data, $force = false) {
@@ -587,10 +623,12 @@ class ByteMash_Product_Sync {
                 $product->set_stock_status($stock_qty > 0 ? 'instock' : 'outofstock');
             }
             
-            $this->logger->log('success', "Product synced: {$sku}", array(
-                'product_id' => $product_id,
-                'sku' => $sku,
-            ), 'product_sync');
+            // Reduced logging for performance - only log every 10th product
+            static $sync_counter = 0;
+            $sync_counter++;
+            if ($sync_counter % 10 === 0) {
+                $this->logger->log('info', "Synced {$sync_counter} products (last: {$sku})", array(), 'product_sync');
+            }
             
             return array('success' => true, 'product_id' => $product_id);
             

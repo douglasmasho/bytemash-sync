@@ -1100,6 +1100,41 @@ class ByteMash_Woo_Sync {
     }
     
     /**
+     * Enable performance optimizations for batch processing
+     */
+    private function enable_batch_performance_mode() {
+        // Defer term counting (WordPress recounts after every product)
+        wp_defer_term_counting(true);
+        
+        // Defer comment counting
+        wp_defer_comment_counting(true);
+        
+        // Suspend cache invalidation
+        wp_suspend_cache_invalidation(true);
+        
+        // Remove unnecessary actions
+        remove_action('transition_post_status', '_update_blog_date_on_post_publish', 10);
+        remove_action('transition_post_status', '_update_posts_count_on_transition_post_status', 10);
+    }
+    
+    /**
+     * Disable performance optimizations after batch
+     */
+    private function disable_batch_performance_mode() {
+        // Re-enable term counting
+        wp_defer_term_counting(false);
+        
+        // Re-enable comment counting  
+        wp_defer_comment_counting(false);
+        
+        // Re-enable cache invalidation
+        wp_suspend_cache_invalidation(false);
+        
+        // Clear any built-up cache
+        wp_cache_flush();
+    }
+    
+    /**
      * Helper: Store batches in queue table
      */
     private function store_batches_in_queue($sync_id, $batches) {
@@ -1222,6 +1257,9 @@ class ByteMash_Woo_Sync {
         
         $sync_type = $sync_info['type'] ?? 'products';
         
+        // Enable performance mode BEFORE processing batch
+        $this->enable_batch_performance_mode();
+        
         foreach ($batch_data as $item_data) {
             if ($sync_type === 'stock') {
                 $result = $product_sync->update_single_stock($item_data);
@@ -1253,6 +1291,9 @@ class ByteMash_Woo_Sync {
                 $errors++;
             }
         }
+        
+        // Disable performance mode AFTER processing batch
+        $this->disable_batch_performance_mode();
         
         // Mark batch as complete
         $wpdb->update($table_name,
