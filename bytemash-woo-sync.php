@@ -3,7 +3,7 @@
  * Plugin Name: ByteMash WooCommerce Amrod Sync
  * Plugin URI: https://bytemash.com/woo-amrod-sync
  * Description: Memory-efficient WooCommerce plugin that syncs products, variations, stock, images, and all data from Amrod API with automatic scheduling and comprehensive dashboard. Features automatic memory management and token refresh!
- * Version: 1.1.2
+ * Version: 2.5.0
  * Author: ByteMash
  * Author URI: https://bytemash.com
  * License: GPL v2 or later
@@ -22,7 +22,7 @@ if (!defined('ABSPATH')) {
 }
 
 // Define plugin constants
-define('BYTEMASH_WOO_SYNC_VERSION', '1.1.2');
+define('BYTEMASH_WOO_SYNC_VERSION', '2.5.0');
 define('BYTEMASH_WOO_SYNC_PLUGIN_DIR', plugin_dir_path(__FILE__));
 define('BYTEMASH_WOO_SYNC_PLUGIN_URL', plugin_dir_url(__FILE__));
 define('BYTEMASH_WOO_SYNC_PLUGIN_BASENAME', plugin_basename(__FILE__));
@@ -92,6 +92,14 @@ class ByteMash_Woo_Sync {
         add_filter('woocommerce_product_get_image_id', array($this, 'use_external_image_url'), 10, 2);
         add_filter('wp_get_attachment_image_src', array($this, 'replace_with_external_url'), 10, 4);
         add_filter('woocommerce_product_get_gallery_image_ids', array($this, 'use_external_gallery_urls'), 10, 2);
+        
+        // Fix stock availability display on frontend
+        add_filter('woocommerce_product_is_in_stock', array($this, 'fix_stock_availability'), 10, 2);
+        add_filter('woocommerce_variation_is_in_stock', array($this, 'fix_stock_availability'), 10, 2);
+        
+        // Frontend: Enhanced stock display
+        add_action('wp_enqueue_scripts', array($this, 'enqueue_frontend_stock_display'));
+        add_action('woocommerce_single_product_summary', array($this, 'display_enhanced_stock'), 15);
         
         // Admin hooks
         if (is_admin()) {
@@ -711,6 +719,10 @@ class ByteMash_Woo_Sync {
             wp_send_json_error(array('message' => __('Insufficient permissions', 'bytemash-woo-sync')));
         }
         
+        // Increase limits for large stock data
+        @set_time_limit(600); // 10 minutes
+        @ini_set('memory_limit', '512M');
+        
         // Log the sync trigger
         $logger = new ByteMash_Logger();
         $logger->log('info', 'Stock sync triggered', array('user' => get_current_user_id()), 'stock_sync');
@@ -723,8 +735,17 @@ class ByteMash_Woo_Sync {
         $result = $product_sync->sync_stock_levels();
         
         if ($result['success']) {
+            $logger->log('info', 'Stock data fetched, storing batches', array(
+                'total' => $result['total'],
+                'batch_count' => $result['batch_count']
+            ), 'stock_sync');
+            
             // Store batches in queue table
             $this->store_batches_in_queue($result['sync_id'], $result['batches']);
+            
+            $logger->log('info', 'Stock batches stored in queue', array(
+                'sync_id' => $result['sync_id']
+            ), 'stock_sync');
             
             wp_send_json_success(array(
                 'message' => $result['message'],
@@ -751,6 +772,10 @@ class ByteMash_Woo_Sync {
             wp_send_json_error(array('message' => __('Insufficient permissions', 'bytemash-woo-sync')));
         }
         
+        // Increase limits for large price data
+        @set_time_limit(600); // 10 minutes
+        @ini_set('memory_limit', '512M');
+        
         // Log the sync trigger
         $logger = new ByteMash_Logger();
         $logger->log('info', 'Price sync triggered', array('user' => get_current_user_id()), 'price_sync');
@@ -763,8 +788,17 @@ class ByteMash_Woo_Sync {
         $result = $product_sync->sync_prices();
         
         if ($result['success']) {
+            $logger->log('info', 'Price data fetched, storing batches', array(
+                'total' => $result['total'],
+                'batch_count' => $result['batch_count']
+            ), 'price_sync');
+            
             // Store batches in queue table
             $this->store_batches_in_queue($result['sync_id'], $result['batches']);
+            
+            $logger->log('info', 'Price batches stored in queue', array(
+                'sync_id' => $result['sync_id']
+            ), 'price_sync');
             
             wp_send_json_success(array(
                 'message' => $result['message'],
@@ -789,6 +823,10 @@ class ByteMash_Woo_Sync {
             wp_send_json_error(array('message' => __('Insufficient permissions', 'bytemash-woo-sync')));
         }
         
+        // Increase limits for large data sets
+        @set_time_limit(600); // 10 minutes
+        @ini_set('memory_limit', '512M');
+        
         $logger = new ByteMash_Logger();
         $logger->log('info', 'Incremental product sync triggered', array('user' => get_current_user_id()), 'product_sync');
         
@@ -798,7 +836,16 @@ class ByteMash_Woo_Sync {
         $result = $product_sync->sync_updated_products(true);
         
         if ($result['success'] && isset($result['batches'])) {
+            $logger->log('info', 'Product data fetched, storing batches', array(
+                'total' => $result['total'],
+                'batch_count' => $result['batch_count']
+            ), 'product_sync');
+            
             $this->store_batches_in_queue($result['sync_id'], $result['batches']);
+            
+            $logger->log('info', 'Product batches stored in queue', array(
+                'sync_id' => $result['sync_id']
+            ), 'product_sync');
             
             wp_send_json_success(array(
                 'message' => $result['message'],
@@ -1214,16 +1261,36 @@ class ByteMash_Woo_Sync {
             return;
         }
         
-        // Get next pending batch from queue
+        // Get next pending batch from queue WITH ROW LOCKING
         global $wpdb;
         $table_name = $wpdb->prefix . 'bytemash_sync_queue';
         
+        // Use FOR UPDATE to lock the row (prevents race conditions)
         $batch_row = $wpdb->get_row($wpdb->prepare(
-            "SELECT * FROM {$table_name} WHERE sync_id = %s AND status = 'pending' ORDER BY batch_index ASC LIMIT 1",
+            "SELECT * FROM {$table_name} 
+            WHERE sync_id = %s AND status = 'pending' 
+            ORDER BY batch_index ASC 
+            LIMIT 1 
+            FOR UPDATE",
             $sync_id
         ));
         
         if (!$batch_row) {
+            // Check if any batches are still processing
+            $processing_count = $wpdb->get_var($wpdb->prepare(
+                "SELECT COUNT(*) FROM {$table_name} WHERE sync_id = %s AND status = 'processing'",
+                $sync_id
+            ));
+            
+            if ($processing_count > 0) {
+                // Batches still processing - wait
+                wp_send_json_success(array(
+                    'wait' => true,
+                    'message' => 'Waiting for batch to complete'
+                ));
+                return;
+            }
+            
             // No more batches - mark sync as complete
             $sync_info['status'] = 'completed';
             $sync_info['completed'] = current_time('mysql');
@@ -1244,11 +1311,20 @@ class ByteMash_Woo_Sync {
         $batch_data = json_decode($batch_row->batch_data, true);
         $batch_index = $batch_row->batch_index;
         
-        // Mark batch as processing
-        $wpdb->update($table_name, 
+        // Mark batch as processing (atomic update)
+        $updated = $wpdb->update($table_name, 
             array('status' => 'processing'),
-            array('id' => $batch_row->id)
+            array('id' => $batch_row->id, 'status' => 'pending') // Only update if still pending
         );
+        
+        // If update failed, batch was already claimed by another request
+        if ($updated === 0) {
+            wp_send_json_success(array(
+                'wait' => true,
+                'message' => 'Batch already claimed'
+            ));
+            return;
+        }
         
         // Process this batch based on sync type
         $product_sync = new ByteMash_Product_Sync();
@@ -1260,35 +1336,49 @@ class ByteMash_Woo_Sync {
         // Enable performance mode BEFORE processing batch
         $this->enable_batch_performance_mode();
         
-        foreach ($batch_data as $item_data) {
-            if ($sync_type === 'stock') {
-                $result = $product_sync->update_single_stock($item_data);
-            } elseif ($sync_type === 'prices') {
-                $result = $product_sync->update_single_price($item_data);
-            } elseif ($sync_type === 'orphan_prices') {
-                $prices_lookup = get_option("bytemash_sync_{$sync_id}_prices_lookup");
-                $result = $product_sync->update_single_orphan_product($item_data, $prices_lookup);
-            } elseif ($sync_type === 'categories') {
-                $result = $product_sync->sync_single_category($item_data);
-            } elseif ($sync_type === 'brands') {
-                $result = $product_sync->sync_single_brand($item_data);
-            } elseif ($sync_type === 'branding_departments') {
-                $result = $product_sync->sync_single_branding_department($item_data);
-            } elseif ($sync_type === 'branding_prices') {
-                $result = $product_sync->sync_single_branding_price($item_data);
-            } elseif ($sync_type === 'inclusive_brandings') {
-                $result = $product_sync->sync_single_inclusive_branding($item_data);
-            } elseif ($sync_type === 'color_swatches') {
-                $result = $product_sync->sync_single_color_swatch($item_data);
-            } else {
-                // Default: product sync
-                $result = $product_sync->sync_single_product($item_data);
-            }
-            
-            if ($result['success']) {
-                $processed++;
-            } else {
-                $errors++;
+        // ULTRA FAST: Bulk process entire batch for stock/prices (single-pass SQL)
+        if ($sync_type === 'stock') {
+            $result = $product_sync->update_batch_stock($batch_data);
+            $processed = $result['processed'];
+            $errors = $result['errors'];
+        } elseif ($sync_type === 'prices') {
+            $result = $product_sync->update_batch_prices($batch_data);
+            $processed = $result['processed'];
+            $errors = $result['errors'];
+        } elseif ($sync_type === 'products') {
+            // Use optimized batch processing for products
+            $result = $product_sync->sync_batch_products($batch_data);
+            $processed = $result['processed'];
+            $errors = $result['errors'];
+            $skipped = $result['skipped'];
+        } else {
+            // Process item by item for other types
+            foreach ($batch_data as $item_data) {
+                if ($sync_type === 'orphan_prices') {
+                    $prices_lookup = get_option("bytemash_sync_{$sync_id}_prices_lookup");
+                    $result = $product_sync->update_single_orphan_product($item_data, $prices_lookup);
+                } elseif ($sync_type === 'categories') {
+                    $result = $product_sync->sync_single_category($item_data);
+                } elseif ($sync_type === 'brands') {
+                    $result = $product_sync->sync_single_brand($item_data);
+                } elseif ($sync_type === 'branding_departments') {
+                    $result = $product_sync->sync_single_branding_department($item_data);
+                } elseif ($sync_type === 'branding_prices') {
+                    $result = $product_sync->sync_single_branding_price($item_data);
+                } elseif ($sync_type === 'inclusive_brandings') {
+                    $result = $product_sync->sync_single_inclusive_branding($item_data);
+                } elseif ($sync_type === 'color_swatches') {
+                    $result = $product_sync->sync_single_color_swatch($item_data);
+                } else {
+                    // Should not reach here for products anymore
+                    $result = $product_sync->sync_single_product($item_data);
+                }
+                
+                if ($result['success']) {
+                    $processed++;
+                } else {
+                    $errors++;
+                }
             }
         }
         
@@ -1355,6 +1445,241 @@ class ByteMash_Woo_Sync {
         wp_send_json_success(array(
             'batch' => $batches[$batch_index]
         ));
+    }
+    
+    /**
+     * Fix stock availability check on frontend
+     * Force WooCommerce to correctly read stock status from database
+     */
+    public function fix_stock_availability($is_in_stock, $product) {
+        // Only apply to products that manage stock
+        if (!$product || !$product->managing_stock()) {
+            return $is_in_stock;
+        }
+        
+        // Get stock quantity directly from database
+        $stock_qty = $product->get_stock_quantity();
+        $stock_status = $product->get_stock_status();
+        
+        // If stock quantity is set and > 0, product is in stock
+        if ($stock_qty !== null && $stock_qty > 0) {
+            return true;
+        }
+        
+        // If stock status is explicitly set to 'instock', trust it
+        if ($stock_status === 'instock') {
+            return true;
+        }
+        
+        // If stock is 0 or negative, out of stock
+        if ($stock_qty !== null && $stock_qty <= 0) {
+            return false;
+        }
+        
+        // Default to original value
+        return $is_in_stock;
+    }
+    
+    /**
+     * Enqueue frontend stock display CSS and JS
+     */
+    public function enqueue_frontend_stock_display() {
+        // Only load on single product pages
+        if (!is_product()) {
+            return;
+        }
+        
+        // Check if feature is enabled
+        if (get_option('bytemash_show_stock_display', '1') !== '1') {
+            return;
+        }
+        
+        wp_enqueue_style(
+            'bytemash-stock-display',
+            BYTEMASH_WOO_SYNC_PLUGIN_URL . 'assets/css/stock-display.css',
+            array(),
+            BYTEMASH_WOO_SYNC_VERSION
+        );
+        
+        wp_enqueue_script(
+            'bytemash-stock-modal',
+            BYTEMASH_WOO_SYNC_PLUGIN_URL . 'assets/js/stock-modal.js',
+            array('jquery'),
+            BYTEMASH_WOO_SYNC_VERSION,
+            true
+        );
+    }
+    
+    /**
+     * Display enhanced stock information
+     */
+    public function display_enhanced_stock() {
+        // Check if feature is enabled
+        if (get_option('bytemash_show_stock_display', '1') !== '1') {
+            return;
+        }
+        
+        global $product;
+        
+        if (!$product) {
+            return;
+        }
+        
+        // Only show for products that manage stock
+        if (!$product->managing_stock()) {
+            return;
+        }
+        
+        $product_id = $product->get_id();
+        $stock_qty = $product->get_stock_quantity();
+        $low_stock_threshold = (int) get_option('bytemash_low_stock_threshold', 10);
+        
+        // Get detailed stock data
+        $reserved_stock = (int) get_post_meta($product_id, '_amrod_reserved_stock', true);
+        $incoming_stock_json = get_post_meta($product_id, '_amrod_incoming_stock', true);
+        $incoming_stock = !empty($incoming_stock_json) ? json_decode($incoming_stock_json, true) : null;
+        
+        // Calculate available stock (current - reserved)
+        $available_stock = max(0, $stock_qty - $reserved_stock);
+        
+        // Determine stock status
+        if ($stock_qty > $low_stock_threshold) {
+            $class = 'in-stock';
+            $text = sprintf(
+                esc_html__('In Stock: %s units available', 'bytemash-woo-sync'),
+                '<span class="stock-quantity">' . number_format($available_stock) . '</span>'
+            );
+        } elseif ($stock_qty > 0 && $stock_qty <= $low_stock_threshold) {
+            $class = 'low-stock';
+            $text = sprintf(
+                esc_html__('Low Stock: Only %s left!', 'bytemash-woo-sync'),
+                '<span class="stock-quantity">' . number_format($available_stock) . '</span>'
+            );
+        } else {
+            $class = 'out-of-stock';
+            $text = esc_html__('Out of Stock', 'bytemash-woo-sync');
+        }
+        
+        // Build modal data attributes
+        $has_details = $reserved_stock > 0 || !empty($incoming_stock);
+        $modal_data = array(
+            'total' => $stock_qty,
+            'available' => $available_stock,
+            'reserved' => $reserved_stock,
+            'incoming' => $incoming_stock
+        );
+        
+        // Debug: Log stock data
+        error_log('Stock Modal Data: ' . print_r($modal_data, true));
+        
+        // Output the stock display (clickable if has details)
+        echo '<div class="bytemash-stock-display ' . esc_attr($class) . ($has_details ? ' has-details' : '') . '" ';
+        if ($has_details) {
+            echo 'data-stock-details="' . esc_attr(json_encode($modal_data)) . '" ';
+            echo 'style="cursor: pointer;" ';
+            echo 'title="' . esc_attr__('Click for detailed stock information', 'bytemash-woo-sync') . '"';
+        }
+        echo '>';
+        echo $text;
+        if ($has_details) {
+            echo ' <span class="stock-details-icon">ⓘ</span>';
+        }
+        echo '</div>';
+        
+        // Add Check Stock button
+        echo '<div class="bytemash-stock-actions">';
+        echo '<button type="button" class="bytemash-check-stock-btn" data-stock-details="' . esc_attr(json_encode($modal_data)) . '">';
+        echo esc_html__('Check Stock', 'bytemash-woo-sync');
+        echo '</button>';
+        echo '</div>';
+        
+        // Always output modal template (even if no details, show basic info)
+        $this->render_stock_modal_template();
+    }
+    
+    /**
+     * Render stock details modal template
+     */
+    private function render_stock_modal_template() {
+        global $product;
+        if (!$product) return;
+        
+        $product_name = $product->get_name();
+        $product_sku = $product->get_sku();
+        
+        // Only render once per page
+        static $modal_rendered = false;
+        if ($modal_rendered) return;
+        $modal_rendered = true;
+        ?>
+        <div id="bytemash-stock-modal" class="bytemash-stock-modal" style="display: none;">
+            <div class="bytemash-stock-modal-overlay"></div>
+            <div class="bytemash-stock-modal-content">
+                <div class="bytemash-stock-modal-header">
+                    <div class="modal-title-section">
+                        <h3 class="modal-product-title"><?php echo esc_html($product_name); ?></h3>
+                        <div class="modal-product-sku"><?php echo esc_html($product_sku); ?></div>
+                    </div>
+                    <div class="modal-header-actions">
+                        <button class="bytemash-stock-modal-close">&times;</button>
+                    </div>
+                </div>
+                <div class="bytemash-stock-modal-body">
+                    <div class="stock-summary">
+                        <div class="summary-item">
+                            <span class="summary-label"><?php esc_html_e('Total Stock on Hand:', 'bytemash-woo-sync'); ?></span>
+                            <span class="summary-value" id="modal-total-stock">-</span>
+                        </div>
+                        <div class="summary-item">
+                            <span class="summary-label"><?php esc_html_e('Total Incoming Stock:', 'bytemash-woo-sync'); ?></span>
+                            <span class="summary-value" id="modal-total-incoming">-</span>
+                        </div>
+                    </div>
+                    
+                    <div class="stock-table-container">
+                        <table class="bytemash-stock-details-table">
+                            <thead>
+                                <tr>
+                                    <th><?php esc_html_e('COLOUR', 'bytemash-woo-sync'); ?></th>
+                                    <th><?php esc_html_e('CODE', 'bytemash-woo-sync'); ?></th>
+                                    <th><?php esc_html_e('STOCK ON HAND', 'bytemash-woo-sync'); ?></th>
+                                    <th><?php esc_html_e('RESERVED', 'bytemash-woo-sync'); ?></th>
+                                    <th><?php esc_html_e('INCOMING', 'bytemash-woo-sync'); ?></th>
+                                    <th><?php esc_html_e('INCOMING ETA', 'bytemash-woo-sync'); ?></th>
+                                </tr>
+                            </thead>
+                            <tbody id="modal-stock-rows">
+                                <tr>
+                                    <td class="product-image-cell">
+                                        <div class="product-image-placeholder">
+                                            <?php echo $product->get_image('thumbnail'); ?>
+                                        </div>
+                                    </td>
+                                    <td class="product-code"><?php echo esc_html($product_sku); ?></td>
+                                    <td class="stock-on-hand" id="modal-stock-on-hand">-</td>
+                                    <td class="reserved-stock" id="modal-reserved-stock">-</td>
+                                    <td class="incoming-stock" id="modal-incoming-stock">-</td>
+                                    <td class="incoming-eta" id="modal-incoming-eta">-</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
+                    
+                    <div class="stock-disclaimers">
+                        <p class="disclaimer-item">
+                            <span class="disclaimer-asterisk">*</span>
+                            <?php esc_html_e('Products shown in', 'bytemash-woo-sync'); ?> 
+                            <span class="red-text"><?php esc_html_e('RED', 'bytemash-woo-sync'); ?></span> 
+                            <?php esc_html_e('are discontinued and will not be repeated once stock is sold out.', 'bytemash-woo-sync'); ?>
+                        </p>
+                        <p class="disclaimer-text">
+                            <?php esc_html_e('Available Stock is taken directly off our accounting package. We expect this number to be correct but cannot verify this without a stock count. Should there be low quantities on hand, please ask your account manager to have the warehouse verify this number. Available Stock may be invoiced out at any time and thus quantities you see may change on a minute by minute basis. Expected Arrival Dates are updated regularly. Supplier delays, Shipping Delays and Customs Stops can push this date out. Reserved Stock is reserved for a maximum of 24 hours. Items on promotion cannot be reserved. E&OE', 'bytemash-woo-sync'); ?>
+                        </p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        <?php
     }
 }
 

@@ -25,6 +25,19 @@ class ByteMash_Admin_Settings {
             self::logout();
         }
         
+        // Handle development tools
+        if (isset($_POST['bytemash_dev_clear_all'])) {
+            self::dev_clear_all();
+        }
+        
+        if (isset($_POST['bytemash_dev_clear_products'])) {
+            self::dev_clear_products();
+        }
+        
+        if (isset($_POST['bytemash_dev_clear_logs'])) {
+            self::dev_clear_logs();
+        }
+        
         $api_url = get_option('bytemash_amrod_api_url', 'https://identity.amrod.co.za');
         $api_token = get_option('bytemash_amrod_api_token', '');
         $batch_size = get_option('bytemash_amrod_batch_size', 50);
@@ -41,6 +54,21 @@ class ByteMash_Admin_Settings {
             <?php if (isset($_GET['settings-updated']) && $_GET['settings-updated'] === 'true') : ?>
                 <div class="notice notice-success is-dismissible">
                     <p><?php esc_html_e('Settings saved successfully!', 'bytemash-woo-sync'); ?></p>
+                </div>
+            <?php endif; ?>
+            
+            <?php if (isset($_GET['dev-cleared'])) : ?>
+                <div class="notice notice-success is-dismissible">
+                    <?php if ($_GET['dev-cleared'] === 'all') : ?>
+                        <p><strong><?php esc_html_e('Development: Everything cleared successfully!', 'bytemash-woo-sync'); ?></strong></p>
+                        <p><?php esc_html_e('All products, categories, brands, attributes, sync data, logs, and queue have been deleted.', 'bytemash-woo-sync'); ?></p>
+                    <?php elseif ($_GET['dev-cleared'] === 'products') : ?>
+                        <p><strong><?php esc_html_e('Development: Products cleared successfully!', 'bytemash-woo-sync'); ?></strong></p>
+                        <p><?php esc_html_e('All products have been deleted. Categories and brands remain.', 'bytemash-woo-sync'); ?></p>
+                    <?php elseif ($_GET['dev-cleared'] === 'logs') : ?>
+                        <p><strong><?php esc_html_e('Development: Logs and queue cleared successfully!', 'bytemash-woo-sync'); ?></strong></p>
+                        <p><?php esc_html_e('All sync logs, queue data, and transients have been deleted.', 'bytemash-woo-sync'); ?></p>
+                    <?php endif; ?>
                 </div>
             <?php endif; ?>
             
@@ -314,6 +342,44 @@ class ByteMash_Admin_Settings {
                             
                             <tr>
                                 <th scope="row">
+                                    <label for="show_stock_display"><?php esc_html_e('Enhanced Stock Display', 'bytemash-woo-sync'); ?></label>
+                                </th>
+                                <td>
+                                    <label>
+                                        <input type="checkbox" 
+                                               id="show_stock_display" 
+                                               name="show_stock_display" 
+                                               value="1"
+                                               <?php checked(get_option('bytemash_show_stock_display', '1'), '1'); ?>>
+                                        <?php esc_html_e('Show enhanced stock information on product pages', 'bytemash-woo-sync'); ?>
+                                    </label>
+                                    <p class="description">
+                                        <?php esc_html_e('Display stock quantities with color-coded badges (In Stock / Low Stock / Out of Stock).', 'bytemash-woo-sync'); ?>
+                                    </p>
+                                </td>
+                            </tr>
+                            
+                            <tr>
+                                <th scope="row">
+                                    <label for="low_stock_threshold"><?php esc_html_e('Low Stock Threshold', 'bytemash-woo-sync'); ?></label>
+                                </th>
+                                <td>
+                                    <input type="number" 
+                                           id="low_stock_threshold" 
+                                           name="low_stock_threshold" 
+                                           value="<?php echo esc_attr(get_option('bytemash_low_stock_threshold', 10)); ?>" 
+                                           min="1" 
+                                           max="100"
+                                           class="small-text">
+                                    <span><?php esc_html_e('units', 'bytemash-woo-sync'); ?></span>
+                                    <p class="description">
+                                        <?php esc_html_e('Stock quantity below which products are marked as "Low Stock".', 'bytemash-woo-sync'); ?>
+                                    </p>
+                                </td>
+                            </tr>
+                            
+                            <tr>
+                                <th scope="row">
                                     <label><?php esc_html_e('Clear Logs', 'bytemash-woo-sync'); ?></label>
                                 </th>
                                 <td>
@@ -337,6 +403,61 @@ class ByteMash_Admin_Settings {
                            value="<?php esc_attr_e('Save Settings', 'bytemash-woo-sync'); ?>">
                 </p>
             </form>
+            
+            <?php if (defined('WP_DEBUG') && WP_DEBUG) : ?>
+                <!-- Development Section -->
+                <div class="bytemash-settings-section" style="margin-top: 40px; padding: 20px; background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 4px;">
+                    <h2 style="color: #856404; margin-top: 0;">
+                        <span class="dashicons dashicons-warning"></span>
+                        <?php esc_html_e('Development Tools', 'bytemash-woo-sync'); ?>
+                    </h2>
+                    <p style="color: #856404; margin-bottom: 20px;">
+                        <strong><?php esc_html_e('⚠️ WARNING:', 'bytemash-woo-sync'); ?></strong> 
+                        <?php esc_html_e('These tools are for development only and will permanently delete data!', 'bytemash-woo-sync'); ?>
+                    </p>
+                    
+                    <div style="display: flex; gap: 10px; flex-wrap: wrap;">
+                        <form method="post" style="display: inline;" onsubmit="return confirm('⚠️ This will delete ALL products, categories, brands, and sync data. This action cannot be undone!\\n\\nAre you absolutely sure?');">
+                            <?php wp_nonce_field('bytemash_dev_clear_all', 'bytemash_dev_clear_all_nonce'); ?>
+                            <button type="submit" 
+                                    name="bytemash_dev_clear_all" 
+                                    class="button button-secondary" 
+                                    style="background: #dc3545; color: white; border-color: #dc3545;">
+                                <span class="dashicons dashicons-trash"></span>
+                                <?php esc_html_e('Clear Everything', 'bytemash-woo-sync'); ?>
+                            </button>
+                        </form>
+                        
+                        <form method="post" style="display: inline;" onsubmit="return confirm('⚠️ This will delete ALL products only. Categories and brands will remain.\\n\\nAre you sure?');">
+                            <?php wp_nonce_field('bytemash_dev_clear_products', 'bytemash_dev_clear_products_nonce'); ?>
+                            <button type="submit" 
+                                    name="bytemash_dev_clear_products" 
+                                    class="button button-secondary" 
+                                    style="background: #fd7e14; color: white; border-color: #fd7e14;">
+                                <span class="dashicons dashicons-products"></span>
+                                <?php esc_html_e('Clear Products Only', 'bytemash-woo-sync'); ?>
+                            </button>
+                        </form>
+                        
+                        <form method="post" style="display: inline;" onsubmit="return confirm('⚠️ This will delete ALL sync logs and queue data.\\n\\nAre you sure?');">
+                            <?php wp_nonce_field('bytemash_dev_clear_logs', 'bytemash_dev_clear_logs_nonce'); ?>
+                            <button type="submit" 
+                                    name="bytemash_dev_clear_logs" 
+                                    class="button button-secondary" 
+                                    style="background: #6c757d; color: white; border-color: #6c757d;">
+                                <span class="dashicons dashicons-admin-tools"></span>
+                                <?php esc_html_e('Clear Logs & Queue', 'bytemash-woo-sync'); ?>
+                            </button>
+                        </form>
+                    </div>
+                    
+                    <p style="color: #856404; font-size: 12px; margin-top: 15px;">
+                        <strong><?php esc_html_e('Note:', 'bytemash-woo-sync'); ?></strong> 
+                        <?php esc_html_e('This section only appears when WP_DEBUG is enabled. To hide it in production, set WP_DEBUG to false in wp-config.php', 'bytemash-woo-sync'); ?>
+                    </p>
+                </div>
+            <?php endif; ?>
+            
             <?php endif; ?>
         </div>
         <?php
@@ -418,12 +539,179 @@ class ByteMash_Admin_Settings {
             update_option('bytemash_log_retention_days', $retention);
         }
         
+        // Save stock display settings
+        update_option('bytemash_show_stock_display', isset($_POST['show_stock_display']) ? '1' : '0');
+        
+        if (isset($_POST['low_stock_threshold'])) {
+            $threshold = (int) $_POST['low_stock_threshold'];
+            $threshold = max(1, min(100, $threshold));
+            update_option('bytemash_low_stock_threshold', $threshold);
+        }
+        
         // Log the settings update
         $logger = new ByteMash_Logger();
         $logger->log('info', 'Settings updated', array('user' => get_current_user_id()), 'settings');
         
         // Redirect with success message
         wp_redirect(add_query_arg('settings-updated', 'true', wp_get_referer()));
+        exit;
+    }
+    
+    /**
+     * Development: Clear everything
+     */
+    private static function dev_clear_all() {
+        // Only allow in development mode
+        if (!defined('WP_DEBUG') || !WP_DEBUG) {
+            wp_die('Development tools are only available when WP_DEBUG is enabled');
+        }
+        
+        if (!wp_verify_nonce($_POST['bytemash_dev_clear_all_nonce'], 'bytemash_dev_clear_all')) {
+            wp_die('Security check failed');
+        }
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('You do not have permission to perform this action');
+        }
+        
+        global $wpdb;
+        
+        // Increase memory limit and time limit
+        @ini_set('memory_limit', '512M');
+        @set_time_limit(300);
+        
+        // Use direct SQL for faster deletion - delete all products
+        $wpdb->query("DELETE FROM {$wpdb->posts} WHERE post_type IN ('product', 'product_variation')");
+        $wpdb->query("DELETE FROM {$wpdb->postmeta} WHERE post_id NOT IN (SELECT ID FROM {$wpdb->posts})");
+        
+        // Delete all product categories
+        $wpdb->query("DELETE FROM {$wpdb->term_taxonomy} WHERE taxonomy = 'product_cat'");
+        $wpdb->query("DELETE FROM {$wpdb->term_relationships} WHERE term_taxonomy_id NOT IN (SELECT term_taxonomy_id FROM {$wpdb->term_taxonomy})");
+        $wpdb->query("DELETE FROM {$wpdb->terms} WHERE term_id NOT IN (SELECT term_id FROM {$wpdb->term_taxonomy})");
+        
+        // Delete all product brands
+        $wpdb->query("DELETE FROM {$wpdb->term_taxonomy} WHERE taxonomy = 'product_brand'");
+        $wpdb->query("DELETE FROM {$wpdb->term_relationships} WHERE term_taxonomy_id NOT IN (SELECT term_taxonomy_id FROM {$wpdb->term_taxonomy})");
+        $wpdb->query("DELETE FROM {$wpdb->terms} WHERE term_id NOT IN (SELECT term_id FROM {$wpdb->term_taxonomy})");
+        
+        // Delete all product attributes (color, size, etc.)
+        $wpdb->query("DELETE FROM {$wpdb->term_taxonomy} WHERE taxonomy LIKE 'pa_%'");
+        $wpdb->query("DELETE FROM {$wpdb->term_relationships} WHERE term_taxonomy_id NOT IN (SELECT term_taxonomy_id FROM {$wpdb->term_taxonomy})");
+        $wpdb->query("DELETE FROM {$wpdb->terms} WHERE term_id NOT IN (SELECT term_id FROM {$wpdb->term_taxonomy})");
+        
+        // Delete attribute taxonomies from WooCommerce
+        $wpdb->query("DELETE FROM {$wpdb->prefix}woocommerce_attribute_taxonomies");
+        
+        // Clear sync data
+        $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE 'bytemash_sync_%'");
+        
+        // Clear queue table
+        $wpdb->query("DELETE FROM {$wpdb->prefix}bytemash_sync_queue");
+        
+        // Clear logs
+        $wpdb->query("DELETE FROM {$wpdb->prefix}bytemash_sync_logs");
+        
+        // Clear transients
+        $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_bytemash_%'");
+        $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_timeout_bytemash_%'");
+        
+        // Clear WooCommerce transients
+        $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_wc_%'");
+        $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_timeout_wc_%'");
+        
+        // Clear WooCommerce lookup tables
+        $wpdb->query("DELETE FROM {$wpdb->prefix}wc_product_meta_lookup");
+        $wpdb->query("DELETE FROM {$wpdb->prefix}woocommerce_order_items WHERE order_item_type = 'line_item'");
+        
+        // Clear object cache
+        wp_cache_flush();
+        
+        // Delete attribute taxonomy options
+        delete_option('woocommerce_attribute_taxonomies');
+        
+        // Redirect with success message
+        wp_redirect(admin_url('admin.php?page=bytemash-settings&dev-cleared=all'));
+        exit;
+    }
+    
+    /**
+     * Development: Clear products only
+     */
+    private static function dev_clear_products() {
+        // Only allow in development mode
+        if (!defined('WP_DEBUG') || !WP_DEBUG) {
+            wp_die('Development tools are only available when WP_DEBUG is enabled');
+        }
+        
+        if (!wp_verify_nonce($_POST['bytemash_dev_clear_products_nonce'], 'bytemash_dev_clear_products')) {
+            wp_die('Security check failed');
+        }
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('You do not have permission to perform this action');
+        }
+        
+        global $wpdb;
+        
+        // Increase memory limit and time limit
+        @ini_set('memory_limit', '512M');
+        @set_time_limit(300);
+        
+        // Use direct SQL for faster deletion - delete all products
+        $wpdb->query("DELETE FROM {$wpdb->posts} WHERE post_type IN ('product', 'product_variation')");
+        $wpdb->query("DELETE FROM {$wpdb->postmeta} WHERE post_id NOT IN (SELECT ID FROM {$wpdb->posts})");
+        
+        // Clear WooCommerce lookup tables
+        $wpdb->query("DELETE FROM {$wpdb->prefix}wc_product_meta_lookup");
+        
+        // Clear WooCommerce transients
+        $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_wc_%'");
+        $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_timeout_wc_%'");
+        
+        // Clear object cache
+        wp_cache_flush();
+        
+        // Redirect with success message
+        wp_redirect(admin_url('admin.php?page=bytemash-settings&dev-cleared=products'));
+        exit;
+    }
+    
+    /**
+     * Development: Clear logs and queue
+     */
+    private static function dev_clear_logs() {
+        // Only allow in development mode
+        if (!defined('WP_DEBUG') || !WP_DEBUG) {
+            wp_die('Development tools are only available when WP_DEBUG is enabled');
+        }
+        
+        if (!wp_verify_nonce($_POST['bytemash_dev_clear_logs_nonce'], 'bytemash_dev_clear_logs')) {
+            wp_die('Security check failed');
+        }
+        
+        if (!current_user_can('manage_options')) {
+            wp_die('You do not have permission to perform this action');
+        }
+        
+        global $wpdb;
+        
+        // Clear sync data
+        $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE 'bytemash_sync_%'");
+        
+        // Clear queue table
+        $wpdb->query("DELETE FROM {$wpdb->prefix}bytemash_sync_queue");
+        
+        // Clear logs
+        $wpdb->query("DELETE FROM {$wpdb->prefix}bytemash_sync_logs");
+        
+        // Clear transients
+        $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_bytemash_%'");
+        $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_timeout_bytemash_%'");
+        
+        wp_cache_flush();
+        
+        // Redirect with success message
+        wp_redirect(admin_url('admin.php?page=bytemash-settings&dev-cleared=logs'));
         exit;
     }
 }

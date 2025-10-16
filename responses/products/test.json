@@ -1,0 +1,171 @@
+{
+  "actionType": 1,
+  "simpleCode": "BA-AM-3-D",
+  "fullCode": "BA-AM-3-D",
+  "categorisedAttribute": [],
+  "gender": null,
+  "material": "",
+  "fit": "",
+  "feature": "",
+  "categories": [
+    {
+      "id": 59383,
+      "name": "Fence Banners",
+      "path": "display/outdoor products/fence banners",
+      "code": "Fence Banners",
+      "image": "https://amrcdn.amrod.co.za/amrodprod-blob/_default_upload_bucket/Fabric Fence Banners.jpg"
+    }
+  ],
+  "brand": null,
+  "companionCodes": [],
+  "relatedCodes": [],
+  "matchingCodes": [],
+  "groupingCodes": [],
+  "groupingCodeGiftsets": [],
+  "productName": "Sublimated Display Fabric Banner 2.45m x 1.5m",
+  "description": "<p>Full colour digital dye sublimation print onto Polyester Display fabric finished with webbing all around. Eyelets every 500mm apart and hemmed for strength.<br />\n&nbsp;</p>\n\n<ul>\n\t<li>2.45m x 1.5m</li>\n\t<li>+- 230 g/m<sup>2</sup> p/sm</li>\n\t<li>knit polyester display fabric<br />\n\t&nbsp;</li>\n</ul>\n\n<p>Please note: this&nbsp; Polyester Display fabric banner is perfect for very short term outdoor exposure as this is a dye sublimated digital print.</p>\n",
+  "minimum": 0,
+  "maximum": 0,
+  "incrementedBy": 0,
+  "keywords": "",
+  "tags": "",
+  "inventoryType": "5",
+  "behaviour": "0",
+  "madeToOrder": "",
+  "madeToOrderMessage": "",
+  "displayCountryOfOrigin": "",
+  "promotion": "0",
+  "fullBrandingGuide": "https://amrcdn.amrod.co.za/amrodprod-blob/Pdf Templates/BA-AM-3-D/Full Guide/BA-AM-3-D_1709127609.pdf",
+  "logo24BrandingGuide": null,
+  "images": [
+    {
+      "name": "DEFAULT",
+      "isDefault": true,
+      "urls": [
+        {
+          "url": "https://amrcdn.amrod.co.za/amrodprod-blob/ProductImages/BA-AM-3-D/DEFAULT_1024X1024.jpg",
+          "width": 1024,
+          "height": 1024
+        }
+      ],
+      "hasLogo": false,
+      "angle": null,
+      "type": "defaultUnbrandedImage"
+    },
+    {
+      "name": "BA-AM-3-D-LIFESTYLE",
+      "isDefault": false,
+      "urls": [
+        {
+          "url": "https://amrcdn.amrod.co.za/amrodprod-blob/ProductImages/BA-AM-3-D/BA-AM-3-D-LIFESTYLE_1024X1024.jpg",
+          "width": 1024,
+          "height": 1024
+        }
+      ],
+      "hasLogo": true,
+      "angle": null,
+      "type": "lifestyleImagesWithLogos"
+    },
+    {
+      "name": "BA-AM-3-D-DISPLAYFABRIC",
+      "isDefault": false,
+      "urls": [
+        {
+          "url": "https://amrcdn.amrod.co.za/amrodprod-blob/ProductImages/BA-AM-3-D/BA-AM-3-D-DISPLAYFABRIC_1024X1024.jpg",
+          "width": 1024,
+          "height": 1024
+        }
+      ],
+      "hasLogo": false,
+      "angle": null,
+      "type": "additionalImagesWithoutLogos"
+    },
+    {
+      "name": "BA-AM-3-D-NO-LOGO",
+      "isDefault": false,
+      "urls": [
+        {
+          "url": "https://amrcdn.amrod.co.za/amrodprod-blob/ProductImages/BA-AM-3-D/BA-AM-3-D-NO-LOGO_1024X1024.jpg",
+          "width": 1024,
+          "height": 1024
+        }
+      ],
+      "hasLogo": false,
+      "angle": null,
+      "type": "additionalImagesWithoutLogos"
+    },
+    {
+      "name": "BA-AM-3-D-LIFESTYLE-NO-LOGO",
+      "isDefault": false,
+      "urls": [
+        {
+          "url": "https://amrcdn.amrod.co.za/amrodprod-blob/ProductImages/BA-AM-3-D/BA-AM-3-D-LIFESTYLE-NO-LOGO_1024X1024.jpg",
+          "width": 1024,
+          "height": 1024
+        }
+      ],
+      "hasLogo": false,
+      "angle": null,
+      "type": "lifestyleImagesWithoutLogos"
+    }
+  ],
+  "videos": [],
+  "colourImages": [],
+  "brandings": [
+    {
+      "positionName": "Sublimated Display Fabric Banner 2,45x1,5m",
+      "positionCode": "A",
+      "positionComment": null,
+      "positionMultiplier": 1,
+      "method": [
+        {
+          "brandingName": "Digital Display",
+          "brandingDepartment": "Digital Display",
+          "brandingCode": "DD",
+          "brandingInclusiveMethod": false,
+          "displayIndex": "1",
+          "maxPrintingSizeWidth": "2560",
+          "maxPrintingSizeHeight": "1610",
+          "numberOfColours": "Full Colour",
+          "brandingMultiplier": 1,
+          "exclusions": []
+        }
+      ]
+    }
+  ],
+  "isLogo24": false,
+  "logo24Branding": null,
+  "inclusiveBranding": [],
+  "variants": [
+    {
+      "simpleCode": "BA-AM-3-D",
+      "fullCode": "BA-AM-3-D-0-0",
+      "codeColour": null,
+      "codeColourName": null,
+      "codeSize": null,
+      "codeSizeName": null,
+      "categorisedAttribute": null,
+      "packagingAndDimension": {
+        "cartonSizeDimensionL": 300,
+        "cartonSizeDimensionW": 150,
+        "cartonSizeDimensionH": 0.1,
+        "piecesPerCarton": 1,
+        "cartonWeight": 1.522
+      },
+      "productDimension": { "length": 1, "width": 1, "weight": 1 },
+      "isLogo24": false,
+      "components": null
+    }
+  ],
+  "requiredBrandingPositions": ["A"],
+  "noCoBrandingPositions": [],
+  "brandingTemplates": [
+    {
+      "position": "A",
+      "name": "Sublimated Display Fabric Banner 2,45x1,5m",
+      "url": "https://amrcdn.amrod.co.za/amrodprod-blob/Pdf Templates/BA-AM-3-D/BA-AM-3-D T_A.pdf"
+    }
+  ],
+  "decoupled": false,
+  "type": "Product"
+}

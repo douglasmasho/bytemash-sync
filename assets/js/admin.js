@@ -384,6 +384,13 @@
                         return;
                     }
                     
+                    // Handle wait response (batch still processing or already claimed)
+                    if (response.data.wait) {
+                        console.log('⏳ Waiting for batch...', response.data.message);
+                        setTimeout(() => processNextBatchFromQueue(syncId, totalBatches), 500);
+                        return;
+                    }
+                    
                     const batch = response.data.batch;
                     const processed = response.data.processed;
                     const totalProcessed = response.data.total_processed;
@@ -573,9 +580,9 @@
                         return; // Stop processing
                     }
                     
-                    // Continue to next batch
-                    console.log('➡️ Processing next batch...');
-                    processNextBatchFromQueue(syncId, totalBatches);
+                    // Continue to next batch (minimal delay for UI updates)
+                    console.log('➡️ Processing next batch in 50ms...');
+                    setTimeout(() => processNextBatchFromQueue(syncId, totalBatches), 50);
                 },
                 error: function(xhr, status, error) {
                     // Release lock

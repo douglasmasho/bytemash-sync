@@ -56,14 +56,14 @@ remove_action('transition_post_status', '_update_posts_count_on_transition_post_
 ---
 
 ### 4. **Reduce Logging Verbosity**
-**Problem:** Writing to database log for EVERY product (50 writes per batch)
+**Problem:** Writing to database log for EVERY item with multiple entries per item
 
-**Before:**
+**Product Sync - Before:**
 ```php
 $this->logger->log('success', "Product synced: {$sku}", ...); // Every product
 ```
 
-**After:**
+**Product Sync - After:**
 ```php
 static $counter = 0;
 $counter++;
@@ -71,8 +71,29 @@ if ($counter % 10 === 0) {
     $this->logger->log('info', "Synced {$counter} products..."); // Every 10th
 }
 ```
+**Impact:** ⚡ **90%** fewer logs (5 writes vs 50)
 
-**Impact:** ⚡ **80%** fewer database writes
+**Stock/Price Sync - Before:**
+```php
+// For EACH stock/price item:
+$this->logger->log('info', '🔍 Attempting to match...'); 
+$this->logger->log('success', '✅ Exact SKU matched...');
+$this->logger->log('success', '✅ Pattern matched...');
+$this->logger->log('warning', '⚠️ No SKU match...');
+// = 200+ log writes per batch!
+```
+
+**Stock/Price Sync - After:**
+```php
+static $counter = 0;
+$counter++;
+if ($counter % 25 === 0) { // Every 25th item
+    $this->logger->log('info', "Stock updated: {$counter} items...");
+}
+// Warnings still logged immediately
+// = 2 log writes per batch!
+```
+**Impact:** ⚡ **96%** fewer logs for stock/price (2 writes vs 200+)
 
 ---
 
@@ -220,4 +241,5 @@ You should see product count increasing **much faster**!
 
 **Version:** 2.3.0 - Performance Optimizations  
 **Date:** October 14, 2025
+
 

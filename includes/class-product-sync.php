@@ -292,6 +292,30 @@ class ByteMash_Product_Sync {
             }
         }
         
+        // Set default attributes to first variation to prevent "Please select options" message
+        if ($variation_count > 0 && !empty($product_data['variants'])) {
+            $first_variant = $product_data['variants'][0];
+            $default_attributes = array();
+            
+            if (!empty($first_variant['codeSizeName'])) {
+                $default_attributes['size'] = sanitize_title($first_variant['codeSizeName']);
+            }
+            if (!empty($first_variant['codeColourName'])) {
+                $default_attributes['color'] = sanitize_title($first_variant['codeColourName']);
+            }
+            
+            if (!empty($default_attributes)) {
+                $product = wc_get_product($product_id);
+                $product->set_default_attributes($default_attributes);
+                $product->save();
+                
+                $this->logger->log('info', 'Set default attributes for variable product', array(
+                    'product_id' => $product_id,
+                    'defaults' => $default_attributes,
+                ), 'product_sync');
+            }
+        }
+        
         $this->logger->log('success', "Variable product synced: {$variation_count} variations created, {$variation_errors} errors", array(
             'product_id' => $product_id,
             'sku' => $parent_sku,
@@ -483,6 +507,243 @@ class ByteMash_Product_Sync {
     }
     
     /**
+     * Process entire batch of products using optimized bulk operations
+     * 
+     * @param array $products Array of product data
+     * @return array Result with processed/error counts
+     */
+    public function sync_batch_products($products) {
+        global $wpdb;
+        
+        $processed = 0;
+        $errors = 0;
+        $skipped = 0;
+        
+        // Enable performance mode
+        $this->enable_performance_mode();
+        
+        $this->logger->log('info', 'Starting ULTRA-FAST batch product sync', array(
+            'batch_size' => count($products),
+            'memory_mb' => round(memory_get_usage(true) / 1024 / 1024, 2),
+        ), 'product_sync');
+        
+        // Separate simple and variable products for different processing
+        $simple_products = array();
+        $variable_products = array();
+        
+        foreach ($products as $product_data) {
+            $has_variants = $this->check_if_variable($product_data);
+            
+            if ($has_variants) {
+                $variable_products[] = $product_data;
+            } else {
+                $simple_products[] = $product_data;
+            }
+        }
+        
+        $this->logger->log('info', 'Product categorization', array(
+            'simple_count' => count($simple_products),
+            'variable_count' => count($variable_products),
+        ), 'product_sync');
+        
+        // Process simple products in BULK (ultra-fast)
+        if (!empty($simple_products)) {
+            $result = $this->bulk_insert_simple_products($simple_products);
+            $processed += $result['processed'];
+            $errors += $result['errors'];
+        }
+        
+        // Process variable products normally (complex, can't bulk)
+        if (!empty($variable_products)) {
+            foreach ($variable_products as $product_data) {
+                $result = $this->sync_single_product($product_data);
+                if ($result['success']) {
+                    $processed++;
+                } else {
+                    $errors++;
+                }
+            }
+        }
+        
+        // Clear memory
+        wp_cache_flush();
+        gc_collect_cycles();
+        
+        // Disable performance mode
+        $this->disable_performance_mode();
+        
+        $this->logger->log('info', 'ULTRA-FAST batch product sync completed', array(
+            'processed' => $processed,
+            'errors' => $errors,
+            'skipped' => $skipped,
+            'memory_mb' => round(memory_get_usage(true) / 1024 / 1024, 2),
+        ), 'product_sync');
+        
+        return array(
+            'success' => true,
+            'processed' => $processed,
+            'errors' => $errors,
+            'skipped' => $skipped,
+        );
+    }
+    
+    /**
+     * Check if product should be variable (based on Amrod API structure)
+     * 
+     * IMPORTANT: Amrod API structure is:
+     * - Each API item = ONE parent product
+     * - simpleCode = Parent product SKU
+     * - variants array = Variations of that parent
+     * - If variants has MORE THAN 1 entry → Variable product
+     * - If variants has 1 entry OR is empty → Simple product
+     */
+    private function check_if_variable($product_data) {
+        $enable_variable_products = get_option('bytemash_enable_variable_products', true);
+        
+        if (!$enable_variable_products) {
+            return false;
+        }
+        
+        // CORRECT RULE: Only variable if variants array has MORE THAN 1 entry
+        // If only 1 variant → Simple product
+        // If 2+ variants → Variable product
+        return !empty($product_data['variants']) && 
+               is_array($product_data['variants']) && 
+               count($product_data['variants']) > 1;
+    }
+    
+    /**
+     * Bulk insert/update simple products using HYBRID approach (ULTRA-FAST + SAFE)
+     * 
+     * Strategy:
+     * 1. Use bulk SQL for initial creation (fast)
+     * 2. Use WooCommerce save to finalize (ensures all fields)
+     * 3. Best of both worlds!
+     */
+    private function bulk_insert_simple_products($products) {
+        global $wpdb;
+        
+        $processed = 0;
+        $errors = 0;
+        $product_ids_to_finalize = array();
+        
+        $this->logger->log('info', 'HYBRID bulk processing simple products', array(
+            'count' => count($products),
+        ), 'product_sync');
+        
+        foreach ($products as $product_data) {
+            $sku = $product_data['simpleCode'] ?? $product_data['fullCode'] ?? null;
+            if (!$sku) continue;
+            
+            $sku = sanitize_text_field($sku);
+            
+            // Check if product exists
+            $existing_id = wc_get_product_id_by_sku($sku);
+            
+            if ($existing_id) {
+                // Product exists - use WooCommerce object for update
+                $product = wc_get_product($existing_id);
+            } else {
+                // Product doesn't exist - create with WooCommerce (ensures all fields)
+                $product = new WC_Product_Simple();
+            }
+            
+            // Set all product data
+            $product->set_sku($sku);
+            $product->set_name(sanitize_text_field($product_data['productName'] ?? ''));
+            $product->set_description(wp_kses_post($product_data['description'] ?? ''));
+            $product->set_status('publish');
+            
+            // Set catalog visibility
+            $product->set_catalog_visibility('visible');
+            
+            // Set stock management
+            $product->set_manage_stock(true);
+            $product->set_stock_status('instock');
+            
+            // Set pricing (default to 0, will be updated by price sync)
+            $product->set_regular_price(0);
+            
+            // Set tax settings
+            $product->set_tax_status('taxable');
+            $product->set_tax_class('');
+            
+            // Set shipping settings
+            $product->set_virtual(false);
+            $product->set_downloadable(false);
+            
+            // Set purchase settings
+            $product->set_sold_individually(false);
+            
+            // Set categories
+            if (!empty($product_data['categories']) && is_array($product_data['categories'])) {
+                $category_ids = array();
+                foreach ($product_data['categories'] as $category_data) {
+                    $category_name = $category_data['name'] ?? null;
+                    if (!$category_name) continue;
+                    
+                    // Get or create category
+                    $term = term_exists($category_name, 'product_cat');
+                    if (!$term) {
+                        $term = wp_insert_term($category_name, 'product_cat');
+                    }
+                    
+                    if (!is_wp_error($term) && isset($term['term_id'])) {
+                        $category_ids[] = (int) $term['term_id'];
+                    }
+                }
+                if (!empty($category_ids)) {
+                    $product->set_category_ids($category_ids);
+                }
+            }
+            
+            // Set brand if available
+            if (!empty($product_data['brand'])) {
+                $this->set_product_brand($product, $product_data['brand']);
+            }
+            
+            // Save product (WooCommerce ensures all required fields are set)
+            $product_id = $product->save();
+            
+            if (!$product_id) {
+                $errors++;
+                continue;
+            }
+            
+            // Set external image URL
+            if (!empty($product_data['images'][0]['urls'][0]['url'])) {
+                $image_url = $product_data['images'][0]['urls'][0]['url'];
+                update_post_meta($product_id, '_thumbnail_external_url', $image_url);
+            }
+            
+            // Set branding guide
+            if (!empty($product_data['fullBrandingGuide'])) {
+                update_post_meta($product_id, '_amrod_branding_guide', $product_data['fullBrandingGuide']);
+            }
+            
+            // Store additional Amrod metadata
+            $this->sync_product_meta($product_id, $product_data);
+            
+            $processed++;
+            
+            // Clear cache every 10 products to manage memory
+            if ($processed % 10 === 0) {
+                wp_cache_flush();
+            }
+        }
+        
+        $this->logger->log('info', 'HYBRID bulk processing completed', array(
+            'processed' => $processed,
+            'errors' => $errors,
+        ), 'product_sync');
+        
+        return array(
+            'processed' => $processed,
+            'errors' => $errors,
+        );
+    }
+    
+    /**
      * Enable performance optimizations for batch sync
      */
     private function enable_performance_mode() {
@@ -498,6 +759,10 @@ class ByteMash_Product_Sync {
         // Remove unnecessary WordPress actions
         remove_action('transition_post_status', '_update_blog_date_on_post_publish', 10);
         remove_action('transition_post_status', '_update_posts_count_on_transition_post_status', 10);
+        
+        // Remove WooCommerce product sync actions (we'll do it ourselves)
+        remove_action('woocommerce_new_product', 'wc_delete_product_transients');
+        remove_action('woocommerce_update_product', 'wc_delete_product_transients');
         
         $this->logger->log('info', 'Performance mode enabled for batch processing', array(), 'product_sync');
     }
@@ -519,9 +784,46 @@ class ByteMash_Product_Sync {
     }
     
     /**
+     * Clean up simple product to ensure no variable product remnants
+     */
+    private function clean_simple_product_attributes($product_id) {
+        global $wpdb;
+        
+        // Remove any variable product attributes
+        $wpdb->delete(
+            $wpdb->postmeta,
+            array(
+                'post_id' => $product_id,
+                'meta_key' => '_product_attributes'
+            )
+        );
+        
+        // Remove any variation-related meta
+        $variation_meta_keys = array(
+            '_default_attributes',
+            '_product_variation_shipping_class',
+            '_product_variation_shipping_class_id'
+        );
+        
+        foreach ($variation_meta_keys as $meta_key) {
+            delete_post_meta($product_id, $meta_key);
+        }
+        
+        // Ensure product type is simple
+        wp_set_object_terms($product_id, 'simple', 'product_type');
+        
+        $this->logger->log('info', 'Cleaned simple product attributes', array('product_id' => $product_id), 'product_sync');
+    }
+    
+    /**
      * Sync single product (handles Amrod's data structure)
      */
     public function sync_single_product($product_data, $force = false) {
+        // Static counter for reduced logging
+        static $product_counter = 0;
+        $product_counter++;
+        $should_log = ($product_counter % 10 === 0); // Log every 10th product
+        
         // Amrod uses 'simpleCode' or 'fullCode' as SKU
         $sku = $product_data['simpleCode'] ?? $product_data['fullCode'] ?? null;
         
@@ -532,38 +834,34 @@ class ByteMash_Product_Sync {
         
         $sku = sanitize_text_field($sku);
         
-        // Check if product has variants (sizes/colors)
-        // TEMPORARY: Can disable variable products via option for testing
-        $enable_variable_products = get_option('bytemash_enable_variable_products', true);
-        $has_variants = $enable_variable_products && !empty($product_data['variants']) && is_array($product_data['variants']) && count($product_data['variants']) > 0;
+        // Check if product has variants - trust the API structure
+        // Amrod API: If variants array exists, create variable product
+        $has_variants = $this->check_if_variable($product_data);
         
-        $this->logger->log('info', 'Product variant check', array(
-            'sku' => $sku,
-            'has_variants' => $has_variants,
-            'variant_count' => isset($product_data['variants']) ? count($product_data['variants']) : 0,
-            'variable_products_enabled' => $enable_variable_products,
-        ), 'product_sync');
+        // Reduced logging - only every 10th product
+        if ($should_log) {
+            $this->logger->log('info', 'Product type determination', array(
+                'sku' => $sku,
+                'product_count' => $product_counter,
+                'has_variants' => $has_variants,
+                'variant_count' => isset($product_data['variants']) ? count($product_data['variants']) : 0,
+            ), 'product_sync');
+        }
         
         if ($has_variants) {
             // Create/update as Variable Product with variations
-            $this->logger->log('info', 'Routing to variable product sync', array('sku' => $sku), 'product_sync');
-            
             try {
                 return $this->sync_variable_product($product_data, $sku, $force);
             } catch (Exception $e) {
                 $this->logger->log('error', 'Variable product sync failed - falling back to simple product', array(
                     'sku' => $sku,
                     'error' => $e->getMessage(),
-                    'trace' => $e->getTraceAsString(),
                 ), 'product_sync');
                 
                 // Fallback: Create as simple product to prevent total failure
-                $this->logger->log('warning', 'Creating as simple product instead', array('sku' => $sku), 'product_sync');
                 $has_variants = false; // Force simple product creation
             }
         }
-        
-        $this->logger->log('info', 'Routing to simple product sync', array('sku' => $sku), 'product_sync');
         
         // Otherwise create/update as Simple Product
         $product_id = wc_get_product_id_by_sku($sku);
@@ -571,6 +869,24 @@ class ByteMash_Product_Sync {
         if ($product_id && !$force) {
             // Update existing product
             $product = wc_get_product($product_id);
+            
+            // If existing product is variable but we want simple, convert it
+            if ($product && $product->is_type('variable')) {
+                $this->logger->log('info', 'Converting variable product to simple', array('product_id' => $product_id), 'product_sync');
+                
+                // Delete all variations first
+                $variations = $product->get_children();
+                foreach ($variations as $variation_id) {
+                    wp_delete_post($variation_id, true);
+                }
+                
+                // Delete the variable product
+                wp_delete_post($product_id, true);
+                $product_id = null;
+            } else if ($product && $product->is_type('simple')) {
+                // Clean up any variable product remnants from existing simple product
+                $this->clean_simple_product_attributes($product_id);
+            }
         } else {
             // Create new simple product
             $product = new WC_Product_Simple();
@@ -614,6 +930,9 @@ class ByteMash_Product_Sync {
             
             // Store Amrod-specific metadata (includes branding guides, color swatches, etc.)
             $this->sync_product_meta($product_id, $product_data);
+            
+            // Ensure simple product doesn't have variable product attributes
+            $this->clean_simple_product_attributes($product_id);
             
             // Store stock from product data if available
             if (isset($product_data['stock']) && is_numeric($product_data['stock'])) {
@@ -1246,11 +1565,179 @@ class ByteMash_Product_Sync {
     }
     
     /**
+     * ULTRA FAST: Update stock for entire batch at once (3 SQL queries instead of 300+)
+     */
+    public function update_batch_stock($stock_items) {
+        global $wpdb;
+        
+        // Build SKU to stock mapping with detailed data
+        $sku_stock_map = array();
+        foreach ($stock_items as $item) {
+            $simpleCode = $item['simpleCode'] ?? $item['simplecode'] ?? '';
+            if (empty($simpleCode)) continue;
+            
+            $stock_qty = isset($item['stock']) ? (int) $item['stock'] : 0;
+            $reserved_stock = isset($item['reservedStock']) ? (int) $item['reservedStock'] : 0;
+            $incoming_stock = $item['incomingStock'] ?? null;
+            
+            $sku_stock_map[$simpleCode] = array(
+                'stock' => $stock_qty,
+                'reserved' => $reserved_stock,
+                'incoming' => $incoming_stock
+            );
+        }
+        
+        if (empty($sku_stock_map)) {
+            return array('processed' => 0, 'errors' => 0);
+        }
+        
+        // Get ALL product IDs for ALL SKUs - build OR conditions safely
+        $like_conditions = array();
+        foreach (array_keys($sku_stock_map) as $sku) {
+            $like_conditions[] = $wpdb->prepare("meta_value LIKE %s", $wpdb->esc_like($sku) . '%');
+        }
+        
+        if (empty($like_conditions)) {
+            return array('processed' => 0, 'errors' => 0);
+        }
+        
+        $like_sql = implode(' OR ', $like_conditions);
+        $product_sku_map = $wpdb->get_results(
+            "SELECT post_id, meta_value as sku FROM {$wpdb->postmeta} 
+            WHERE meta_key = '_sku' 
+            AND ({$like_sql})",
+            ARRAY_A
+        );
+        
+        if (empty($product_sku_map)) {
+            return array('processed' => 0, 'errors' => 0);
+        }
+        
+        // Build CASE statements for bulk update
+        $stock_qty_cases = array();
+        $stock_status_cases = array();
+        $product_ids = array();
+        $detailed_stock_data = array(); // Store detailed data for later
+        
+        foreach ($product_sku_map as $row) {
+            $product_id = $row['post_id'];
+            $sku = $row['sku'];
+            
+            // Find matching simple code
+            $stock_data = null;
+            foreach ($sku_stock_map as $simple_code => $data) {
+                if (strpos($sku, $simple_code) === 0) {
+                    $stock_data = $data;
+                    break;
+                }
+            }
+            
+            if ($stock_data === null) continue;
+            
+            $stock_qty = $stock_data['stock'];
+            $product_ids[] = (int) $product_id;
+            $stock_status = $stock_qty > 0 ? 'instock' : 'outofstock';
+            
+            $stock_qty_cases[] = $wpdb->prepare("WHEN %d THEN %s", $product_id, $stock_qty);
+            $stock_status_cases[] = $wpdb->prepare("WHEN %d THEN %s", $product_id, $stock_status);
+            
+            // Store detailed data for this product
+            $detailed_stock_data[$product_id] = $stock_data;
+        }
+        
+        if (empty($product_ids)) {
+            return array('processed' => 0, 'errors' => 0);
+        }
+        
+        $product_ids_str = implode(',', $product_ids);
+        
+        // BULK UPDATE 1: Stock quantities (ONE query for ALL products)
+        $stock_qty_case_sql = implode(' ', $stock_qty_cases);
+        $wpdb->query(
+            "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value)
+            SELECT ID, '_stock', CASE ID {$stock_qty_case_sql} END
+            FROM {$wpdb->posts}
+            WHERE ID IN ({$product_ids_str})
+            ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)"
+        );
+        
+        // BULK UPDATE 2: Stock statuses (ONE query for ALL products)
+        $stock_status_case_sql = implode(' ', $stock_status_cases);
+        $wpdb->query(
+            "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value)
+            SELECT ID, '_stock_status', CASE ID {$stock_status_case_sql} END
+            FROM {$wpdb->posts}
+            WHERE ID IN ({$product_ids_str})
+            ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)"
+        );
+        
+        // BULK UPDATE 3: Set manage stock to yes (ONE query for ALL products)
+        $wpdb->query(
+            "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value)
+            SELECT ID, '_manage_stock', 'yes'
+            FROM {$wpdb->posts}
+            WHERE ID IN ({$product_ids_str})
+            ON DUPLICATE KEY UPDATE meta_value = 'yes'"
+        );
+        
+        // Store detailed stock information (reserved & incoming) for each product
+        foreach ($product_ids as $pid) {
+            if (isset($detailed_stock_data[$pid])) {
+                $data = $detailed_stock_data[$pid];
+                
+                // Store reserved stock
+                update_post_meta($pid, '_amrod_reserved_stock', $data['reserved']);
+                
+                // Store incoming stock (JSON encoded)
+                if (!empty($data['incoming']) && is_array($data['incoming'])) {
+                    update_post_meta($pid, '_amrod_incoming_stock', json_encode($data['incoming']));
+                } else {
+                    delete_post_meta($pid, '_amrod_incoming_stock');
+                }
+            }
+        }
+        
+        // Clear WooCommerce cache for all products (AGGRESSIVE)
+        foreach ($product_ids as $pid) {
+            // Clear WordPress cache
+            wp_cache_delete($pid, 'posts');
+            wp_cache_delete($pid, 'post_meta');
+            
+            // Clear WooCommerce cache
+            wp_cache_delete('product-' . $pid, 'products');
+            
+            // Force WooCommerce to reread from database
+            clean_post_cache($pid);
+            
+            // Clear transients
+            delete_transient('wc_product_' . $pid);
+            delete_transient('wc_var_prices_' . $pid);
+        }
+        
+        // Force WooCommerce to flush product cache
+        wp_cache_flush();
+        
+        // Update WooCommerce product lookup tables if they exist (WC 3.6+)
+        if (class_exists('WC_Product_Data_Store_CPT')) {
+            foreach ($product_ids as $pid) {
+                // Force WooCommerce to sync the lookup table
+                $data_store = WC_Data_Store::load('product');
+                if (method_exists($data_store, 'update_lookup_table')) {
+                    $data_store->update_lookup_table($pid, 'wc_product_meta_lookup');
+                }
+            }
+        }
+        
+        $this->logger->log('info', 'Batch stock updated: ' . count($product_ids) . ' products', array(), 'stock_sync');
+        
+        return array('processed' => count($stock_items), 'errors' => 0);
+    }
+    
+    /**
      * Update stock for a single product
      */
     public function update_single_stock($stock_item) {
         // Stock item structure: {simpleCode/simplecode, fullCode, stock}
-        // Note: API sometimes uses 'simplecode' (lowercase) and sometimes 'simpleCode' (camelCase)
         $fullCode = $stock_item['fullCode'] ?? '';
         $simpleCode = $stock_item['simpleCode'] ?? $stock_item['simplecode'] ?? '';
         
@@ -1258,111 +1745,230 @@ class ByteMash_Product_Sync {
             return array('success' => false, 'message' => 'No SKU in stock data');
         }
         
-        // Try multiple SKU variations (products might be stored with different formats)
+        // PERFORMANCE: Only log every 50th stock update
+        static $stock_counter = 0;
+        $stock_counter++;
+        $should_log = ($stock_counter % 50 === 0);
+        
+        global $wpdb;
+        $stock_qty = isset($stock_item['stock']) ? (int) $stock_item['stock'] : 0;
+        $stock_status = $stock_qty > 0 ? 'instock' : 'outofstock';
+        $reserved_stock = isset($stock_item['reservedStock']) ? (int) $stock_item['reservedStock'] : 0;
+        $incoming_stock = $stock_item['incomingStock'] ?? null;
+        
+        // Build SKU search patterns
         $skus_to_try = array_filter(array(
-            $fullCode,                              // Try full code first (e.g., "AF-AM-7-D-0-0")
-            $simpleCode,                            // Try simple code (e.g., "AF-AM-7-D")
-            preg_replace('/-0-0$/', '', $fullCode) // Try fullCode without "-0-0" suffix
+            $fullCode,
+            $simpleCode,
+            preg_replace('/-0-0$/', '', $fullCode)
         ));
         
-        $this->logger->log('info', '🔍 Attempting to match stock SKU', array(
-            'fullCode' => $fullCode,
-            'simpleCode' => $simpleCode,
-            'trying_skus' => $skus_to_try,
-            'stock' => $stock_item['stock'] ?? 'N/A',
-        ), 'stock_sync');
-        
         $product_ids = array();
-        $matched_sku = '';
-        $exact_match_found = false;
         
-        // Try exact matches first
-        foreach ($skus_to_try as $sku) {
-            $product_id = wc_get_product_id_by_sku($sku);
-            if ($product_id) {
-                $product_ids[] = $product_id;
-                $matched_sku = $sku;
-                $exact_match_found = true;
-                $this->logger->log('success', "✅ Exact SKU matched: {$sku} (Product ID: {$product_id})", array(), 'stock_sync');
-                break;
+        // FAST: Single query to find all matching products (exact + pattern)
+        if (!empty($simpleCode)) {
+            $like_pattern = $wpdb->esc_like($simpleCode) . '%';
+            $sku_list = "'" . implode("','", array_map('esc_sql', $skus_to_try)) . "'";
+            
+            $product_ids = $wpdb->get_col($wpdb->prepare(
+                "SELECT DISTINCT post_id FROM {$wpdb->postmeta} 
+                WHERE meta_key = '_sku' 
+                AND (meta_value IN ({$sku_list}) OR meta_value LIKE %s)
+                LIMIT 50",
+                $like_pattern
+            ));
+        }
+        
+        if (empty($product_ids)) {
+            if ($stock_counter % 100 === 0) { // Only log every 100th miss
+                $this->logger->log('warning', "Stock: No match for {$simpleCode}", array(), 'stock_sync');
+            }
+            return array('success' => false, 'message' => "Product not found");
+        }
+        
+        // FAST: Bulk SQL update instead of loading WC objects
+        $post_ids = implode(',', array_map('intval', $product_ids));
+        
+        // Update stock quantity
+        $wpdb->query($wpdb->prepare(
+            "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value)
+            SELECT ID, '_stock', %s FROM {$wpdb->posts}
+            WHERE ID IN ({$post_ids})
+            ON DUPLICATE KEY UPDATE meta_value = %s",
+            $stock_qty, $stock_qty
+        ));
+        
+        // Update stock status
+        $wpdb->query($wpdb->prepare(
+            "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value)
+            SELECT ID, '_stock_status', %s FROM {$wpdb->posts}
+            WHERE ID IN ({$post_ids})
+            ON DUPLICATE KEY UPDATE meta_value = %s",
+            $stock_status, $stock_status
+        ));
+        
+        // Set manage stock to 'yes'
+        $wpdb->query(
+            "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value)
+            SELECT ID, '_manage_stock', 'yes' FROM {$wpdb->posts}
+            WHERE ID IN ({$post_ids})
+            ON DUPLICATE KEY UPDATE meta_value = 'yes'"
+        );
+        
+        // Store detailed stock information for all matched products
+        foreach ($product_ids as $pid) {
+            update_post_meta($pid, '_amrod_reserved_stock', $reserved_stock);
+            
+            if (!empty($incoming_stock) && is_array($incoming_stock)) {
+                update_post_meta($pid, '_amrod_incoming_stock', json_encode($incoming_stock));
+            } else {
+                delete_post_meta($pid, '_amrod_incoming_stock');
             }
         }
         
-        // ALWAYS try pattern matching with simpleCode to catch all variants
-        // Example: Even if "ALT-1603" exists, also update "ALT-1603-Y", "ALT-1603-R", etc.
-        if (!empty($simpleCode)) {
-            global $wpdb;
-            $like_pattern = $wpdb->esc_like($simpleCode) . '%';
+        // Clear WooCommerce cache for these products
+        foreach ($product_ids as $pid) {
+            wp_cache_delete($pid, 'posts');
+            wp_cache_delete($pid, 'post_meta');
+        }
+        
+        if ($should_log) {
+            $this->logger->log('info', "Stock updated: {$stock_counter} items (last: {$simpleCode}, qty: {$stock_qty})", array(), 'stock_sync');
+        }
+        
+        return array('success' => true, 'sku' => $simpleCode, 'stock' => $stock_qty, 'updated_count' => count($product_ids));
+    }
+    
+    /**
+     * ULTRA FAST: Update prices for entire batch at once (3-4 SQL queries instead of 400+)
+     */
+    public function update_batch_prices($price_items) {
+        global $wpdb;
+        
+        // Build SKU to price mapping
+        $sku_price_map = array();
+        foreach ($price_items as $item) {
+            $simpleCode = $item['simpleCode'] ?? $item['simplecode'] ?? '';
+            if (empty($simpleCode)) continue;
             
-            $matching_products = $wpdb->get_results($wpdb->prepare(
-                "SELECT post_id, meta_value as sku FROM {$wpdb->postmeta} 
-                WHERE meta_key = '_sku' AND meta_value LIKE %s",
-                $like_pattern
-            ));
+            $sku_price_map[$simpleCode] = array(
+                'regular_price' => $item['price'] ?? 0,
+                'sale_price' => $item['salePrice'] ?? 0
+            );
+        }
+        
+        if (empty($sku_price_map)) {
+            return array('processed' => 0, 'errors' => 0);
+        }
+        
+        // Get ALL product IDs for ALL SKUs - build OR conditions safely
+        $like_conditions = array();
+        foreach (array_keys($sku_price_map) as $sku) {
+            $like_conditions[] = $wpdb->prepare("meta_value LIKE %s", $wpdb->esc_like($sku) . '%');
+        }
+        
+        if (empty($like_conditions)) {
+            return array('processed' => 0, 'errors' => 0);
+        }
+        
+        $like_sql = implode(' OR ', $like_conditions);
+        $product_sku_map = $wpdb->get_results(
+            "SELECT post_id, meta_value as sku FROM {$wpdb->postmeta} 
+            WHERE meta_key = '_sku' 
+            AND ({$like_sql})",
+            ARRAY_A
+        );
+        
+        if (empty($product_sku_map)) {
+            return array('processed' => 0, 'errors' => 0);
+        }
+        
+        // Build CASE statements for bulk update
+        $regular_price_cases = array();
+        $sale_price_cases = array();
+        $display_price_cases = array();
+        $product_ids = array();
+        
+        foreach ($product_sku_map as $row) {
+            $product_id = $row['post_id'];
+            $sku = $row['sku'];
             
-            if ($matching_products) {
-                $pattern_matched_count = 0;
-                foreach ($matching_products as $match) {
-                    // Avoid duplicates
-                    if (!in_array($match->post_id, $product_ids)) {
-                        $product_ids[] = $match->post_id;
-                        $pattern_matched_count++;
-                    }
+            // Find matching simple code
+            $prices = null;
+            foreach ($sku_price_map as $simple_code => $price_data) {
+                if (strpos($sku, $simple_code) === 0) {
+                    $prices = $price_data;
+                    break;
                 }
-                
-                if ($pattern_matched_count > 0) {
-                    $matched_sku = $simpleCode . '*';
-                    $log_msg = $exact_match_found 
-                        ? "✅ Pattern matched {$pattern_matched_count} additional variant(s) with SKU starting with: {$simpleCode}"
-                        : "✅ Pattern matched {$pattern_matched_count} product(s) with SKU starting with: {$simpleCode}";
-                    
-                    $this->logger->log('success', $log_msg, array(
-                        'total_products' => count($product_ids),
-                        'pattern_matched' => $pattern_matched_count,
-                        'exact_match' => $exact_match_found,
-                    ), 'stock_sync');
-                }
+            }
+            
+            if ($prices === null) continue;
+            
+            $product_ids[] = (int) $product_id;
+            $regular_price = $prices['regular_price'];
+            $sale_price = $prices['sale_price'];
+            $display_price = $sale_price > 0 ? $sale_price : $regular_price;
+            
+            if ($regular_price > 0) {
+                $regular_price_cases[] = $wpdb->prepare("WHEN %d THEN %s", $product_id, $regular_price);
+                $display_price_cases[] = $wpdb->prepare("WHEN %d THEN %s", $product_id, $display_price);
+            }
+            if ($sale_price > 0) {
+                $sale_price_cases[] = $wpdb->prepare("WHEN %d THEN %s", $product_id, $sale_price);
             }
         }
         
         if (empty($product_ids)) {
-            $attempted = implode(', ', $skus_to_try);
-            $this->logger->log('warning', "⚠️ No SKU match found", array(
-                'tried_skus' => $skus_to_try,
-                'tried_pattern' => $simpleCode . '%',
-                'fullCode' => $fullCode,
-                'simpleCode' => $simpleCode,
-            ), 'stock_sync');
-            return array('success' => false, 'message' => "Product not found. Tried SKUs: {$attempted}, Pattern: {$simpleCode}%");
+            return array('processed' => 0, 'errors' => 0);
         }
         
-        // Update all matched products
-        $updated_count = 0;
-        $failed_count = 0;
-        $stock_qty = isset($stock_item['stock']) ? (int) $stock_item['stock'] : 0;
+        $product_ids_str = implode(',', $product_ids);
         
+        // BULK UPDATE 1: Regular prices (ONE query for ALL products)
+        if (!empty($regular_price_cases)) {
+            $regular_price_case_sql = implode(' ', $regular_price_cases);
+            $wpdb->query(
+                "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value)
+                SELECT ID, '_regular_price', CASE ID {$regular_price_case_sql} END
+                FROM {$wpdb->posts}
+                WHERE ID IN ({$product_ids_str})
+                ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)"
+            );
+        }
+        
+        // BULK UPDATE 2: Display prices (ONE query for ALL products)
+        if (!empty($display_price_cases)) {
+            $display_price_case_sql = implode(' ', $display_price_cases);
+            $wpdb->query(
+                "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value)
+                SELECT ID, '_price', CASE ID {$display_price_case_sql} END
+                FROM {$wpdb->posts}
+                WHERE ID IN ({$product_ids_str})
+                ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)"
+            );
+        }
+        
+        // BULK UPDATE 3: Sale prices (ONE query for ALL products with sale prices)
+        if (!empty($sale_price_cases)) {
+            $sale_price_case_sql = implode(' ', $sale_price_cases);
+            $wpdb->query(
+                "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value)
+                SELECT ID, '_sale_price', CASE ID {$sale_price_case_sql} END
+                FROM {$wpdb->posts}
+                WHERE ID IN ({$product_ids_str})
+                ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)"
+            );
+        }
+        
+        // Clear cache for all products
         foreach ($product_ids as $pid) {
-            $product = wc_get_product($pid);
-            
-            if (!$product) {
-                $failed_count++;
-                continue;
-            }
-            
-            // Update stock
-            $product->set_manage_stock(true);
-            $product->set_stock_quantity($stock_qty);
-            $product->set_stock_status($stock_qty > 0 ? 'instock' : 'outofstock');
-            $product->save();
-            $updated_count++;
+            wp_cache_delete($pid, 'posts');
+            wp_cache_delete($pid, 'post_meta');
         }
         
-        if ($updated_count === 0) {
-            return array('success' => false, 'message' => "Failed to update any products");
-        }
+        $this->logger->log('info', 'Batch prices updated: ' . count($product_ids) . ' products', array(), 'price_sync');
         
-        $message = $updated_count > 1 ? " ({$updated_count} variants)" : "";
-        return array('success' => true, 'sku' => $matched_sku, 'stock' => $stock_qty, 'updated_count' => $updated_count, 'message' => $message);
+        return array('processed' => count($price_items), 'errors' => 0);
     }
     
     /**
@@ -1370,7 +1976,6 @@ class ByteMash_Product_Sync {
      */
     public function update_single_price($price_item) {
         // Price item structure: {simpleCode/simplecode, fullCode, price, salePrice}
-        // Note: API sometimes uses 'simplecode' (lowercase) and sometimes 'simpleCode' (camelCase)
         $fullCode = $price_item['fullCode'] ?? '';
         $simpleCode = $price_item['simpleCode'] ?? $price_item['simplecode'] ?? '';
         
@@ -1378,115 +1983,97 @@ class ByteMash_Product_Sync {
             return array('success' => false, 'message' => 'No SKU in price data');
         }
         
-        // Try multiple SKU variations (products might be stored with different formats)
+        // PERFORMANCE: Only log every 50th price update
+        static $price_counter = 0;
+        $price_counter++;
+        $should_log = ($price_counter % 50 === 0);
+        
+        global $wpdb;
+        $regular_price = $price_item['price'] ?? 0;
+        $sale_price = $price_item['salePrice'] ?? 0;
+        
+        // Build SKU search patterns
         $skus_to_try = array_filter(array(
-            $fullCode,                              // Try full code first (e.g., "AF-AM-7-D-0-0")
-            $simpleCode,                            // Try simple code (e.g., "AF-AM-7-D")
-            preg_replace('/-0-0$/', '', $fullCode) // Try fullCode without "-0-0" suffix
+            $fullCode,
+            $simpleCode,
+            preg_replace('/-0-0$/', '', $fullCode)
         ));
         
-        $this->logger->log('info', '🔍 Attempting to match price SKU', array(
-            'fullCode' => $fullCode,
-            'simpleCode' => $simpleCode,
-            'trying_skus' => $skus_to_try,
-            'price' => $price_item['price'] ?? 'N/A',
-        ), 'price_sync');
-        
-        $product_ids = array();
-        $matched_sku = '';
-        $exact_match_found = false;
-        
-        // Try exact matches first
-        foreach ($skus_to_try as $sku) {
-            $product_id = wc_get_product_id_by_sku($sku);
-            if ($product_id) {
-                $product_ids[] = $product_id;
-                $matched_sku = $sku;
-                $exact_match_found = true;
-                $this->logger->log('success', "✅ Exact SKU matched: {$sku} (Product ID: {$product_id})", array(), 'price_sync');
-                break;
-            }
-        }
-        
-        // ALWAYS try pattern matching with simpleCode to catch all variants
-        // Example: Even if "ALT-1603" exists, also update "ALT-1603-Y", "ALT-1603-R", etc.
+        // FAST: Single query to find all matching products (exact + pattern)
         if (!empty($simpleCode)) {
-            global $wpdb;
             $like_pattern = $wpdb->esc_like($simpleCode) . '%';
+            $sku_list = "'" . implode("','", array_map('esc_sql', $skus_to_try)) . "'";
             
-            $matching_products = $wpdb->get_results($wpdb->prepare(
-                "SELECT post_id, meta_value as sku FROM {$wpdb->postmeta} 
-                WHERE meta_key = '_sku' AND meta_value LIKE %s",
+            $product_ids = $wpdb->get_col($wpdb->prepare(
+                "SELECT DISTINCT post_id FROM {$wpdb->postmeta} 
+                WHERE meta_key = '_sku' 
+                AND (meta_value IN ({$sku_list}) OR meta_value LIKE %s)
+                LIMIT 50",
                 $like_pattern
             ));
-            
-            if ($matching_products) {
-                $pattern_matched_count = 0;
-                foreach ($matching_products as $match) {
-                    // Avoid duplicates
-                    if (!in_array($match->post_id, $product_ids)) {
-                        $product_ids[] = $match->post_id;
-                        $pattern_matched_count++;
-                    }
-                }
-                
-                if ($pattern_matched_count > 0) {
-                    $matched_sku = $simpleCode . '*';
-                    $log_msg = $exact_match_found 
-                        ? "✅ Pattern matched {$pattern_matched_count} additional variant(s) with SKU starting with: {$simpleCode}"
-                        : "✅ Pattern matched {$pattern_matched_count} product(s) with SKU starting with: {$simpleCode}";
-                    
-                    $this->logger->log('success', $log_msg, array(
-                        'total_products' => count($product_ids),
-                        'pattern_matched' => $pattern_matched_count,
-                        'exact_match' => $exact_match_found,
-                    ), 'price_sync');
-                }
-            }
         }
         
         if (empty($product_ids)) {
-            $attempted = implode(', ', $skus_to_try);
-            $this->logger->log('warning', "⚠️ No SKU match found", array(
-                'tried_skus' => $skus_to_try,
-                'tried_pattern' => $simpleCode . '%',
-                'fullCode' => $fullCode,
-                'simpleCode' => $simpleCode,
-            ), 'price_sync');
-            return array('success' => false, 'message' => "Product not found. Tried SKUs: {$attempted}, Pattern: {$simpleCode}%");
+            if ($price_counter % 100 === 0) { // Only log every 100th miss
+                $this->logger->log('warning', "Price: No match for {$simpleCode}", array(), 'price_sync');
+            }
+            return array('success' => false, 'message' => "Product not found");
         }
         
-        // Update all matched products
-        $updated_count = 0;
-        $failed_count = 0;
+        // FAST: Bulk SQL update instead of loading WC objects
+        $post_ids = implode(',', array_map('intval', $product_ids));
         
+        // Update regular price
+        if ($regular_price > 0) {
+            $wpdb->query($wpdb->prepare(
+                "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value)
+                SELECT ID, '_regular_price', %s FROM {$wpdb->posts}
+                WHERE ID IN ({$post_ids})
+                ON DUPLICATE KEY UPDATE meta_value = %s",
+                $regular_price, $regular_price
+            ));
+            
+            // Also update _price (WooCommerce uses this for display)
+            $wpdb->query($wpdb->prepare(
+                "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value)
+                SELECT ID, '_price', %s FROM {$wpdb->posts}
+                WHERE ID IN ({$post_ids})
+                ON DUPLICATE KEY UPDATE meta_value = %s",
+                $regular_price, $regular_price
+            ));
+        }
+        
+        // Update sale price if provided
+        if ($sale_price > 0) {
+            $wpdb->query($wpdb->prepare(
+                "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value)
+                SELECT ID, '_sale_price', %s FROM {$wpdb->posts}
+                WHERE ID IN ({$post_ids})
+                ON DUPLICATE KEY UPDATE meta_value = %s",
+                $sale_price, $sale_price
+            ));
+            
+            // Update _price to sale price (WooCommerce displays sale price)
+            $wpdb->query($wpdb->prepare(
+                "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value)
+                SELECT ID, '_price', %s FROM {$wpdb->posts}
+                WHERE ID IN ({$post_ids})
+                ON DUPLICATE KEY UPDATE meta_value = %s",
+                $sale_price, $sale_price
+            ));
+        }
+        
+        // Clear WooCommerce cache for these products
         foreach ($product_ids as $pid) {
-            $product = wc_get_product($pid);
-            
-            if (!$product) {
-                $failed_count++;
-                continue;
-            }
-            
-            // Update prices
-            if (isset($price_item['price'])) {
-                $product->set_regular_price($price_item['price']);
-            }
-            
-            if (isset($price_item['salePrice']) && $price_item['salePrice'] > 0) {
-                $product->set_sale_price($price_item['salePrice']);
-            }
-            
-            $product->save();
-            $updated_count++;
+            wp_cache_delete($pid, 'posts');
+            wp_cache_delete($pid, 'post_meta');
         }
         
-        if ($updated_count === 0) {
-            return array('success' => false, 'message' => "Failed to update any products");
+        if ($should_log) {
+            $this->logger->log('info', "Prices updated: {$price_counter} items (last: {$simpleCode}, price: {$regular_price})", array(), 'price_sync');
         }
         
-        $message = $updated_count > 1 ? " ({$updated_count} variants)" : "";
-        return array('success' => true, 'sku' => $matched_sku, 'price' => $price_item['price'] ?? 0, 'updated_count' => $updated_count, 'message' => $message);
+        return array('success' => true, 'sku' => $simpleCode, 'price' => $regular_price, 'updated_count' => count($product_ids));
     }
     
     /**
