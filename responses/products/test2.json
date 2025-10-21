@@ -1,0 +1,387 @@
+{
+  "actionType": 1,
+  "simpleCode": "ALT-1602-L",
+  "fullCode": "ALT-1602-L",
+  "categorisedAttribute": [],
+  "gender": null,
+  "material": "100% Polyester",
+  "fit": "",
+  "feature": "",
+  "categories": [
+    {
+      "id": 49056,
+      "name": "Rainwear",
+      "path": "workwear/rainwear",
+      "code": "Rainwear",
+      "image": "https://amrcdn.amrod.co.za/amrodprod-blob/_default_upload_bucket/Rainwear.jpg"
+    }
+  ],
+  "brand": null,
+  "companionCodes": [{ "simpleCode": "ALT-1901", "fullCode": "ALT-1901" }],
+  "relatedCodes": [{ "simpleCode": "ALT-1601-L", "fullCode": "ALT-1601-L" }],
+  "matchingCodes": [],
+  "groupingCodes": [],
+  "groupingCodeGiftsets": [],
+  "productName": "Torrent Two-Tone Hi-Viz Ref Polyester/PVC Rainsuit - Lime",
+  "description": "<ul><br /><li>180g/m2</li><br /><li>70D / 170T 100% polyester, 0,18mm PVC (rubberised)</li><br /><li>jacket: two-tone with silver 50mm reflective tape detail &bull; hood with drawcord and stoppers &bull; ventilated back with inner mesh cape</li><br /><li>concealed zip features double storm flap with press stud closure &bull; eyelets under arms &bull; open-end sleeves with inner elasticated cuffs &bull; two front solid pockets with flap</li><br /><li>drawcord with stoppers at hem &bull; double-needle top stitching detail &bull; pants: two-tone with silver 50mm reflective tape detail</li><br /><li>fully elasticated waistband &bull; leg opening features adjustable press studs &bull; double-needle top stitching detail</li><br /><li>rainproof</li><br /><li>day/night visibility</li><br /><li>includes matching carry pouch</li><br /></ul>",
+  "minimum": 0,
+  "maximum": 0,
+  "incrementedBy": 0,
+  "keywords": "high visibility rainsuit; high-visibility rainsuit; high-viz rainsuit; hi-visibility rainsuit; hi-viz rainsuit; polyester rainsuit; pvc rainsuit; rain suit; rubberized rainsuit; two-tone rai",
+  "tags": "",
+  "inventoryType": "6",
+  "behaviour": "0",
+  "madeToOrder": "",
+  "madeToOrderMessage": "",
+  "displayCountryOfOrigin": "",
+  "promotion": "3",
+  "fullBrandingGuide": "https://amrcdn.amrod.co.za/amrodprod-blob/Pdf Templates/WR-AL-3-F/Full Guide/WR-AL-3-F_1747158173.pdf",
+  "logo24BrandingGuide": null,
+  "images": [
+    {
+      "name": "ALT-1602-L",
+      "isDefault": true,
+      "urls": [
+        {
+          "url": "https://amrcdn.amrod.co.za/amrodprod-blob/ProductImages/ALT-1602/ALT-1602-L_1024X1024.jpg",
+          "width": 1024,
+          "height": 1024
+        }
+      ],
+      "hasLogo": false,
+      "angle": null,
+      "type": "defaultUnbrandedImage"
+    },
+    {
+      "name": "ALT-1602-L-GHSI",
+      "isDefault": false,
+      "urls": [
+        {
+          "url": "https://amrcdn.amrod.co.za/amrodprod-blob/ProductImages/ALT-1602/ALT-1602-L-GHSI_1024X1024.jpg",
+          "width": 1024,
+          "height": 1024
+        }
+      ],
+      "hasLogo": false,
+      "angle": null,
+      "type": "additionalClearanceImage"
+    },
+    {
+      "name": "ALT-1602-L-DT01",
+      "isDefault": false,
+      "urls": [
+        {
+          "url": "https://amrcdn.amrod.co.za/amrodprod-blob/ProductImages/ALT-1602/ALT-1602-L-DT01_1024X1024.jpg",
+          "width": 1024,
+          "height": 1024
+        }
+      ],
+      "hasLogo": false,
+      "angle": null,
+      "type": "additionalClearanceImage"
+    },
+    {
+      "name": "ALT-1602-L-GHBK",
+      "isDefault": false,
+      "urls": [
+        {
+          "url": "https://amrcdn.amrod.co.za/amrodprod-blob/ProductImages/ALT-1602/ALT-1602-L-GHBK_1024X1024.jpg",
+          "width": 1024,
+          "height": 1024
+        }
+      ],
+      "hasLogo": false,
+      "angle": null,
+      "type": "additionalClearanceImage"
+    }
+  ],
+  "videos": [],
+  "colourImages": [
+    {
+      "name": "Lime",
+      "code": "L",
+      "images": [
+        {
+          "name": "ALT-1602-L",
+          "isDefault": true,
+          "urls": [
+            {
+              "url": "https://amrcdn.amrod.co.za/amrodprod-blob/ProductImages/ALT-1602/ALT-1602-L_1024X1024.jpg",
+              "width": 1024,
+              "height": 1024
+            }
+          ],
+          "hasLogo": false,
+          "angle": null,
+          "type": "defaultUnbrandedImage"
+        },
+        {
+          "name": "ALT-1602-L-GHSI",
+          "isDefault": false,
+          "urls": [
+            {
+              "url": "https://amrcdn.amrod.co.za/amrodprod-blob/ProductImages/ALT-1602/ALT-1602-L-GHSI_1024X1024.jpg",
+              "width": 1024,
+              "height": 1024
+            }
+          ],
+          "hasLogo": false,
+          "angle": null,
+          "type": "additionalClearanceImage"
+        },
+        {
+          "name": "ALT-1602-L-DT01",
+          "isDefault": false,
+          "urls": [
+            {
+              "url": "https://amrcdn.amrod.co.za/amrodprod-blob/ProductImages/ALT-1602/ALT-1602-L-DT01_1024X1024.jpg",
+              "width": 1024,
+              "height": 1024
+            }
+          ],
+          "hasLogo": false,
+          "angle": null,
+          "type": "additionalClearanceImage"
+        },
+        {
+          "name": "ALT-1602-L-GHBK",
+          "isDefault": false,
+          "urls": [
+            {
+              "url": "https://amrcdn.amrod.co.za/amrodprod-blob/ProductImages/ALT-1602/ALT-1602-L-GHBK_1024X1024.jpg",
+              "width": 1024,
+              "height": 1024
+            }
+          ],
+          "hasLogo": false,
+          "angle": null,
+          "type": "additionalClearanceImage"
+        }
+      ]
+    }
+  ],
+  "brandings": [
+    {
+      "positionName": "On Back of Jacket",
+      "positionCode": "A",
+      "positionComment": null,
+      "positionMultiplier": 1,
+      "method": [
+        {
+          "brandingName": "Screen Print",
+          "brandingDepartment": "Screenprint",
+          "brandingCode": "SB",
+          "brandingInclusiveMethod": false,
+          "displayIndex": "1",
+          "maxPrintingSizeWidth": "200",
+          "maxPrintingSizeHeight": "40",
+          "numberOfColours": "1 Colour",
+          "brandingMultiplier": 1,
+          "exclusions": []
+        }
+      ]
+    }
+  ],
+  "isLogo24": false,
+  "logo24Branding": null,
+  "inclusiveBranding": [],
+  "variants": [
+    {
+      "simpleCode": "ALT-1602-L",
+      "fullCode": "ALT-1602-L-S",
+      "codeColour": "L",
+      "codeColourName": "LIME",
+      "codeSize": "S",
+      "codeSizeName": "S",
+      "categorisedAttribute": [
+        {
+          "key": "Suit Tape Detail",
+          "value": "silver 50mm reflective tape detail"
+        }
+      ],
+      "packagingAndDimension": {
+        "cartonSizeDimensionL": 48,
+        "cartonSizeDimensionW": 30,
+        "cartonSizeDimensionH": 32,
+        "piecesPerCarton": 20,
+        "cartonWeight": 21
+      },
+      "productDimension": { "length": 25.6, "width": 32.7, "weight": 0.874 },
+      "isLogo24": false,
+      "components": null
+    },
+    {
+      "simpleCode": "ALT-1602-L",
+      "fullCode": "ALT-1602-L-M",
+      "codeColour": "L",
+      "codeColourName": "LIME",
+      "codeSize": "M",
+      "codeSizeName": "M",
+      "categorisedAttribute": [
+        {
+          "key": "Suit Tape Detail",
+          "value": "silver 50mm reflective tape detail"
+        }
+      ],
+      "packagingAndDimension": {
+        "cartonSizeDimensionL": 48,
+        "cartonSizeDimensionW": 30,
+        "cartonSizeDimensionH": 32,
+        "piecesPerCarton": 20,
+        "cartonWeight": 21
+      },
+      "productDimension": { "length": 26.1, "width": 32.7, "weight": 0.89 },
+      "isLogo24": false,
+      "components": null
+    },
+    {
+      "simpleCode": "ALT-1602-L",
+      "fullCode": "ALT-1602-L-L",
+      "codeColour": "L",
+      "codeColourName": "LIME",
+      "codeSize": "L",
+      "codeSizeName": "L",
+      "categorisedAttribute": [
+        {
+          "key": "Suit Tape Detail",
+          "value": "silver 50mm reflective tape detail"
+        }
+      ],
+      "packagingAndDimension": {
+        "cartonSizeDimensionL": 48,
+        "cartonSizeDimensionW": 30,
+        "cartonSizeDimensionH": 32,
+        "piecesPerCarton": 20,
+        "cartonWeight": 21
+      },
+      "productDimension": { "length": 26.1, "width": 32.5, "weight": 0.938 },
+      "isLogo24": false,
+      "components": null
+    },
+    {
+      "simpleCode": "ALT-1602-L",
+      "fullCode": "ALT-1602-L-XL",
+      "codeColour": "L",
+      "codeColourName": "LIME",
+      "codeSize": "XL",
+      "codeSizeName": "XL",
+      "categorisedAttribute": [
+        {
+          "key": "Suit Tape Detail",
+          "value": "silver 50mm reflective tape detail"
+        }
+      ],
+      "packagingAndDimension": {
+        "cartonSizeDimensionL": 48,
+        "cartonSizeDimensionW": 30,
+        "cartonSizeDimensionH": 32,
+        "piecesPerCarton": 20,
+        "cartonWeight": 21
+      },
+      "productDimension": { "length": 26.7, "width": 32.8, "weight": 0.966 },
+      "isLogo24": false,
+      "components": null
+    },
+    {
+      "simpleCode": "ALT-1602-L",
+      "fullCode": "ALT-1602-L-2XL",
+      "codeColour": "L",
+      "codeColourName": "LIME",
+      "codeSize": "2XL",
+      "codeSizeName": "2XL",
+      "categorisedAttribute": [
+        {
+          "key": "Suit Tape Detail",
+          "value": "silver 50mm reflective tape detail"
+        }
+      ],
+      "packagingAndDimension": {
+        "cartonSizeDimensionL": 48,
+        "cartonSizeDimensionW": 30,
+        "cartonSizeDimensionH": 32,
+        "piecesPerCarton": 20,
+        "cartonWeight": 21
+      },
+      "productDimension": { "length": 25.5, "width": 31.7, "weight": 1.014 },
+      "isLogo24": false,
+      "components": null
+    },
+    {
+      "simpleCode": "ALT-1602-L",
+      "fullCode": "ALT-1602-L-3XL",
+      "codeColour": "L",
+      "codeColourName": "LIME",
+      "codeSize": "3XL",
+      "codeSizeName": "3XL",
+      "categorisedAttribute": [
+        {
+          "key": "Suit Tape Detail",
+          "value": "silver 50mm reflective tape detail"
+        }
+      ],
+      "packagingAndDimension": {
+        "cartonSizeDimensionL": 48,
+        "cartonSizeDimensionW": 30,
+        "cartonSizeDimensionH": 32,
+        "piecesPerCarton": 20,
+        "cartonWeight": 21
+      },
+      "productDimension": { "length": 25.3, "width": 32.9, "weight": 1.074 },
+      "isLogo24": false,
+      "components": null
+    },
+    {
+      "simpleCode": "ALT-1602-L",
+      "fullCode": "ALT-1602-L-4XL",
+      "codeColour": "L",
+      "codeColourName": "LIME",
+      "codeSize": "4XL",
+      "codeSizeName": "4XL",
+      "categorisedAttribute": [
+        {
+          "key": "Suit Tape Detail",
+          "value": "silver 50mm reflective tape detail"
+        }
+      ],
+      "packagingAndDimension": {
+        "cartonSizeDimensionL": 48,
+        "cartonSizeDimensionW": 30,
+        "cartonSizeDimensionH": 32,
+        "piecesPerCarton": 20,
+        "cartonWeight": 21
+      },
+      "productDimension": { "length": 25.8, "width": 32.3, "weight": 1.098 },
+      "isLogo24": false,
+      "components": null
+    },
+    {
+      "simpleCode": "ALT-1602-L",
+      "fullCode": "ALT-1602-L-5XL",
+      "codeColour": "L",
+      "codeColourName": "LIME",
+      "codeSize": "5XL",
+      "codeSizeName": "5XL",
+      "categorisedAttribute": [
+        {
+          "key": "Suit Tape Detail",
+          "value": "silver 50mm reflective tape detail"
+        }
+      ],
+      "packagingAndDimension": {
+        "cartonSizeDimensionL": 48,
+        "cartonSizeDimensionW": 30,
+        "cartonSizeDimensionH": 32,
+        "piecesPerCarton": 10,
+        "cartonWeight": 21
+      },
+      "productDimension": { "length": 26, "width": 32.2, "weight": 1.134 },
+      "isLogo24": false,
+      "components": null
+    }
+  ],
+  "requiredBrandingPositions": [],
+  "noCoBrandingPositions": [],
+  "brandingTemplates": [],
+  "decoupled": true,
+  "type": "Product"
+}

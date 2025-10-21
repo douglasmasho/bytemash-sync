@@ -414,17 +414,12 @@
                     
                     // Safety check: Ensure batch element exists AFTER window update
                     if ($('#batch_' + batch).length === 0) {
-                        console.error('❌ Batch element STILL not found for batch ' + batch + ' after window update!');
-                        // Try to create it dynamically
-                        const windowStart = Math.floor(batch / 10) * 10;
-                        if (batch >= windowStart && batch < windowStart + 10) {
-                            console.log('Creating missing batch element dynamically');
-                            const batchHtml = '<div class="batch-item" id="batch_' + batch + '" data-batch="' + batch + '">' +
-                                '<span class="batch-number">Batch ' + (batch + 1) + '</span>' +
-                                '<span class="batch-status">Processing...</span>' +
-                                '</div>';
-                            $('#batch_list').append(batchHtml);
-                        }
+                        console.log('Creating missing batch element for batch ' + batch);
+                        const batchHtml = '<div class="batch-item" id="batch_' + batch + '" data-batch="' + batch + '">' +
+                            '<span class="batch-number">Batch ' + (batch + 1) + '</span>' +
+                            '<span class="batch-status">Processing...</span>' +
+                            '</div>';
+                        $('#batch_list').append(batchHtml);
                     }
                     
                     // Update UI for completed batch with detailed status
@@ -580,9 +575,9 @@
                         return; // Stop processing
                     }
                     
-                    // Continue to next batch (minimal delay for UI updates)
-                    console.log('➡️ Processing next batch in 50ms...');
-                    setTimeout(() => processNextBatchFromQueue(syncId, totalBatches), 50);
+                    // Continue to next batch immediately (no delay)
+                    console.log('➡️ Processing next batch immediately...');
+                    processNextBatchFromQueue(syncId, totalBatches);
                 },
                 error: function(xhr, status, error) {
                     // Release lock

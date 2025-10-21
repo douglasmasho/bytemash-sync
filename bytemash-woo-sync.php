@@ -3,7 +3,7 @@
  * Plugin Name: ByteMash WooCommerce Amrod Sync
  * Plugin URI: https://bytemash.com/woo-amrod-sync
  * Description: Memory-efficient WooCommerce plugin that syncs products, variations, stock, images, and all data from Amrod API with automatic scheduling and comprehensive dashboard. Features automatic memory management and token refresh!
- * Version: 2.5.0
+ * Version: 2.7.0
  * Author: ByteMash
  * Author URI: https://bytemash.com
  * License: GPL v2 or later
@@ -100,6 +100,7 @@ class ByteMash_Woo_Sync {
         // Frontend: Enhanced stock display
         add_action('wp_enqueue_scripts', array($this, 'enqueue_frontend_stock_display'));
         add_action('woocommerce_single_product_summary', array($this, 'display_enhanced_stock'), 15);
+        add_action('woocommerce_product_meta_end', array($this, 'display_branding_guide'));
         
         // Admin hooks
         if (is_admin()) {
@@ -1333,25 +1334,26 @@ class ByteMash_Woo_Sync {
         
         $sync_type = $sync_info['type'] ?? 'products';
         
-        // Enable performance mode BEFORE processing batch
-        $this->enable_batch_performance_mode();
-        
-        // ULTRA FAST: Bulk process entire batch for stock/prices (single-pass SQL)
-        if ($sync_type === 'stock') {
-            $result = $product_sync->update_batch_stock($batch_data);
-            $processed = $result['processed'];
-            $errors = $result['errors'];
-        } elseif ($sync_type === 'prices') {
-            $result = $product_sync->update_batch_prices($batch_data);
-            $processed = $result['processed'];
-            $errors = $result['errors'];
-        } elseif ($sync_type === 'products') {
-            // Use optimized batch processing for products
-            $result = $product_sync->sync_batch_products($batch_data);
-            $processed = $result['processed'];
-            $errors = $result['errors'];
-            $skipped = $result['skipped'];
-        } else {
+        try {
+            // Enable performance mode BEFORE processing batch
+            $this->enable_batch_performance_mode();
+            
+            // ULTRA FAST: Bulk process entire batch for stock/prices (single-pass SQL)
+            if ($sync_type === 'stock') {
+                $result = $product_sync->update_batch_stock($batch_data);
+                $processed = $result['processed'];
+                $errors = $result['errors'];
+            } elseif ($sync_type === 'prices') {
+                $result = $product_sync->update_batch_prices($batch_data);
+                $processed = $result['processed'];
+                $errors = $result['errors'];
+            } elseif ($sync_type === 'products') {
+                // Use optimized batch processing for products
+                $result = $product_sync->sync_batch_products($batch_data);
+                $processed = $result['processed'];
+                $errors = $result['errors'];
+                $skipped = $result['skipped'] ?? 0;
+            } else {
             // Process item by item for other types
             foreach ($batch_data as $item_data) {
                 if ($sync_type === 'orphan_prices') {
@@ -1380,10 +1382,35 @@ class ByteMash_Woo_Sync {
                     $errors++;
                 }
             }
+            }
+            
+            // Disable performance mode AFTER processing batch
+            $this->disable_batch_performance_mode();
+            
+        } catch (Exception $e) {
+            // Disable performance mode on error
+            $this->disable_batch_performance_mode();
+            
+            // Log the error
+            error_log('[ByteMash] AJAX BATCH ERROR: ' . $e->getMessage());
+            error_log('[ByteMash] Line: ' . $e->getLine() . ' in ' . $e->getFile());
+            error_log('[ByteMash] Trace: ' . $e->getTraceAsString());
+            
+            // Mark batch as failed
+            $wpdb->update($table_name,
+                array('status' => 'failed'),
+                array('id' => $batch_row->id)
+            );
+            
+            // Return detailed error
+            wp_send_json_error(array(
+                'message' => 'Batch processing failed: ' . $e->getMessage(),
+                'error' => $e->getMessage(),
+                'line' => $e->getLine(),
+                'file' => basename($e->getFile()),
+            ));
+            return;
         }
-        
-        // Disable performance mode AFTER processing batch
-        $this->disable_batch_performance_mode();
         
         // Mark batch as complete
         $wpdb->update($table_name,
@@ -1600,7 +1627,7 @@ class ByteMash_Woo_Sync {
     /**
      * Render stock details modal template
      */
-    private function render_stock_modal_template() {
+    public function render_stock_modal_template() {
         global $product;
         if (!$product) return;
         
@@ -1680,6 +1707,26 @@ class ByteMash_Woo_Sync {
             </div>
         </div>
         <?php
+    }
+    
+    /**
+     * Display branding guide on product page
+     */
+    public function display_branding_guide() {
+        global $product;
+        
+        if (!$product) return;
+        
+        $product_id = $product->get_id();
+        $branding_guide = get_post_meta($product_id, '_amrod_full_branding_guide', true);
+        
+        if ($branding_guide) {
+            echo '<div class="amrod-branding-guide" style="margin: 15px 0;">';
+            echo '<a href="' . esc_url($branding_guide) . '" class="button" target="_blank" style="display: inline-block;">';
+            echo 'Download Branding Guide';
+            echo '</a>';
+            echo '</div>';
+        }
     }
 }
 

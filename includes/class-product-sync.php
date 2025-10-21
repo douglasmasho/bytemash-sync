@@ -613,83 +613,99 @@ class ByteMash_Product_Sync {
     }
     
     /**
-     * Bulk insert/update simple products using HYBRID approach (ULTRA-FAST + SAFE)
-     * 
-     * Strategy:
-     * 1. Use bulk SQL for initial creation (fast)
-     * 2. Use WooCommerce save to finalize (ensures all fields)
-     * 3. Best of both worlds!
+     * Bulk insert/update simple products using WooCommerce (RELIABLE + OPTIMIZED)
      */
     private function bulk_insert_simple_products($products) {
-        global $wpdb;
-        
         $processed = 0;
         $errors = 0;
-        $product_ids_to_finalize = array();
         
-        $this->logger->log('info', 'HYBRID bulk processing simple products', array(
-            'count' => count($products),
-        ), 'product_sync');
+        // Pre-fetch all existing SKUs in one query
+        global $wpdb;
+        $skus = array_filter(array_map(function($p) {
+            return $p['simpleCode'] ?? $p['fullCode'] ?? null;
+        }, $products));
+        
+        $existing_products = array();
+        if (!empty($skus)) {
+            $sku_list = array();
+            foreach ($skus as $sku) {
+                $sku_list[] = $wpdb->prepare('%s', $sku);
+            }
+            $sku_in = implode(',', $sku_list);
+            
+            $results = $wpdb->get_results(
+                "SELECT p.ID, pm.meta_value as sku 
+                FROM {$wpdb->posts} p 
+                INNER JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id 
+                WHERE pm.meta_key = '_sku' AND pm.meta_value IN ($sku_in)"
+            );
+            
+            foreach ($results as $row) {
+                $existing_products[$row->sku] = $row->ID;
+            }
+        }
+        
+        // Cache categories to avoid repeated term_exists() calls
+        $category_cache = array();
         
         foreach ($products as $product_data) {
             $sku = $product_data['simpleCode'] ?? $product_data['fullCode'] ?? null;
-            if (!$sku) continue;
+            if (!$sku) {
+                $errors++;
+                continue;
+            }
             
             $sku = sanitize_text_field($sku);
             
-            // Check if product exists
-            $existing_id = wc_get_product_id_by_sku($sku);
+            // Use pre-fetched data instead of querying each time
+            $existing_id = $existing_products[$sku] ?? null;
             
             if ($existing_id) {
-                // Product exists - use WooCommerce object for update
                 $product = wc_get_product($existing_id);
             } else {
-                // Product doesn't exist - create with WooCommerce (ensures all fields)
                 $product = new WC_Product_Simple();
             }
             
-            // Set all product data
+            if (!$product) {
+                $errors++;
+                continue;
+            }
+            
+            // Set basic data
             $product->set_sku($sku);
             $product->set_name(sanitize_text_field($product_data['productName'] ?? ''));
             $product->set_description(wp_kses_post($product_data['description'] ?? ''));
             $product->set_status('publish');
-            
-            // Set catalog visibility
             $product->set_catalog_visibility('visible');
-            
-            // Set stock management
             $product->set_manage_stock(true);
             $product->set_stock_status('instock');
-            
-            // Set pricing (default to 0, will be updated by price sync)
             $product->set_regular_price(0);
-            
-            // Set tax settings
             $product->set_tax_status('taxable');
             $product->set_tax_class('');
             
-            // Set shipping settings
-            $product->set_virtual(false);
-            $product->set_downloadable(false);
-            
-            // Set purchase settings
-            $product->set_sold_individually(false);
-            
-            // Set categories
+            // Set categories (with caching)
             if (!empty($product_data['categories']) && is_array($product_data['categories'])) {
                 $category_ids = array();
                 foreach ($product_data['categories'] as $category_data) {
                     $category_name = $category_data['name'] ?? null;
                     if (!$category_name) continue;
                     
-                    // Get or create category
-                    $term = term_exists($category_name, 'product_cat');
-                    if (!$term) {
-                        $term = wp_insert_term($category_name, 'product_cat');
+                    // Check cache first
+                    if (!isset($category_cache[$category_name])) {
+                        $term = term_exists($category_name, 'product_cat');
+                        if (!$term) {
+                            $term = wp_insert_term($category_name, 'product_cat');
+                        }
+                        
+                        if (!is_wp_error($term) && isset($term['term_id'])) {
+                            $category_cache[$category_name] = (int) $term['term_id'];
+                        } else {
+                            $category_cache[$category_name] = null;
+                        }
                     }
                     
-                    if (!is_wp_error($term) && isset($term['term_id'])) {
-                        $category_ids[] = (int) $term['term_id'];
+                    if ($category_cache[$category_name]) {
+                        $category_ids[] = $category_cache[$category_name];
                     }
                 }
                 if (!empty($category_ids)) {
@@ -697,12 +713,7 @@ class ByteMash_Product_Sync {
                 }
             }
             
-            // Set brand if available
-            if (!empty($product_data['brand'])) {
-                $this->set_product_brand($product, $product_data['brand']);
-            }
-            
-            // Save product (WooCommerce ensures all required fields are set)
+            // Save product
             $product_id = $product->save();
             
             if (!$product_id) {
@@ -710,37 +721,18 @@ class ByteMash_Product_Sync {
                 continue;
             }
             
-            // Set external image URL
+            // Set external image
             if (!empty($product_data['images'][0]['urls'][0]['url'])) {
-                $image_url = $product_data['images'][0]['urls'][0]['url'];
-                update_post_meta($product_id, '_thumbnail_external_url', $image_url);
+                update_post_meta($product_id, '_thumbnail_external_url', $product_data['images'][0]['urls'][0]['url']);
             }
             
-            // Set branding guide
-            if (!empty($product_data['fullBrandingGuide'])) {
-                update_post_meta($product_id, '_amrod_branding_guide', $product_data['fullBrandingGuide']);
-            }
-            
-            // Store additional Amrod metadata
+            // Store all Amrod metadata (includes branding guides)
             $this->sync_product_meta($product_id, $product_data);
             
             $processed++;
-            
-            // Clear cache every 10 products to manage memory
-            if ($processed % 10 === 0) {
-                wp_cache_flush();
-            }
         }
         
-        $this->logger->log('info', 'HYBRID bulk processing completed', array(
-            'processed' => $processed,
-            'errors' => $errors,
-        ), 'product_sync');
-        
-        return array(
-            'processed' => $processed,
-            'errors' => $errors,
-        );
+        return array('processed' => $processed, 'errors' => $errors);
     }
     
     /**
@@ -1618,6 +1610,8 @@ class ByteMash_Product_Sync {
         $stock_status_cases = array();
         $product_ids = array();
         $detailed_stock_data = array(); // Store detailed data for later
+        $matched_count = 0;
+        $unmatched_count = 0;
         
         foreach ($product_sku_map as $row) {
             $product_id = $row['post_id'];
@@ -1632,11 +1626,15 @@ class ByteMash_Product_Sync {
                 }
             }
             
-            if ($stock_data === null) continue;
+            if ($stock_data === null) {
+                $unmatched_count++;
+                continue;
+            }
             
             $stock_qty = $stock_data['stock'];
             $product_ids[] = (int) $product_id;
             $stock_status = $stock_qty > 0 ? 'instock' : 'outofstock';
+            $matched_count++;
             
             $stock_qty_cases[] = $wpdb->prepare("WHEN %d THEN %s", $product_id, $stock_qty);
             $stock_status_cases[] = $wpdb->prepare("WHEN %d THEN %s", $product_id, $stock_status);
@@ -1649,84 +1647,79 @@ class ByteMash_Product_Sync {
             return array('processed' => 0, 'errors' => 0);
         }
         
-        $product_ids_str = implode(',', $product_ids);
-        
-        // BULK UPDATE 1: Stock quantities (ONE query for ALL products)
-        $stock_qty_case_sql = implode(' ', $stock_qty_cases);
-        $wpdb->query(
-            "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value)
-            SELECT ID, '_stock', CASE ID {$stock_qty_case_sql} END
-            FROM {$wpdb->posts}
-            WHERE ID IN ({$product_ids_str})
-            ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)"
+        // PERFORMANCE: Disable unnecessary actions during bulk update
+        $actions_to_remove = array(
+            'woocommerce_update_product',
+            'woocommerce_product_set_stock',
+            'woocommerce_variation_set_stock',
+            'woocommerce_product_object_updated_props'
         );
         
-        // BULK UPDATE 2: Stock statuses (ONE query for ALL products)
-        $stock_status_case_sql = implode(' ', $stock_status_cases);
-        $wpdb->query(
-            "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value)
-            SELECT ID, '_stock_status', CASE ID {$stock_status_case_sql} END
-            FROM {$wpdb->posts}
-            WHERE ID IN ({$product_ids_str})
-            ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)"
-        );
+        foreach ($actions_to_remove as $action) {
+            remove_all_actions($action);
+        }
         
-        // BULK UPDATE 3: Set manage stock to yes (ONE query for ALL products)
-        $wpdb->query(
-            "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value)
-            SELECT ID, '_manage_stock', 'yes'
-            FROM {$wpdb->posts}
-            WHERE ID IN ({$product_ids_str})
-            ON DUPLICATE KEY UPDATE meta_value = 'yes'"
-        );
+        // Use WooCommerce's proper stock management functions
+        $updated_count = 0;
+        $error_count = 0;
+        $updated_skus = array();
         
-        // Store detailed stock information (reserved & incoming) for each product
         foreach ($product_ids as $pid) {
-            if (isset($detailed_stock_data[$pid])) {
-                $data = $detailed_stock_data[$pid];
-                
-                // Store reserved stock
-                update_post_meta($pid, '_amrod_reserved_stock', $data['reserved']);
-                
-                // Store incoming stock (JSON encoded)
-                if (!empty($data['incoming']) && is_array($data['incoming'])) {
-                    update_post_meta($pid, '_amrod_incoming_stock', json_encode($data['incoming']));
-                } else {
-                    delete_post_meta($pid, '_amrod_incoming_stock');
-                }
+            if (!isset($detailed_stock_data[$pid])) continue;
+            
+            $data = $detailed_stock_data[$pid];
+            $stock_qty = $data['stock'];
+            
+            // Get WooCommerce product object
+            $product = wc_get_product($pid);
+            if (!$product) {
+                $error_count++;
+                continue;
+            }
+            
+            // Set stock using WooCommerce methods
+            $product->set_manage_stock(true);
+            $product->set_stock_quantity($stock_qty);
+            $product->set_stock_status($stock_qty > 0 ? 'instock' : 'outofstock');
+            
+            // Save the product (this handles all the meta updates correctly)
+            $product->save();
+            
+            // Store custom Amrod data
+            update_post_meta($pid, '_amrod_reserved_stock', $data['reserved']);
+            
+            if (!empty($data['incoming']) && is_array($data['incoming'])) {
+                update_post_meta($pid, '_amrod_incoming_stock', json_encode($data['incoming']));
+            } else {
+                delete_post_meta($pid, '_amrod_incoming_stock');
+            }
+            
+            // Track updated SKUs
+            $sku = $product->get_sku();
+            if ($sku) {
+                $updated_skus[] = "{$sku}={$stock_qty}";
+            }
+            
+            $updated_count++;
+        }
+        
+        // Log summary of stock updates with SKUs
+        if ($updated_count > 0) {
+            $summary = "Stock Update: Successfully updated {$updated_count} products" . ($error_count > 0 ? ", {$error_count} errors" : "");
+            error_log($summary);
+            
+            // Log SKUs (in chunks to avoid huge log lines)
+            $chunk_size = 20;
+            $sku_chunks = array_chunk($updated_skus, $chunk_size);
+            foreach ($sku_chunks as $index => $chunk) {
+                $chunk_num = $index + 1;
+                error_log("Stock Update SKUs (batch {$chunk_num}/" . count($sku_chunks) . "): " . implode(', ', $chunk));
             }
         }
         
-        // Clear WooCommerce cache for all products (AGGRESSIVE)
-        foreach ($product_ids as $pid) {
-            // Clear WordPress cache
-            wp_cache_delete($pid, 'posts');
-            wp_cache_delete($pid, 'post_meta');
-            
-            // Clear WooCommerce cache
-            wp_cache_delete('product-' . $pid, 'products');
-            
-            // Force WooCommerce to reread from database
-            clean_post_cache($pid);
-            
-            // Clear transients
-            delete_transient('wc_product_' . $pid);
-            delete_transient('wc_var_prices_' . $pid);
-        }
+        // FAST: Minimal cache clearing (only what's absolutely necessary)
+        wp_cache_flush(); // Single global flush is faster than individual clears
         
-        // Force WooCommerce to flush product cache
-        wp_cache_flush();
-        
-        // Update WooCommerce product lookup tables if they exist (WC 3.6+)
-        if (class_exists('WC_Product_Data_Store_CPT')) {
-            foreach ($product_ids as $pid) {
-                // Force WooCommerce to sync the lookup table
-                $data_store = WC_Data_Store::load('product');
-                if (method_exists($data_store, 'update_lookup_table')) {
-                    $data_store->update_lookup_table($pid, 'wc_product_meta_lookup');
-                }
-            }
-        }
         
         $this->logger->log('info', 'Batch stock updated: ' . count($product_ids) . ' products', array(), 'stock_sync');
         

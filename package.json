@@ -1,0 +1,41 @@
+{
+  "name": "bytemash-woo-sync",
+  "version": "2.7.0",
+  "description": "Memory-efficient WooCommerce plugin that syncs products, variations, stock, images, and all data from Amrod API",
+  "main": "bytemash-woo-sync.php",
+  "scripts": {
+    "package": "php package-plugin.php",
+    "package:list": "php package-plugin.php list",
+    "package:excluded": "php package-plugin.php excluded",
+    "build": "npm run package",
+    "zip": "npm run package"
+  },
+  "keywords": [
+    "wordpress",
+    "woocommerce",
+    "amrod",
+    "sync",
+    "products",
+    "stock"
+  ],
+  "author": "ByteMash",
+  "license": "GPL-2.0-or-later",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/bytemash/woo-amrod-sync"
+  },
+  "engines": {
+    "node": ">=14.0.0",
+    "php": ">=7.4"
+  },
+  "devDependencies": {},
+  "files": [
+    "bytemash-woo-sync.php",
+    "admin/",
+    "assets/",
+    "includes/",
+    "uninstall.php",
+    "index.php"
+  ]
+}
+
