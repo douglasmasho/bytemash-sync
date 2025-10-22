@@ -523,7 +523,26 @@ class ByteMash_Amrod_API_Client {
      */
     public function get_products_without_branding_updated() {
         $this->logger->log('info', 'Fetching updated products (without branding) from Amrod', array(), 'api_request');
-        return $this->request('api/v1/Products/GetUpdatedProducts');
+        
+        // Get last sync timestamp to avoid duplicate processing
+        $last_sync = get_option('bytemash_last_incremental_sync');
+        if ($last_sync) {
+            $this->logger->log('info', 'Last incremental sync timestamp', array('timestamp' => $last_sync), 'api_request');
+        }
+        
+        $result = $this->request('api/v1/Products/GetUpdatedProducts');
+        
+        // Store API response timestamp if available
+        if (!is_wp_error($result) && is_array($result) && !empty($result)) {
+            $first_item = reset($result);
+            if (isset($first_item['lastUpdated']) || isset($first_item['LastUpdated'])) {
+                $api_timestamp = $first_item['lastUpdated'] ?? $first_item['LastUpdated'];
+                update_option('bytemash_api_last_product_update', $api_timestamp);
+                $this->logger->log('info', 'API product update timestamp stored', array('timestamp' => $api_timestamp), 'api_request');
+            }
+        }
+        
+        return $result;
     }
     
     /**
@@ -552,7 +571,26 @@ class ByteMash_Amrod_API_Client {
      */
     public function get_products_with_branding_updated() {
         $this->logger->log('info', 'Fetching updated products (with branding) from Amrod', array(), 'api_request');
-        return $this->request('api/v1/Products/GetUpdatedProductsAndBranding');
+        
+        // Get last sync timestamp to avoid duplicate processing
+        $last_sync = get_option('bytemash_last_incremental_sync');
+        if ($last_sync) {
+            $this->logger->log('info', 'Last incremental sync timestamp', array('timestamp' => $last_sync), 'api_request');
+        }
+        
+        $result = $this->request('api/v1/Products/GetUpdatedProductsAndBranding');
+        
+        // Store API response timestamp if available
+        if (!is_wp_error($result) && is_array($result) && !empty($result)) {
+            $first_item = reset($result);
+            if (isset($first_item['lastUpdated']) || isset($first_item['LastUpdated'])) {
+                $api_timestamp = $first_item['lastUpdated'] ?? $first_item['LastUpdated'];
+                update_option('bytemash_api_last_product_branding_update', $api_timestamp);
+                $this->logger->log('info', 'API product branding update timestamp stored', array('timestamp' => $api_timestamp), 'api_request');
+            }
+        }
+        
+        return $result;
     }
     
     /**
@@ -565,10 +603,31 @@ class ByteMash_Amrod_API_Client {
     
     /**
      * Get updated stock (differential since first sync of day)
+     * According to API docs: Returns rolling changes since 00:30 GMT+2 daily reset
      */
     public function get_stock_updated() {
         $this->logger->log('info', 'Fetching updated stock from Amrod', array(), 'api_request');
-        return $this->request('api/v1/Stock/GetUpdated');
+        
+        // Get last sync timestamp to avoid duplicate processing
+        $last_sync = get_option('bytemash_last_incremental_sync');
+        if ($last_sync) {
+            $this->logger->log('info', 'Last incremental sync timestamp', array('timestamp' => $last_sync), 'api_request');
+        }
+        
+        $result = $this->request('api/v1/Stock/GetUpdated');
+        
+        // Store API response timestamp if available
+        if (!is_wp_error($result) && is_array($result) && !empty($result)) {
+            // Check if API response includes timestamp (some APIs do)
+            $first_item = reset($result);
+            if (isset($first_item['lastUpdated']) || isset($first_item['LastUpdated'])) {
+                $api_timestamp = $first_item['lastUpdated'] ?? $first_item['LastUpdated'];
+                update_option('bytemash_api_last_stock_update', $api_timestamp);
+                $this->logger->log('info', 'API stock update timestamp stored', array('timestamp' => $api_timestamp), 'api_request');
+            }
+        }
+        
+        return $result;
     }
     
     /**
@@ -592,7 +651,26 @@ class ByteMash_Amrod_API_Client {
      */
     public function get_prices_updated() {
         $this->logger->log('info', 'Fetching updated prices from Amrod', array(), 'api_request');
-        return $this->request('api/v1/Prices/GetUpdated');
+        
+        // Get last sync timestamp to avoid duplicate processing
+        $last_sync = get_option('bytemash_last_incremental_sync');
+        if ($last_sync) {
+            $this->logger->log('info', 'Last incremental sync timestamp', array('timestamp' => $last_sync), 'api_request');
+        }
+        
+        $result = $this->request('api/v1/Prices/GetUpdated');
+        
+        // Store API response timestamp if available
+        if (!is_wp_error($result) && is_array($result) && !empty($result)) {
+            $first_item = reset($result);
+            if (isset($first_item['lastUpdated']) || isset($first_item['LastUpdated'])) {
+                $api_timestamp = $first_item['lastUpdated'] ?? $first_item['LastUpdated'];
+                update_option('bytemash_api_last_price_update', $api_timestamp);
+                $this->logger->log('info', 'API price update timestamp stored', array('timestamp' => $api_timestamp), 'api_request');
+            }
+        }
+        
+        return $result;
     }
     
     /**
@@ -608,7 +686,26 @@ class ByteMash_Amrod_API_Client {
      */
     public function get_brands_updated() {
         $this->logger->log('info', 'Fetching updated brands from Amrod', array(), 'api_request');
-        return $this->request('api/v1/Brands/GetUpdated');
+        
+        // Get last sync timestamp to avoid duplicate processing
+        $last_sync = get_option('bytemash_last_incremental_sync');
+        if ($last_sync) {
+            $this->logger->log('info', 'Last incremental sync timestamp', array('timestamp' => $last_sync), 'api_request');
+        }
+        
+        $result = $this->request('api/v1/Brands/GetUpdated');
+        
+        // Store API response timestamp if available
+        if (!is_wp_error($result) && is_array($result) && !empty($result)) {
+            $first_item = reset($result);
+            if (isset($first_item['lastUpdated']) || isset($first_item['LastUpdated'])) {
+                $api_timestamp = $first_item['lastUpdated'] ?? $first_item['LastUpdated'];
+                update_option('bytemash_api_last_brand_update', $api_timestamp);
+                $this->logger->log('info', 'API brand update timestamp stored', array('timestamp' => $api_timestamp), 'api_request');
+            }
+        }
+        
+        return $result;
     }
     
     /**

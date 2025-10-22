@@ -1204,6 +1204,118 @@ class ByteMash_Product_Sync {
                 'total' => $total,
             'batch_count' => $batch_count,
             'batches' => $batches,
+            );
+    }
+    
+    /**
+     * Sync updated categories only (incremental)
+     * 
+     * @return array Result
+     */
+    public function sync_categories_updated() {
+        $this->logger->log('info', 'Starting incremental category sync', array(), 'category_sync');
+        
+        // Fetch updated categories only
+        $categories_data = $this->api_client->get_categories_updated();
+        
+        if (is_wp_error($categories_data)) {
+            return array('success' => false, 'message' => $categories_data->get_error_message());
+        }
+        
+        if (!is_array($categories_data) || empty($categories_data)) {
+            return array('success' => true, 'message' => 'No category updates available', 'total' => 0);
+        }
+        
+        $total = count($categories_data);
+        $sync_id = 'categories_update_' . time() . '_' . wp_generate_password(8, false);
+        
+        // Split into batches
+        $batches = array_chunk($categories_data, 50);
+        $batch_count = count($batches);
+        
+        $this->logger->log('info', "Split into {$batch_count} batches", array(
+            'total_items' => $total,
+            'batch_size' => 50,
+            'batch_count' => $batch_count,
+        ), 'category_sync');
+        
+        // Store minimal sync info
+        update_option("bytemash_sync_{$sync_id}", array(
+            'type' => 'categories',
+            'total' => $total,
+            'batch_count' => $batch_count,
+            'batch_size' => 50,
+            'current_batch' => 0,
+            'processed' => 0,
+            'errors' => 0,
+            'skipped' => 0,
+            'status' => 'ready',
+            'started' => current_time('mysql'),
+        ), false);
+        
+        return array(
+            'success' => true,
+            'message' => "Ready to sync {$total} category updates in {$batch_count} batches",
+            'sync_id' => $sync_id,
+            'total' => $total,
+            'batch_count' => $batch_count,
+            'batches' => $batches,
+        );
+    }
+    
+    /**
+     * Sync updated brands only (incremental)
+     * 
+     * @return array Result
+     */
+    public function sync_brands_updated() {
+        $this->logger->log('info', 'Starting incremental brand sync', array(), 'brand_sync');
+        
+        // Fetch updated brands only
+        $brands_data = $this->api_client->get_brands_updated();
+        
+        if (is_wp_error($brands_data)) {
+            return array('success' => false, 'message' => $brands_data->get_error_message());
+        }
+        
+        if (!is_array($brands_data) || empty($brands_data)) {
+            return array('success' => true, 'message' => 'No brand updates available', 'total' => 0);
+        }
+        
+        $total = count($brands_data);
+        $sync_id = 'brands_update_' . time() . '_' . wp_generate_password(8, false);
+        
+        // Split into batches
+        $batches = array_chunk($brands_data, 50);
+        $batch_count = count($batches);
+        
+        $this->logger->log('info', "Split into {$batch_count} batches", array(
+            'total_items' => $total,
+            'batch_size' => 50,
+            'batch_count' => $batch_count,
+        ), 'brand_sync');
+        
+        // Store minimal sync info
+        update_option("bytemash_sync_{$sync_id}", array(
+            'type' => 'brands',
+            'total' => $total,
+            'batch_count' => $batch_count,
+            'batch_size' => 50,
+            'current_batch' => 0,
+            'processed' => 0,
+            'errors' => 0,
+            'skipped' => 0,
+            'status' => 'ready',
+            'started' => current_time('mysql'),
+        ), false);
+        
+        return array(
+            'success' => true,
+            'message' => "Ready to sync {$total} brand updates in {$batch_count} batches",
+            'sync_id' => $sync_id,
+            'total' => $total,
+            'batch_count' => $batch_count,
+            'batches' => $batches,
         );
     }
     

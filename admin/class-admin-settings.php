@@ -28,7 +28,12 @@ class ByteMash_Admin_Settings {
         $api_url = get_option('bytemash_amrod_api_url', 'https://identity.amrod.co.za');
         $api_token = get_option('bytemash_amrod_api_token', '');
         $batch_size = get_option('bytemash_amrod_batch_size', 50);
-        $sync_schedule = get_option('bytemash_amrod_sync_schedule', 'daily');
+        $full_sync_frequency = get_option('bytemash_full_sync_frequency', 'daily_at_0030');
+        $incremental_frequency = get_option('bytemash_incremental_sync_frequency', 'every_5_hours');
+        
+        // Get sync status
+        $scheduler = new ByteMash_Sync_Scheduler();
+        $sync_status = $scheduler->get_sync_status();
         
         // Check if authenticated
         $api_client = new ByteMash_Amrod_API_Client();
@@ -239,51 +244,104 @@ class ByteMash_Admin_Settings {
                             
                             <tr>
                                 <th scope="row">
-                                    <label for="sync_schedule"><?php esc_html_e('Sync Schedule', 'bytemash-woo-sync'); ?></label>
+                                    <label for="full_sync_frequency"><?php esc_html_e('Full Sync Schedule', 'bytemash-woo-sync'); ?></label>
                                 </th>
                                 <td>
-                                    <select id="sync_schedule" name="sync_schedule" class="regular-text">
-                                        <option value="manual" <?php selected($sync_schedule, 'manual'); ?>>
-                                            <?php esc_html_e('Manual Only', 'bytemash-woo-sync'); ?>
+                                    <select id="full_sync_frequency" name="full_sync_frequency" class="regular-text">
+                                        <option value="daily_at_0030" <?php selected($full_sync_frequency, 'daily_at_0030'); ?>>
+                                            <?php esc_html_e('Daily at 00:30 GMT+2 (Recommended)', 'bytemash-woo-sync'); ?>
                                         </option>
-                                        <option value="hourly" <?php selected($sync_schedule, 'hourly'); ?>>
-                                            <?php esc_html_e('Every Hour', 'bytemash-woo-sync'); ?>
-                                        </option>
-                                        <option value="every_6_hours" <?php selected($sync_schedule, 'every_6_hours'); ?>>
-                                            <?php esc_html_e('Every 6 Hours', 'bytemash-woo-sync'); ?>
-                                        </option>
-                                        <option value="every_12_hours" <?php selected($sync_schedule, 'every_12_hours'); ?>>
-                                            <?php esc_html_e('Every 12 Hours', 'bytemash-woo-sync'); ?>
-                                        </option>
-                                        <option value="twicedaily" <?php selected($sync_schedule, 'twicedaily'); ?>>
-                                            <?php esc_html_e('Twice Daily', 'bytemash-woo-sync'); ?>
-                                        </option>
-                                        <option value="daily" <?php selected($sync_schedule, 'daily'); ?>>
+                                        <option value="daily" <?php selected($full_sync_frequency, 'daily'); ?>>
                                             <?php esc_html_e('Daily', 'bytemash-woo-sync'); ?>
                                         </option>
-                                        <option value="weekly" <?php selected($sync_schedule, 'weekly'); ?>>
+                                        <option value="twicedaily" <?php selected($full_sync_frequency, 'twicedaily'); ?>>
+                                            <?php esc_html_e('Twice Daily', 'bytemash-woo-sync'); ?>
+                                        </option>
+                                        <option value="weekly" <?php selected($full_sync_frequency, 'weekly'); ?>>
                                             <?php esc_html_e('Weekly', 'bytemash-woo-sync'); ?>
+                                        </option>
+                                        <option value="manual" <?php selected($full_sync_frequency, 'manual'); ?>>
+                                            <?php esc_html_e('Manual Only', 'bytemash-woo-sync'); ?>
                                         </option>
                                     </select>
                                     <p class="description">
-                                        <?php esc_html_e('How often to automatically sync products from Amrod.', 'bytemash-woo-sync'); ?>
+                                        <?php esc_html_e('Full sync clears and repopulates all data. Recommended: Daily at 00:30 GMT+2 as per Amrod API documentation.', 'bytemash-woo-sync'); ?>
+                                    </p>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row">
+                                    <label for="incremental_frequency"><?php esc_html_e('Incremental Sync Schedule', 'bytemash-woo-sync'); ?></label>
+                                </th>
+                                <td>
+                                    <select id="incremental_frequency" name="incremental_frequency" class="regular-text">
+                                        <option value="every_5_hours" <?php selected($incremental_frequency, 'every_5_hours'); ?>>
+                                            <?php esc_html_e('Every 5 Hours (Recommended)', 'bytemash-woo-sync'); ?>
+                                        </option>
+                                        <option value="hourly" <?php selected($incremental_frequency, 'hourly'); ?>>
+                                            <?php esc_html_e('Every Hour', 'bytemash-woo-sync'); ?>
+                                        </option>
+                                        <option value="every_6_hours" <?php selected($incremental_frequency, 'every_6_hours'); ?>>
+                                            <?php esc_html_e('Every 6 Hours', 'bytemash-woo-sync'); ?>
+                                        </option>
+                                        <option value="every_12_hours" <?php selected($incremental_frequency, 'every_12_hours'); ?>>
+                                            <?php esc_html_e('Every 12 Hours', 'bytemash-woo-sync'); ?>
+                                        </option>
+                                        <option value="twicedaily" <?php selected($incremental_frequency, 'twicedaily'); ?>>
+                                            <?php esc_html_e('Twice Daily', 'bytemash-woo-sync'); ?>
+                                        </option>
+                                        <option value="manual" <?php selected($incremental_frequency, 'manual'); ?>>
+                                            <?php esc_html_e('Manual Only', 'bytemash-woo-sync'); ?>
+                                        </option>
+                                    </select>
+                                    <p class="description">
+                                        <?php esc_html_e('Incremental sync only processes changes since the last full sync. Only runs if full sync completed today.', 'bytemash-woo-sync'); ?>
                                     </p>
                                 </td>
                             </tr>
                             
-                            <?php
-                            $scheduler = new ByteMash_Sync_Scheduler();
-                            $next_sync = $scheduler->get_next_sync_time();
-                            ?>
-                            
                             <tr>
-                                <th scope="row">
-                                    <label><?php esc_html_e('Next Scheduled Sync', 'bytemash-woo-sync'); ?></label>
-                                </th>
+                                <th scope="row"><?php esc_html_e('Sync Status', 'bytemash-woo-sync'); ?></th>
                                 <td>
-                                    <strong><?php echo esc_html($next_sync); ?></strong>
+                                    <div class="sync-status-info">
+                                        <div class="sync-status-grid">
+                                            <div class="sync-status-item">
+                                                <strong><?php esc_html_e('Last Full Sync:', 'bytemash-woo-sync'); ?></strong>
+                                                <span><?php echo esc_html($sync_status['last_sync_times']['last_full_sync']); ?></span>
+                                                <?php if ($sync_status['full_sync_running']) : ?>
+                                                    <span class="status-running">🔄 <?php esc_html_e('Running', 'bytemash-woo-sync'); ?></span>
+                                                <?php endif; ?>
+                                            </div>
+                                            
+                                            <div class="sync-status-item">
+                                                <strong><?php esc_html_e('Last Incremental Sync:', 'bytemash-woo-sync'); ?></strong>
+                                                <span><?php echo esc_html($sync_status['last_sync_times']['last_incremental_sync']); ?></span>
+                                                <?php if ($sync_status['incremental_sync_running']) : ?>
+                                                    <span class="status-running">🔄 <?php esc_html_e('Running', 'bytemash-woo-sync'); ?></span>
+                                                <?php endif; ?>
+                                            </div>
+                                            
+                                            <div class="sync-status-item">
+                                                <strong><?php esc_html_e('Next Full Sync:', 'bytemash-woo-sync'); ?></strong>
+                                                <span><?php echo esc_html($sync_status['next_full_sync']); ?></span>
+                                            </div>
+                                            
+                                            <div class="sync-status-item">
+                                                <strong><?php esc_html_e('Next Incremental Sync:', 'bytemash-woo-sync'); ?></strong>
+                                                <span><?php echo esc_html($sync_status['next_incremental_sync']); ?></span>
+                                            </div>
+                                        </div>
+                                        
+                                        <div class="sync-status-actions">
+                                            <button type="button" id="refresh_sync_status" class="button button-secondary">
+                                                <span class="dashicons dashicons-update"></span>
+                                                <?php esc_html_e('Refresh Status', 'bytemash-woo-sync'); ?>
+                                            </button>
+                                        </div>
+                                    </div>
                                 </td>
                             </tr>
+                            
                         </tbody>
                     </table>
                 </div>
@@ -402,14 +460,23 @@ class ByteMash_Admin_Settings {
             update_option('bytemash_amrod_batch_size', $batch_size);
         }
         
-        if (isset($_POST['sync_schedule'])) {
-            $schedule = sanitize_text_field($_POST['sync_schedule']);
-            update_option('bytemash_amrod_sync_schedule', $schedule);
-            
-            // Update cron schedule
-            $scheduler = new ByteMash_Sync_Scheduler();
-            $scheduler->update_schedule($schedule);
+        // Save new sync schedule settings
+        $full_sync_frequency = 'daily_at_0030';
+        $incremental_frequency = 'every_5_hours';
+        
+        if (isset($_POST['full_sync_frequency'])) {
+            $full_sync_frequency = sanitize_text_field($_POST['full_sync_frequency']);
+            update_option('bytemash_full_sync_frequency', $full_sync_frequency);
         }
+        
+        if (isset($_POST['incremental_frequency'])) {
+            $incremental_frequency = sanitize_text_field($_POST['incremental_frequency']);
+            update_option('bytemash_incremental_sync_frequency', $incremental_frequency);
+        }
+        
+        // Update cron schedules
+        $scheduler = new ByteMash_Sync_Scheduler();
+        $scheduler->update_schedule($full_sync_frequency, $incremental_frequency);
         
         // Save advanced settings
         if (isset($_POST['log_retention'])) {

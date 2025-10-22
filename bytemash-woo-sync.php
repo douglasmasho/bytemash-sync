@@ -273,21 +273,18 @@ class ByteMash_Woo_Sync {
         add_option('bytemash_amrod_batch_size', 10); // Conservative batch size for products
         add_option('bytemash_amrod_sync_schedule', 'daily');
         
-        // Schedule cron
-        if (!wp_next_scheduled('bytemash_amrod_sync_cron')) {
-            wp_schedule_event(time(), 'daily', 'bytemash_amrod_sync_cron');
-        }
+        // Initialize sync scheduler with default schedules
+        $scheduler = new ByteMash_Sync_Scheduler();
+        $scheduler->update_schedule('daily_at_0030', 'every_5_hours');
     }
     
     /**
      * Plugin deactivation
      */
     public function deactivate() {
-        // Clear scheduled cron
-        $timestamp = wp_next_scheduled('bytemash_amrod_sync_cron');
-        if ($timestamp) {
-            wp_unschedule_event($timestamp, 'bytemash_amrod_sync_cron');
-        }
+        // Clear all sync schedules
+        $scheduler = new ByteMash_Sync_Scheduler();
+        $scheduler->clear_all_schedules();
     }
     
     /**

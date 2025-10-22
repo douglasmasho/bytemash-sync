@@ -2,7 +2,8 @@
 /**
  * Sync Scheduler Class
  * 
- * Handles scheduled syncs using WordPress cron
+ * Handles scheduled syncs using WordPress cron with proper incremental updates
+ * according to Amrod API documentation
  */
 
 if (!defined('ABSPATH')) {
@@ -38,8 +39,9 @@ class ByteMash_Sync_Scheduler {
         // Register cron schedules
         add_filter('cron_schedules', array($this, 'add_cron_schedules'));
         
-        // Hook into cron event
-        add_action('bytemash_amrod_sync_cron', array($this, 'run_scheduled_sync'));
+        // Hook into cron events
+        add_action('bytemash_full_sync_cron', array($this, 'run_full_sync'));
+        add_action('bytemash_incremental_sync_cron', array($this, 'run_incremental_sync'));
         
         // AJAX handlers for manual sync
         add_action('wp_ajax_bytemash_save_api_url', array($this, 'ajax_save_api_url'));
@@ -53,6 +55,7 @@ class ByteMash_Sync_Scheduler {
         add_action('wp_ajax_bytemash_category_sync', array($this, 'ajax_category_sync'));
         add_action('wp_ajax_bytemash_get_sync_progress', array($this, 'ajax_get_sync_progress'));
         add_action('wp_ajax_bytemash_test_connection', array($this, 'ajax_test_connection'));
+        add_action('wp_ajax_bytemash_update_sync_schedule', array($this, 'ajax_update_sync_schedule'));
     }
     
     /**
@@ -80,6 +83,11 @@ class ByteMash_Sync_Scheduler {
      * Add custom cron schedules
      */
     public function add_cron_schedules($schedules) {
+        $schedules['every_5_hours'] = array(
+            'interval' => 5 * HOUR_IN_SECONDS,
+            'display' => __('Every 5 Hours', 'bytemash-woo-sync'),
+        );
+        
         $schedules['every_6_hours'] = array(
             'interval' => 6 * HOUR_IN_SECONDS,
             'display' => __('Every 6 Hours', 'bytemash-woo-sync'),
@@ -90,62 +98,203 @@ class ByteMash_Sync_Scheduler {
             'display' => __('Every 12 Hours', 'bytemash-woo-sync'),
         );
         
+        $schedules['daily_at_0030'] = array(
+            'interval' => DAY_IN_SECONDS,
+            'display' => __('Daily at 00:30 GMT+2', 'bytemash-woo-sync'),
+        );
+        
         return $schedules;
     }
     
     /**
-     * Run scheduled sync
+     * Run full sync (daily at 00:30 GMT+2)
+     * According to API docs: Full stock list is cleared and repopulated at 00:30 GMT+2
      */
-    public function run_scheduled_sync() {
-        $this->logger->log('info', 'Running scheduled sync', array(), 'scheduled_sync');
+    public function run_full_sync() {
+        $this->logger->log('info', 'Running full sync (daily reset)', array(), 'full_sync');
         
         // Check if sync is already running
-        if (get_transient('bytemash_sync_running')) {
-            $this->logger->log('warning', 'Sync already running, skipping', array(), 'scheduled_sync');
+        if (get_transient('bytemash_full_sync_running')) {
+            $this->logger->log('warning', 'Full sync already running, skipping', array(), 'full_sync');
             return;
         }
         
         // Set sync running flag
-        set_transient('bytemash_sync_running', true, 3600);
+        set_transient('bytemash_full_sync_running', true, 7200); // 2 hours timeout
         
         try {
-            // Run full product sync
-            $result = $this->product_sync->sync_all_products();
+            // Run full sync for all endpoints
+            $this->logger->log('info', 'Starting full product sync', array(), 'full_sync');
+            $product_result = $this->product_sync->sync_all_products(false, true);
             
-            // Also sync stock levels
-            $this->product_sync->sync_stock_levels();
+            $this->logger->log('info', 'Starting full stock sync', array(), 'full_sync');
+            $stock_result = $this->product_sync->sync_stock_levels();
             
-            $this->logger->log('success', 'Scheduled sync completed', array(
-                'result' => $result,
-            ), 'scheduled_sync');
+            $this->logger->log('info', 'Starting full price sync', array(), 'full_sync');
+            $price_result = $this->product_sync->sync_prices();
+            
+            $this->logger->log('info', 'Starting full category sync', array(), 'full_sync');
+            $category_result = $this->product_sync->sync_categories();
+            
+            // Store full sync completion timestamp
+            update_option('bytemash_last_full_sync', current_time('mysql'));
+            
+            $this->logger->log('success', 'Full sync completed', array(
+                'product_result' => $product_result,
+                'stock_result' => $stock_result,
+                'price_result' => $price_result,
+                'category_result' => $category_result,
+            ), 'full_sync');
             
         } catch (Exception $e) {
-            $this->logger->log('error', 'Scheduled sync failed', array(
+            $this->logger->log('error', 'Full sync failed', array(
                 'error' => $e->getMessage(),
-            ), 'scheduled_sync');
+            ), 'full_sync');
         }
         
         // Clear sync running flag
-        delete_transient('bytemash_sync_running');
+        delete_transient('bytemash_full_sync_running');
         
         // Clean old logs
         $this->logger->clear_old_logs(30);
     }
     
     /**
-     * Update sync schedule
+     * Run incremental sync (every 5 hours by default)
+     * Only runs if full sync has been completed
      */
-    public function update_schedule($frequency) {
-        // Clear existing schedule
+    public function run_incremental_sync() {
+        $this->logger->log('info', 'Running incremental sync', array(), 'incremental_sync');
+        
+        // Check if full sync has been completed
+        $last_full_sync = get_option('bytemash_last_full_sync');
+        if (!$last_full_sync) {
+            $this->logger->log('warning', 'Incremental sync skipped: No full sync completed yet', array(), 'incremental_sync');
+            return;
+        }
+        
+        // Check if sync is already running
+        if (get_transient('bytemash_incremental_sync_running')) {
+            $this->logger->log('warning', 'Incremental sync already running, skipping', array(), 'incremental_sync');
+            return;
+        }
+        
+        // Set sync running flag
+        set_transient('bytemash_incremental_sync_running', true, 3600); // 1 hour timeout
+        
+        try {
+            // Get last incremental sync timestamp
+            $last_incremental = get_option('bytemash_last_incremental_sync', $last_full_sync);
+            
+            $this->logger->log('info', 'Starting incremental product sync', array(
+                'since' => $last_incremental
+            ), 'incremental_sync');
+            $product_result = $this->product_sync->sync_updated_products(true);
+            
+            $this->logger->log('info', 'Starting incremental stock sync', array(
+                'since' => $last_incremental
+            ), 'incremental_sync');
+            $stock_result = $this->product_sync->sync_stock_updated();
+            
+            $this->logger->log('info', 'Starting incremental price sync', array(
+                'since' => $last_incremental
+            ), 'incremental_sync');
+            $price_result = $this->product_sync->sync_prices_updated();
+            
+            $this->logger->log('info', 'Starting incremental category sync', array(
+                'since' => $last_incremental
+            ), 'incremental_sync');
+            $category_result = $this->product_sync->sync_categories_updated();
+            
+            $this->logger->log('info', 'Starting incremental brand sync', array(
+                'since' => $last_incremental
+            ), 'incremental_sync');
+            $brand_result = $this->product_sync->sync_brands_updated();
+            
+            // Store incremental sync completion timestamp
+            update_option('bytemash_last_incremental_sync', current_time('mysql'));
+            
+            $this->logger->log('success', 'Incremental sync completed', array(
+                'product_result' => $product_result,
+                'stock_result' => $stock_result,
+                'price_result' => $price_result,
+                'category_result' => $category_result,
+                'brand_result' => $brand_result,
+            ), 'incremental_sync');
+            
+        } catch (Exception $e) {
+            $this->logger->log('error', 'Incremental sync failed', array(
+                'error' => $e->getMessage(),
+            ), 'incremental_sync');
+        }
+        
+        // Clear sync running flag
+        delete_transient('bytemash_incremental_sync_running');
+    }
+    
+    /**
+     * Update sync schedules
+     */
+    public function update_schedule($full_sync_frequency = 'daily_at_0030', $incremental_frequency = 'every_5_hours') {
+        // Clear existing schedules
+        $this->clear_all_schedules();
+        
+        // Schedule full sync (daily at 00:30 GMT+2)
+        if ($full_sync_frequency && $full_sync_frequency !== 'manual') {
+            $this->schedule_full_sync();
+            $this->logger->log('info', "Full sync schedule updated to: {$full_sync_frequency}", array(), 'scheduler');
+        }
+        
+        // Schedule incremental sync
+        if ($incremental_frequency && $incremental_frequency !== 'manual') {
+            wp_schedule_event(time(), $incremental_frequency, 'bytemash_incremental_sync_cron');
+            $this->logger->log('info', "Incremental sync schedule updated to: {$incremental_frequency}", array(), 'scheduler');
+        }
+    }
+    
+    /**
+     * Schedule full sync at 00:30 GMT+2 daily
+     */
+    private function schedule_full_sync() {
+        // Calculate next 00:30 GMT+2 (South Africa time)
+        $timezone = new DateTimeZone('Africa/Johannesburg');
+        $now = new DateTime('now', $timezone);
+        
+        // Set to 00:30 today
+        $next_sync = clone $now;
+        $next_sync->setTime(0, 30, 0);
+        
+        // If it's already past 00:30 today, schedule for tomorrow
+        if ($next_sync <= $now) {
+            $next_sync->add(new DateInterval('P1D'));
+        }
+        
+        // Convert to WordPress timezone
+        $wp_timestamp = $next_sync->getTimestamp() - (get_option('gmt_offset') * HOUR_IN_SECONDS);
+        
+        wp_schedule_event($wp_timestamp, 'daily_at_0030', 'bytemash_full_sync_cron');
+    }
+    
+    /**
+     * Clear all sync schedules
+     */
+    public function clear_all_schedules() {
+        // Clear full sync
+        $timestamp = wp_next_scheduled('bytemash_full_sync_cron');
+        if ($timestamp) {
+            wp_unschedule_event($timestamp, 'bytemash_full_sync_cron');
+        }
+        
+        // Clear incremental sync
+        $timestamp = wp_next_scheduled('bytemash_incremental_sync_cron');
+        if ($timestamp) {
+            wp_unschedule_event($timestamp, 'bytemash_incremental_sync_cron');
+        }
+        
+        // Clear old schedule for backward compatibility
         $timestamp = wp_next_scheduled('bytemash_amrod_sync_cron');
         if ($timestamp) {
             wp_unschedule_event($timestamp, 'bytemash_amrod_sync_cron');
-        }
-        
-        // Schedule new event
-        if ($frequency && $frequency !== 'manual') {
-            wp_schedule_event(time(), $frequency, 'bytemash_amrod_sync_cron');
-            $this->logger->log('info', "Sync schedule updated to: {$frequency}", array(), 'scheduler');
         }
     }
     
@@ -412,16 +561,79 @@ class ByteMash_Sync_Scheduler {
     }
     
     /**
-     * Get next scheduled sync time
+     * AJAX: Update sync schedule
      */
-    public function get_next_sync_time() {
-        $timestamp = wp_next_scheduled('bytemash_amrod_sync_cron');
+    public function ajax_update_sync_schedule() {
+        check_ajax_referer('bytemash_woo_sync_nonce', 'nonce');
+        
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(array('message' => 'Insufficient permissions'));
+        }
+        
+        $full_sync_frequency = isset($_POST['full_sync_frequency']) ? sanitize_text_field($_POST['full_sync_frequency']) : 'daily_at_0030';
+        $incremental_frequency = isset($_POST['incremental_frequency']) ? sanitize_text_field($_POST['incremental_frequency']) : 'every_5_hours';
+        
+        // Save settings
+        update_option('bytemash_full_sync_frequency', $full_sync_frequency);
+        update_option('bytemash_incremental_sync_frequency', $incremental_frequency);
+        
+        // Update schedules
+        $this->update_schedule($full_sync_frequency, $incremental_frequency);
+        
+        wp_send_json_success(array(
+            'message' => 'Sync schedule updated successfully',
+            'next_full_sync' => $this->get_next_full_sync_time(),
+            'next_incremental_sync' => $this->get_next_incremental_sync_time(),
+        ));
+    }
+    
+    /**
+     * Get next scheduled full sync time
+     */
+    public function get_next_full_sync_time() {
+        $timestamp = wp_next_scheduled('bytemash_full_sync_cron');
         
         if (!$timestamp) {
             return __('Not scheduled', 'bytemash-woo-sync');
         }
         
         return date_i18n(get_option('date_format') . ' ' . get_option('time_format'), $timestamp);
+    }
+    
+    /**
+     * Get next scheduled incremental sync time
+     */
+    public function get_next_incremental_sync_time() {
+        $timestamp = wp_next_scheduled('bytemash_incremental_sync_cron');
+        
+        if (!$timestamp) {
+            return __('Not scheduled', 'bytemash-woo-sync');
+        }
+        
+        return date_i18n(get_option('date_format') . ' ' . get_option('time_format'), $timestamp);
+    }
+    
+    /**
+     * Get last sync times
+     */
+    public function get_last_sync_times() {
+        return array(
+            'last_full_sync' => get_option('bytemash_last_full_sync', __('Never', 'bytemash-woo-sync')),
+            'last_incremental_sync' => get_option('bytemash_last_incremental_sync', __('Never', 'bytemash-woo-sync')),
+        );
+    }
+    
+    /**
+     * Get sync status
+     */
+    public function get_sync_status() {
+        return array(
+            'full_sync_running' => (bool) get_transient('bytemash_full_sync_running'),
+            'incremental_sync_running' => (bool) get_transient('bytemash_incremental_sync_running'),
+            'next_full_sync' => $this->get_next_full_sync_time(),
+            'next_incremental_sync' => $this->get_next_incremental_sync_time(),
+            'last_sync_times' => $this->get_last_sync_times(),
+        );
     }
 }
 
