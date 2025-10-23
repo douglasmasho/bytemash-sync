@@ -234,6 +234,7 @@
         $('#enable-production-system-cron').on('click', function() {
             const $button = $(this);
             const originalText = $button.text();
+            let wasSuccess = false;
             
             $button.prop('disabled', true).text('Enabling...');
             
@@ -246,6 +247,7 @@
                 },
                 success: function(response) {
                     if (response.success) {
+                        wasSuccess = true;
                         let html = '<div class="notice notice-success"><p>' + response.data.message + '</p></div>';
                         
                         // Check if there's a warning (exec() not available)
@@ -264,27 +266,21 @@
                         if (!response.data.warning) {
                             $button.text('Enabled').prop('disabled', true);
                         } else {
-                            // If warning (exec not available), change button text but allow retry
-                            $button.text('Schedules Enabled').removeClass('button-primary').addClass('button-secondary');
+                            // If warning (exec not available), change button text but keep enabled
+                            $button.text('Schedules Enabled').removeClass('button-primary').addClass('button-secondary').prop('disabled', false);
                         }
                     } else {
                         $('#production-system-cron-status').html(
                             '<div class="notice notice-error"><p>' + response.data.message + '</p></div>'
                         );
-                        $button.text(originalText);
+                        $button.text(originalText).prop('disabled', false);
                     }
                 },
                 error: function() {
                     $('#production-system-cron-status').html(
                         '<div class="notice notice-error"><p>Request failed. Please try again.</p></div>'
                     );
-                    $button.text(originalText);
-                },
-                complete: function() {
-                    // Only re-enable if there was an error
-                    if (!response || !response.success) {
-                        $button.prop('disabled', false);
-                    }
+                    $button.text(originalText).prop('disabled', false);
                 }
             });
         });
