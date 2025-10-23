@@ -301,6 +301,80 @@ class ByteMash_Admin_Settings {
                             </tr>
                             
                             <tr>
+                                <th scope="row">
+                                    <label><?php esc_html_e('Sync Attributes', 'bytemash-woo-sync'); ?></label>
+                                </th>
+                                <td>
+                                    <?php
+                                    $sync_products = get_option('bytemash_sync_products', true);
+                                    $sync_stock = get_option('bytemash_sync_stock', true);
+                                    $sync_prices = get_option('bytemash_sync_prices', true);
+                                    $sync_categories = get_option('bytemash_sync_categories', true);
+                                    $sync_brands = get_option('bytemash_sync_brands', true);
+                                    ?>
+                                    <div class="sync-attributes-grid">
+                                        <div class="sync-attribute-item">
+                                            <label>
+                                                <input type="checkbox" 
+                                                       name="sync_products" 
+                                                       value="1" 
+                                                       <?php checked($sync_products, true); ?>>
+                                                <strong><?php esc_html_e('Products', 'bytemash-woo-sync'); ?></strong>
+                                                <span class="description"><?php esc_html_e('Product data, images, descriptions', 'bytemash-woo-sync'); ?></span>
+                                            </label>
+                                        </div>
+                                        
+                                        <div class="sync-attribute-item">
+                                            <label>
+                                                <input type="checkbox" 
+                                                       name="sync_stock" 
+                                                       value="1" 
+                                                       <?php checked($sync_stock, true); ?>>
+                                                <strong><?php esc_html_e('Stock Levels', 'bytemash-woo-sync'); ?></strong>
+                                                <span class="description"><?php esc_html_e('Inventory quantities and availability', 'bytemash-woo-sync'); ?></span>
+                                            </label>
+                                        </div>
+                                        
+                                        <div class="sync-attribute-item">
+                                            <label>
+                                                <input type="checkbox" 
+                                                       name="sync_prices" 
+                                                       value="1" 
+                                                       <?php checked($sync_prices, true); ?>>
+                                                <strong><?php esc_html_e('Prices', 'bytemash-woo-sync'); ?></strong>
+                                                <span class="description"><?php esc_html_e('Product pricing and discounts', 'bytemash-woo-sync'); ?></span>
+                                            </label>
+                                        </div>
+                                        
+                                        <div class="sync-attribute-item">
+                                            <label>
+                                                <input type="checkbox" 
+                                                       name="sync_categories" 
+                                                       value="1" 
+                                                       <?php checked($sync_categories, true); ?>>
+                                                <strong><?php esc_html_e('Categories', 'bytemash-woo-sync'); ?></strong>
+                                                <span class="description"><?php esc_html_e('Product categories and hierarchy', 'bytemash-woo-sync'); ?></span>
+                                            </label>
+                                        </div>
+                                        
+                                        <div class="sync-attribute-item">
+                                            <label>
+                                                <input type="checkbox" 
+                                                       name="sync_brands" 
+                                                       value="1" 
+                                                       <?php checked($sync_brands, true); ?>>
+                                                <strong><?php esc_html_e('Brands', 'bytemash-woo-sync'); ?></strong>
+                                                <span class="description"><?php esc_html_e('Brand information and attributes', 'bytemash-woo-sync'); ?></span>
+                                            </label>
+                                        </div>
+                                    </div>
+                                    <p class="description">
+                                        <?php esc_html_e('Select which attributes to sync during scheduled syncs. Unchecking an attribute will skip it during both full and incremental syncs.', 'bytemash-woo-sync'); ?>
+                                    </p>
+                                </td>
+                            </tr>
+                            
+                            <tr>
                                 <th scope="row"><?php esc_html_e('Sync Status', 'bytemash-woo-sync'); ?></th>
                                 <td>
                                     <div class="sync-status-info">
@@ -318,7 +392,7 @@ class ByteMash_Admin_Settings {
                                                 <span><?php echo esc_html($sync_status['last_sync_times']['last_incremental_sync']); ?></span>
                                                 <?php if ($sync_status['incremental_sync_running']) : ?>
                                                     <span class="status-running">🔄 <?php esc_html_e('Running', 'bytemash-woo-sync'); ?></span>
-                                                <?php endif; ?>
+                                           <?php endif; ?>
                                             </div>
                                             
                                             <div class="sync-status-item">
@@ -337,6 +411,132 @@ class ByteMash_Admin_Settings {
                                                 <span class="dashicons dashicons-update"></span>
                                                 <?php esc_html_e('Refresh Status', 'bytemash-woo-sync'); ?>
                                             </button>
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                            
+                            <tr>
+                                <th scope="row"><?php esc_html_e('Test Mode Controls', 'bytemash-woo-sync'); ?></th>
+                                <td>
+                                    <div class="test-mode-controls">
+                                        <?php 
+                                        $full_test_mode = get_option('bytemash_cron_full_test_mode_enabled', false);
+                                        $incremental_test_mode = get_option('bytemash_cron_incremental_test_mode_enabled', false);
+                                        $active_method = self::get_active_cron_method();
+                                        ?>
+                                        
+                                        <div class="test-mode-status">
+                                            <span class="cron-method-badge cron-method-<?php echo esc_attr($active_method); ?>">
+                                                <?php echo esc_html(self::get_method_display_name($active_method)); ?>
+                                            </span>
+                                        </div>
+                                        
+                                        <!-- Full Sync Test Mode -->
+                                        <div class="test-mode-section">
+                                            <h4><?php esc_html_e('Full Sync Test Mode', 'bytemash-woo-sync'); ?></h4>
+                                            <div class="test-mode-item">
+                                                <span class="test-mode-badge <?php echo $full_test_mode ? 'enabled' : 'disabled'; ?>">
+                                                    <?php echo $full_test_mode ? __('Enabled', 'bytemash-woo-sync') : __('Disabled', 'bytemash-woo-sync'); ?>
+                                                </span>
+                                                <button type="button" id="toggle-full-test-mode" class="button <?php echo $full_test_mode ? 'button-secondary' : 'button-primary'; ?>">
+                                                    <?php echo $full_test_mode ? __('Disable Full Test Mode', 'bytemash-woo-sync') : __('Enable Full Test Mode', 'bytemash-woo-sync'); ?>
+                                                </button>
+                                            </div>
+                                            <div id="full-test-mode-status"></div>
+                                            <p class="description">
+                                                <?php esc_html_e('Runs full sync in 2 minutes when enabled using system cron (not dependent on website traffic). Disables production full sync schedule.', 'bytemash-woo-sync'); ?>
+                                            </p>
+                                        </div>
+                                        
+                                        <!-- Incremental Sync Test Mode -->
+                                        <div class="test-mode-section">
+                                            <h4><?php esc_html_e('Incremental Sync Test Mode', 'bytemash-woo-sync'); ?></h4>
+                                            <div class="test-mode-item">
+                                                <span class="test-mode-badge <?php echo $incremental_test_mode ? 'enabled' : 'disabled'; ?>">
+                                                    <?php echo $incremental_test_mode ? __('Enabled', 'bytemash-woo-sync') : __('Disabled', 'bytemash-woo-sync'); ?>
+                                                </span>
+                                                <button type="button" id="toggle-incremental-test-mode" class="button <?php echo $incremental_test_mode ? 'button-secondary' : 'button-primary'; ?>">
+                                                    <?php echo $incremental_test_mode ? __('Disable Incremental Test Mode', 'bytemash-woo-sync') : __('Enable Incremental Test Mode', 'bytemash-woo-sync'); ?>
+                                                </button>
+                                            </div>
+                                            <div id="incremental-test-mode-status"></div>
+                                            <p class="description">
+                                                <?php esc_html_e('Runs incremental sync every 5 minutes when enabled using system cron (not dependent on website traffic). Disables production incremental sync schedule.', 'bytemash-woo-sync'); ?>
+                                            </p>
+                                        </div>
+                                        
+                                        <!-- Production Cron -->
+                                        <div class="test-mode-section">
+                                            <h4><?php esc_html_e('Production Cron', 'bytemash-woo-sync'); ?></h4>
+                                            <div class="test-mode-item">
+                                                <span class="test-mode-badge <?php echo (wp_next_scheduled('bytemash_full_sync_cron') || wp_next_scheduled('bytemash_incremental_sync_cron')) ? 'enabled' : 'disabled'; ?>">
+                                                    <?php echo (wp_next_scheduled('bytemash_full_sync_cron') || wp_next_scheduled('bytemash_incremental_sync_cron')) ? __('Enabled', 'bytemash-woo-sync') : __('Disabled', 'bytemash-woo-sync'); ?>
+                                                </span>
+                                                <button type="button" id="enable-production-cron" class="button button-primary">
+                                                    <?php esc_html_e('Enable Production Cron', 'bytemash-woo-sync'); ?>
+                                                </button>
+                                            </div>
+                                            <div id="production-cron-status"></div>
+                                            <p class="description">
+                                                <?php esc_html_e('Enables production sync schedules (daily full sync, every 5 hours incremental).', 'bytemash-woo-sync'); ?>
+                                            </p>
+                                        </div>
+                                        
+                                        <!-- System Cron (Individual) -->
+                                        <div class="test-mode-section">
+                                            <h4><?php esc_html_e('System Cron Only', 'bytemash-woo-sync'); ?></h4>
+                                            <div class="test-mode-item">
+                                                <span class="test-mode-badge <?php echo get_option('bytemash_cron_system_cron_enabled', false) ? 'enabled' : 'disabled'; ?>">
+                                                    <?php echo get_option('bytemash_cron_system_cron_enabled', false) ? __('Enabled', 'bytemash-woo-sync') : __('Disabled', 'bytemash-woo-sync'); ?>
+                                                </span>
+                                                <button type="button" id="enable-system-cron" class="button" <?php echo get_option('bytemash_cron_system_cron_enabled', false) ? 'disabled' : ''; ?>>
+                                                    <?php esc_html_e('Enable System Cron', 'bytemash-woo-sync'); ?>
+                                                </button>
+                                            </div>
+                                            <div id="system-cron-status"></div>
+                                            <p class="description">
+                                                <?php esc_html_e('Only enables system cron script (requires manual crontab setup).', 'bytemash-woo-sync'); ?>
+                                            </p>
+                                        </div>
+                                        
+                                        <!-- Emergency Stop -->
+                                        <div class="test-mode-section emergency-section">
+                                            <h4><?php esc_html_e('Emergency Stop', 'bytemash-woo-sync'); ?></h4>
+                                            <div class="test-mode-item">
+                                                <button type="button" id="emergency-stop-syncs" class="button button-secondary" style="background: #dc3545; color: white; border-color: #dc3545;">
+                                                    <span class="dashicons dashicons-no"></span>
+                                                    <?php esc_html_e('Stop All Running Syncs', 'bytemash-woo-sync'); ?>
+                                                </button>
+                                            </div>
+                                            <div id="emergency-stop-status"></div>
+                                            <p class="description">
+                                                <?php esc_html_e('Immediately stops all running sync operations as a failsafe measure.', 'bytemash-woo-sync'); ?>
+                                            </p>
+                                        </div>
+                                    </div>
+                                </td>
+                            </tr>
+                            
+                            <!-- Production System Cron Section -->
+                            <tr>
+                                <th scope="row"><?php esc_html_e('Production System Cron', 'bytemash-woo-sync'); ?></th>
+                                <td>
+                                    <div class="production-system-controls">
+                                        <div class="production-system-section">
+                                            <h4><?php esc_html_e('Reliable Production Cron', 'bytemash-woo-sync'); ?></h4>
+                                            <div class="test-mode-item">
+                                                <span class="test-mode-badge <?php echo (get_option('bytemash_cron_system_cron_enabled', false) && (wp_next_scheduled('bytemash_full_sync_cron') || wp_next_scheduled('bytemash_incremental_sync_cron'))) ? 'enabled' : 'disabled'; ?>">
+                                                    <?php echo (get_option('bytemash_cron_system_cron_enabled', false) && (wp_next_scheduled('bytemash_full_sync_cron') || wp_next_scheduled('bytemash_incremental_sync_cron'))) ? __('Enabled', 'bytemash-woo-sync') : __('Disabled', 'bytemash-woo-sync'); ?>
+                                                </span>
+                                                <button type="button" id="enable-production-system-cron" class="button button-primary" <?php echo (get_option('bytemash_cron_system_cron_enabled', false) && (wp_next_scheduled('bytemash_full_sync_cron') || wp_next_scheduled('bytemash_incremental_sync_cron'))) ? 'disabled' : ''; ?>>
+                                                    <?php esc_html_e('Enable Reliable Production Cron', 'bytemash-woo-sync'); ?>
+                                                </button>
+                                            </div>
+                                            <div id="production-system-cron-status"></div>
+                                            <p class="description">
+                                                <?php esc_html_e('Enables production schedules with system cron for maximum reliability. Does NOT depend on website traffic.', 'bytemash-woo-sync'); ?>
+                                            </p>
                                         </div>
                                     </div>
                                 </td>
@@ -460,6 +660,19 @@ class ByteMash_Admin_Settings {
             update_option('bytemash_amrod_batch_size', $batch_size);
         }
         
+        // Save sync attributes
+        $sync_attributes = array(
+            'bytemash_sync_products' => isset($_POST['sync_products']),
+            'bytemash_sync_stock' => isset($_POST['sync_stock']),
+            'bytemash_sync_prices' => isset($_POST['sync_prices']),
+            'bytemash_sync_categories' => isset($_POST['sync_categories']),
+            'bytemash_sync_brands' => isset($_POST['sync_brands']),
+        );
+        
+        foreach ($sync_attributes as $option_name => $value) {
+            update_option($option_name, $value);
+        }
+        
         // Save new sync schedule settings
         $full_sync_frequency = 'daily_at_0030';
         $incremental_frequency = 'every_5_hours';
@@ -492,6 +705,39 @@ class ByteMash_Admin_Settings {
         // Redirect with success message
         wp_redirect(add_query_arg('settings-updated', 'true', wp_get_referer()));
         exit;
+    }
+    
+    /**
+     * Get active cron method
+     */
+    private static function get_active_cron_method() {
+        if (get_option('bytemash_cron_system_cron_enabled', false)) {
+            return 'system_cron';
+        }
+        
+        if (get_option('bytemash_cron_hosted_pinger_enabled', false)) {
+            return 'hosted_pinger';
+        }
+        
+        if (get_option('bytemash_cron_self_ping_enabled', true)) {
+            return 'self_ping';
+        }
+        
+        return 'none';
+    }
+    
+    /**
+     * Get method display name
+     */
+    private static function get_method_display_name($method) {
+        $names = array(
+            'system_cron' => __('System Cron', 'bytemash-woo-sync'),
+            'hosted_pinger' => __('Hosted Pinger', 'bytemash-woo-sync'),
+            'self_ping' => __('Self-Ping', 'bytemash-woo-sync'),
+            'none' => __('None', 'bytemash-woo-sync'),
+        );
+        
+        return isset($names[$method]) ? $names[$method] : $method;
     }
 }
 

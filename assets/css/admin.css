@@ -7,6 +7,699 @@
     margin: 20px 20px 0 0;
 }
 
+/* Test Mode Controls */
+.test-mode-controls {
+    background: #f9f9f9;
+    padding: 15px;
+    border-radius: 4px;
+    border: 1px solid #ddd;
+}
+
+.test-mode-status {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 15px;
+}
+
+.test-mode-badge {
+    padding: 4px 8px;
+    border-radius: 3px;
+    font-weight: bold;
+    font-size: 12px;
+    text-transform: uppercase;
+}
+
+.test-mode-badge.enabled {
+    background: #28a745;
+    color: white;
+}
+
+.test-mode-badge.disabled {
+    background: #6c757d;
+    color: white;
+}
+
+.cron-method-badge {
+    padding: 4px 8px;
+    border-radius: 3px;
+    font-weight: bold;
+    font-size: 11px;
+    text-transform: uppercase;
+}
+
+.cron-method-system_cron {
+    background: #28a745;
+    color: white;
+}
+
+.cron-method-hosted_pinger {
+    background: #007cba;
+    color: white;
+}
+
+.cron-method-self_ping {
+    background: #ffc107;
+    color: black;
+}
+
+.cron-method-none {
+    background: #dc3545;
+    color: white;
+}
+
+.test-mode-actions {
+    display: flex;
+    gap: 10px;
+    margin-bottom: 15px;
+}
+
+.test-mode-actions .button {
+    flex: 1;
+}
+
+/* Separate Test Mode Sections */
+.test-mode-section {
+    margin: 20px 0;
+    padding: 15px;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+    background: #f9f9f9;
+}
+
+.test-mode-section h4 {
+    margin: 0 0 10px 0;
+    color: #495057;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.test-mode-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+}
+
+.test-mode-item .test-mode-badge {
+    min-width: 80px;
+    text-align: center;
+    flex-shrink: 0;
+}
+
+.test-mode-item .button {
+    flex: 1;
+    max-width: 200px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.test-mode-item .button:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+/* Production System section styling */
+.production-system-section {
+    border-color: #28a745 !important;
+    background: #d4edda !important;
+}
+
+.production-system-section h4 {
+    color: #155724 !important;
+}
+
+/* Emergency section styling */
+.emergency-section {
+    border-color: #dc3545 !important;
+    background: #f8d7da !important;
+}
+
+.emergency-section h4 {
+    color: #721c24 !important;
+}
+
+.emergency-section .button {
+    background: #dc3545 !important;
+    color: white !important;
+    border-color: #dc3545 !important;
+}
+
+.emergency-section .button:hover {
+    background: #c82333 !important;
+    border-color: #bd2130 !important;
+}
+
+.test-mode-section .description {
+    margin: 10px 0 0 0;
+    font-size: 12px;
+    color: #6c757d;
+    font-style: italic;
+}
+
+#test-mode-status,
+#system-cron-status {
+    margin-top: 10px;
+}
+
+#test-mode-status .notice,
+#system-cron-status .notice {
+    margin: 0;
+    padding: 8px 12px;
+}
+
+/* Scheduled Sync Monitoring */
+.bytemash-scheduled-sync-card {
+    background: linear-gradient(135deg, #f8f9fa 0%, #e9ecef 100%);
+    border: 1px solid #dee2e6;
+}
+
+.bytemash-scheduled-sync-card h2 {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin: 0 0 20px 0;
+    padding-bottom: 15px;
+    border-bottom: 2px solid #007cba;
+}
+
+.bytemash-auto-refresh-indicator {
+    display: none;
+    background: #28a745;
+    color: white;
+    padding: 4px 8px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: bold;
+    text-transform: uppercase;
+}
+
+.bytemash-auto-refresh-indicator .dashicons {
+    animation: spin 1s linear infinite;
+}
+
+@keyframes spin {
+    from { transform: rotate(0deg); }
+    to { transform: rotate(360deg); }
+}
+
+.bytemash-sync-status-overview {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 15px;
+    margin-bottom: 20px;
+    padding: 15px;
+    background: white;
+    border-radius: 4px;
+    border: 1px solid #ddd;
+}
+
+.bytemash-sync-status-item {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 10px;
+    background: #f8f9fa;
+    border-radius: 4px;
+    border-left: 4px solid #007cba;
+}
+
+.bytemash-sync-status-item strong {
+    min-width: 120px;
+    color: #495057;
+}
+
+.sync-running-indicator {
+    background: #28a745;
+    color: white;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 11px;
+    font-weight: bold;
+    text-transform: uppercase;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0% { opacity: 1; }
+    50% { opacity: 0.5; }
+    100% { opacity: 1; }
+}
+
+.bytemash-realtime-activity {
+    margin-bottom: 20px;
+}
+
+.bytemash-realtime-activity h3 {
+    margin: 0 0 10px 0;
+    color: #495057;
+    font-size: 14px;
+}
+
+.bytemash-realtime-logs {
+    max-height: 200px;
+    overflow-y: auto;
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 4px;
+    padding: 10px;
+}
+
+.bytemash-log-entry {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding: 5px 0;
+    border-bottom: 1px solid #e9ecef;
+    font-size: 12px;
+}
+
+.bytemash-log-entry:last-child {
+    border-bottom: none;
+}
+
+.log-time {
+    min-width: 60px;
+    color: #6c757d;
+    font-family: monospace;
+}
+
+.log-type {
+    min-width: 80px;
+    background: #e9ecef;
+    padding: 2px 6px;
+    border-radius: 3px;
+    text-align: center;
+    font-size: 10px;
+    text-transform: uppercase;
+    font-weight: bold;
+}
+
+.log-status {
+    flex: 1;
+    padding: 2px 6px;
+    border-radius: 3px;
+    font-size: 11px;
+}
+
+.log-status.success {
+    background: #d4edda;
+    color: #155724;
+}
+
+.log-status.error {
+    background: #f8d7da;
+    color: #721c24;
+}
+
+.log-status.info {
+    background: #d1ecf1;
+    color: #0c5460;
+}
+
+.bytemash-sync-progress {
+    margin-bottom: 20px;
+    padding: 15px;
+    background: white;
+    border: 1px solid #ddd;
+    border-radius: 4px;
+}
+
+.bytemash-sync-progress h3 {
+    margin: 0 0 10px 0;
+    color: #495057;
+    font-size: 14px;
+}
+
+.bytemash-progress-bar {
+    width: 100%;
+    height: 20px;
+    background: #e9ecef;
+    border-radius: 10px;
+    overflow: hidden;
+    margin-bottom: 10px;
+}
+
+.bytemash-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #007cba, #005a87);
+    transition: width 0.3s ease;
+    border-radius: 10px;
+}
+
+.bytemash-progress-text {
+    text-align: center;
+    color: #495057;
+    font-size: 12px;
+}
+
+.bytemash-scheduled-controls {
+    display: flex;
+    gap: 10px;
+    justify-content: center;
+    padding-top: 15px;
+    border-top: 1px solid #dee2e6;
+}
+
+.bytemash-scheduled-controls .button {
+    display: flex;
+    align-items: center;
+    gap: 5px;
+}
+
+/* Scheduled Sync Batch Processing - New Layout */
+.bytemash-scheduled-sync-progress {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 20px;
+    margin: 20px 0;
+}
+
+.scheduled-sync-item {
+    background: white;
+    border-radius: 8px;
+    padding: 20px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    margin-bottom: 15px;
+}
+
+.sync-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 15px;
+}
+
+.sync-header h4 {
+    margin: 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: #1d2327;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+}
+
+.sync-percentage {
+    background: #2271b1;
+    color: white;
+    padding: 4px 12px;
+    border-radius: 20px;
+    font-weight: bold;
+    font-size: 14px;
+}
+
+.sync-progress-bar {
+    height: 8px;
+    background: #f0f0f1;
+    border-radius: 4px;
+    overflow: hidden;
+    margin-bottom: 15px;
+}
+
+.progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #2271b1, #00a32a);
+    transition: width 0.3s ease;
+}
+
+.sync-stats {
+    display: flex;
+    gap: 15px;
+    margin-bottom: 20px;
+    font-size: 14px;
+}
+
+.sync-stats .processed {
+    color: #1d2327;
+    font-weight: 600;
+}
+
+.sync-stats .errors {
+    color: #d63638;
+}
+
+.sync-stats .skipped {
+    color: #ffc107;
+}
+
+.batch-list {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+    gap: 8px;
+}
+
+.batch-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 8px 12px;
+    border-radius: 6px;
+    border-left: 4px solid #ddd;
+    background: #f9f9f9;
+    font-size: 12px;
+    transition: all 0.3s ease;
+}
+
+.batch-item.waiting {
+    border-left-color: #6c757d;
+    background: #f8f9fa;
+}
+
+.batch-item.processing {
+    border-left-color: #2271b1;
+    background: #f0f6fc;
+    animation: pulse 2s infinite;
+}
+
+.batch-item.completed {
+    border-left-color: #00a32a;
+    background: #f0f9f0;
+}
+
+.batch-item.more {
+    border-left-color: #ffc107;
+    background: #fffbf0;
+    font-style: italic;
+    color: #6c757d;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+/* Sync Attributes Grid */
+.sync-attributes-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(250px, 1fr));
+    gap: 15px;
+    margin: 15px 0;
+}
+
+.sync-attribute-item {
+    background: #f8f9fa;
+    border: 1px solid #dee2e6;
+    border-radius: 8px;
+    padding: 15px;
+    transition: all 0.3s ease;
+}
+
+.sync-attribute-item:hover {
+    background: #e9ecef;
+    border-color: #2271b1;
+}
+
+.sync-attribute-item label {
+    display: flex;
+    flex-direction: column;
+    gap: 5px;
+    cursor: pointer;
+    margin: 0;
+}
+
+.sync-attribute-item input[type="checkbox"] {
+    margin-right: 8px;
+    transform: scale(1.2);
+}
+
+.sync-attribute-item strong {
+    color: #1d2327;
+    font-size: 14px;
+    font-weight: 600;
+}
+
+.sync-attribute-item .description {
+    color: #646970;
+    font-size: 12px;
+    font-style: italic;
+}
+
+/* Clear Products Button */
+.bytemash-button-group a[href*="bytemash-amrod-tools"] {
+    background: #d63638 !important;
+    border-color: #d63638 !important;
+    color: white !important;
+    text-decoration: none;
+    transition: all 0.3s ease;
+}
+
+.bytemash-button-group a[href*="bytemash-amrod-tools"]:hover {
+    background: #b32d2e !important;
+    border-color: #b32d2e !important;
+    color: white !important;
+    text-decoration: none;
+    transform: translateY(-1px);
+    box-shadow: 0 2px 4px rgba(214, 54, 56, 0.3);
+}
+
+.bytemash-button-group a[href*="bytemash-amrod-tools"]:focus {
+    box-shadow: 0 0 0 1px #fff, 0 0 0 3px #d63638;
+}
+
+/* Ensure scheduled sync progress uses same styling as manual sync */
+#scheduled_sync_progress .bytemash-batch-list {
+    background: white;
+    padding: 20px;
+    border-radius: 8px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    margin-bottom: 15px;
+}
+
+#scheduled_sync_progress .batch-progress-overall {
+    margin-bottom: 20px;
+}
+
+#scheduled_sync_progress .overall-progress-bar {
+    height: 30px;
+    background: #f0f0f1;
+    border-radius: 15px;
+    overflow: hidden;
+    position: relative;
+}
+
+#scheduled_sync_progress .overall-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, #2271b1, #00a32a);
+    transition: width 0.3s ease;
+    position: relative;
+}
+
+#scheduled_sync_progress .progress-text {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: white;
+    font-weight: bold;
+    font-size: 12px;
+    text-shadow: 1px 1px 2px rgba(0,0,0,0.5);
+}
+
+#scheduled_sync_progress .overall-stats {
+    margin-top: 10px;
+    font-size: 14px;
+    color: #646970;
+    text-align: center;
+}
+
+#scheduled_sync_progress .batch-items {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+#scheduled_sync_progress .batch-item {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 10px 15px;
+    background: #f9f9f9;
+    border-radius: 6px;
+    border-left: 4px solid #ddd;
+    transition: all 0.3s ease;
+}
+
+#scheduled_sync_progress .batch-item.processing {
+    border-left-color: #2271b1;
+    background: #f0f6fc;
+}
+
+#scheduled_sync_progress .batch-item.completed {
+    border-left-color: #00a32a;
+    background: #f0f9f0;
+}
+
+#scheduled_sync_progress .batch-item.error {
+    border-left-color: #d63638;
+    background: #fcf0f1;
+}
+
+.bytemash-sync-item.processing {
+    border-left: 4px solid #007cba;
+}
+
+.bytemash-sync-item.completed {
+    border-left: 4px solid #28a745;
+}
+
+.bytemash-sync-item.scheduled {
+    border-left: 4px solid #ffc107;
+}
+
+.bytemash-sync-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 10px;
+}
+
+.bytemash-sync-header h4 {
+    margin: 0;
+    font-size: 14px;
+    font-weight: 600;
+    color: #495057;
+}
+
+.bytemash-sync-percentage {
+    background: #007cba;
+    color: white;
+    padding: 2px 8px;
+    border-radius: 3px;
+    font-size: 12px;
+    font-weight: bold;
+}
+
+.bytemash-sync-details {
+    display: flex;
+    gap: 15px;
+    margin-bottom: 10px;
+    font-size: 12px;
+    color: #6c757d;
+}
+
+.bytemash-sync-processed {
+    font-weight: bold;
+    color: #495057;
+}
+
+.bytemash-sync-errors {
+    color: #dc3545;
+}
+
+.bytemash-sync-skipped {
+    color: #ffc107;
+}
+
+.bytemash-sync-message {
+    font-size: 12px;
+    color: #495057;
+    font-style: italic;
+}
+
 /* Sync Sections */
 .bytemash-sync-actions {
     display: grid;

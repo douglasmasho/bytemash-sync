@@ -6,7 +6,28 @@
  */
 
 // Load WordPress
-require_once('../../../../../wp-load.php');
+// Try multiple possible paths for wp-load.php
+$wp_load_paths = array(
+    '../../../../../wp-load.php',
+    '../../../../wp-load.php', 
+    '../../../wp-load.php',
+    '../../wp-load.php',
+    '../wp-load.php',
+    'wp-load.php'
+);
+
+$wp_loaded = false;
+foreach ($wp_load_paths as $path) {
+    if (file_exists($path)) {
+        require_once($path);
+        $wp_loaded = true;
+        break;
+    }
+}
+
+if (!$wp_loaded) {
+    die('WordPress not found. Please check the path to wp-load.php');
+}
 
 // Check permissions
 if (!current_user_can('manage_options')) {
@@ -163,3 +184,4 @@ echo "<hr>";
 echo "<p><a href='" . admin_url('admin.php?page=bytemash-amrod-sync') . "'>Go to Dashboard</a> | ";
 echo "<a href='" . admin_url('admin.php?page=bytemash-amrod-settings') . "'>Go to Settings</a></p>";
 ?>
+

@@ -103,6 +103,11 @@ class ByteMash_Sync_Scheduler {
             'display' => __('Daily at 00:30 GMT+2', 'bytemash-woo-sync'),
         );
         
+        $schedules['every_5_minutes'] = array(
+            'interval' => 5 * MINUTE_IN_SECONDS,
+            'display' => __('Every 5 Minutes', 'bytemash-woo-sync'),
+        );
+        
         return $schedules;
     }
     
@@ -123,27 +128,53 @@ class ByteMash_Sync_Scheduler {
         set_transient('bytemash_full_sync_running', true, 7200); // 2 hours timeout
         
         try {
-            // Run full sync for all endpoints
-            $this->logger->log('info', 'Starting full product sync', array(), 'full_sync');
-            $product_result = $this->product_sync->sync_all_products(false, true);
+            // Get enabled sync attributes
+            $sync_products = get_option('bytemash_sync_products', true);
+            $sync_stock = get_option('bytemash_sync_stock', true);
+            $sync_prices = get_option('bytemash_sync_prices', true);
+            $sync_categories = get_option('bytemash_sync_categories', true);
+            $sync_brands = get_option('bytemash_sync_brands', true);
             
-            $this->logger->log('info', 'Starting full stock sync', array(), 'full_sync');
-            $stock_result = $this->product_sync->sync_stock_levels();
+            $results = array();
             
-            $this->logger->log('info', 'Starting full price sync', array(), 'full_sync');
-            $price_result = $this->product_sync->sync_prices();
+            // Run full sync for enabled endpoints in sequence (queue-like behavior)
+            if ($sync_products) {
+                $this->logger->log('info', 'Starting full product sync', array(), 'full_sync');
+                $results['products'] = $this->product_sync->sync_all_products(false, true);
+            }
             
-            $this->logger->log('info', 'Starting full category sync', array(), 'full_sync');
-            $category_result = $this->product_sync->sync_categories();
+            if ($sync_stock) {
+                $this->logger->log('info', 'Starting full stock sync', array(), 'full_sync');
+                $results['stock'] = $this->product_sync->sync_stock_levels();
+            }
+            
+            if ($sync_prices) {
+                $this->logger->log('info', 'Starting full price sync', array(), 'full_sync');
+                $results['prices'] = $this->product_sync->sync_prices();
+            }
+            
+            if ($sync_categories) {
+                $this->logger->log('info', 'Starting full category sync', array(), 'full_sync');
+                $results['categories'] = $this->product_sync->sync_categories();
+            }
+            
+            if ($sync_brands) {
+                $this->logger->log('info', 'Starting full brand sync', array(), 'full_sync');
+                $results['brands'] = $this->product_sync->sync_brands();
+            }
             
             // Store full sync completion timestamp
             update_option('bytemash_last_full_sync', current_time('mysql'));
             
             $this->logger->log('success', 'Full sync completed', array(
-                'product_result' => $product_result,
-                'stock_result' => $stock_result,
-                'price_result' => $price_result,
-                'category_result' => $category_result,
+                'results' => $results,
+                'enabled_attributes' => array(
+                    'products' => $sync_products,
+                    'stock' => $sync_stock,
+                    'prices' => $sync_prices,
+                    'categories' => $sync_categories,
+                    'brands' => $sync_brands,
+                )
             ), 'full_sync');
             
         } catch (Exception $e) {
@@ -183,43 +214,66 @@ class ByteMash_Sync_Scheduler {
         set_transient('bytemash_incremental_sync_running', true, 3600); // 1 hour timeout
         
         try {
+            // Get enabled sync attributes
+            $sync_products = get_option('bytemash_sync_products', true);
+            $sync_stock = get_option('bytemash_sync_stock', true);
+            $sync_prices = get_option('bytemash_sync_prices', true);
+            $sync_categories = get_option('bytemash_sync_categories', true);
+            $sync_brands = get_option('bytemash_sync_brands', true);
+            
             // Get last incremental sync timestamp
             $last_incremental = get_option('bytemash_last_incremental_sync', $last_full_sync);
             
-            $this->logger->log('info', 'Starting incremental product sync', array(
-                'since' => $last_incremental
-            ), 'incremental_sync');
-            $product_result = $this->product_sync->sync_updated_products(true);
+            $results = array();
             
-            $this->logger->log('info', 'Starting incremental stock sync', array(
-                'since' => $last_incremental
-            ), 'incremental_sync');
-            $stock_result = $this->product_sync->sync_stock_updated();
+            // Run incremental sync for enabled endpoints in sequence (queue-like behavior)
+            if ($sync_products) {
+                $this->logger->log('info', 'Starting incremental product sync', array(
+                    'since' => $last_incremental
+                ), 'incremental_sync');
+                $results['products'] = $this->product_sync->sync_updated_products(true);
+            }
             
-            $this->logger->log('info', 'Starting incremental price sync', array(
-                'since' => $last_incremental
-            ), 'incremental_sync');
-            $price_result = $this->product_sync->sync_prices_updated();
+            if ($sync_stock) {
+                $this->logger->log('info', 'Starting incremental stock sync', array(
+                    'since' => $last_incremental
+                ), 'incremental_sync');
+                $results['stock'] = $this->product_sync->sync_stock_updated();
+            }
             
-            $this->logger->log('info', 'Starting incremental category sync', array(
-                'since' => $last_incremental
-            ), 'incremental_sync');
-            $category_result = $this->product_sync->sync_categories_updated();
+            if ($sync_prices) {
+                $this->logger->log('info', 'Starting incremental price sync', array(
+                    'since' => $last_incremental
+                ), 'incremental_sync');
+                $results['prices'] = $this->product_sync->sync_prices_updated();
+            }
             
-            $this->logger->log('info', 'Starting incremental brand sync', array(
-                'since' => $last_incremental
-            ), 'incremental_sync');
-            $brand_result = $this->product_sync->sync_brands_updated();
+            if ($sync_categories) {
+                $this->logger->log('info', 'Starting incremental category sync', array(
+                    'since' => $last_incremental
+                ), 'incremental_sync');
+                $results['categories'] = $this->product_sync->sync_categories_updated();
+            }
+            
+            if ($sync_brands) {
+                $this->logger->log('info', 'Starting incremental brand sync', array(
+                    'since' => $last_incremental
+                ), 'incremental_sync');
+                $results['brands'] = $this->product_sync->sync_brands_updated();
+            }
             
             // Store incremental sync completion timestamp
             update_option('bytemash_last_incremental_sync', current_time('mysql'));
             
             $this->logger->log('success', 'Incremental sync completed', array(
-                'product_result' => $product_result,
-                'stock_result' => $stock_result,
-                'price_result' => $price_result,
-                'category_result' => $category_result,
-                'brand_result' => $brand_result,
+                'results' => $results,
+                'enabled_attributes' => array(
+                    'products' => $sync_products,
+                    'stock' => $sync_stock,
+                    'prices' => $sync_prices,
+                    'categories' => $sync_categories,
+                    'brands' => $sync_brands,
+                )
             ), 'incremental_sync');
             
         } catch (Exception $e) {

@@ -5,7 +5,584 @@
 (function($) {
     'use strict';
     
+    // Safety check: Verify plugin JS is loading correctly
+    if (typeof bytemashWooSync === 'undefined') {
+        console.error('❌ ByteMash WooSync: Plugin JavaScript loaded but localized data is missing!');
+        console.error('This usually means:');
+        console.error('1. Cache is preventing wp_localize_script from running');
+        console.error('2. Another plugin is conflicting');
+        console.error('3. Assets are being loaded in the wrong order');
+        console.error('Solution: Clear all caches (browser, WordPress, server) and hard refresh (Ctrl+Shift+R)');
+        
+        // Show user-friendly error
+        $(document).ready(function() {
+            if ($('.bytemash-admin-wrap').length > 0) {
+                $('.bytemash-admin-wrap').prepend(
+                    '<div class="notice notice-error" style="padding: 15px; margin: 20px 0;">' +
+                    '<h3 style="margin-top: 0;">⚠️ Plugin Assets Loading Issue</h3>' +
+                    '<p><strong>The plugin JavaScript loaded but essential data is missing.</strong></p>' +
+                    '<p>This is usually caused by caching. Please try these steps in order:</p>' +
+                    '<ol>' +
+                    '<li><strong>Hard refresh this page:</strong> Press <code>Ctrl+Shift+R</code> (Windows/Linux) or <code>Cmd+Shift+R</code> (Mac)</li>' +
+                    '<li><strong>Clear WordPress cache:</strong> If using a caching plugin, clear its cache</li>' +
+                    '<li><strong>Clear server cache:</strong> Contact your host or check cPanel</li>' +
+                    '<li><strong>Disable other plugins:</strong> Temporarily disable other plugins to check for conflicts</li>' +
+                    '</ol>' +
+                    '<p><a href="' + (window.location.origin + '/wp-content/plugins/bytemash-woo-sync/diagnostics.php') + '" class="button button-primary">Run Diagnostics Tool</a></p>' +
+                    '</div>'
+                );
+            }
+        });
+        
+        // Stop execution - don't try to run without proper data
+        return;
+    }
+    
+    // Log successful load
+    console.log('✅ ByteMash WooSync Admin JS initialized successfully');
+    console.log('AJAX URL:', bytemashWooSync.ajax_url);
+    console.log('Plugin URL:', bytemashWooSync.debug.plugin_url);
+    
     $(document).ready(function() {
+        
+        /**
+         * Handle full sync test mode toggle
+         */
+        $('#toggle-full-test-mode').on('click', function() {
+            const $button = $(this);
+            const originalText = $button.text();
+            
+            $button.prop('disabled', true).text('Processing...');
+            
+            $.ajax({
+                url: bytemashWooSync.ajax_url,
+                type: 'POST',
+                data: {
+                    action: 'bytemash_toggle_full_test_mode',
+                    nonce: bytemashWooSync.nonce
+                },
+                success: function(response) {
+                    if (response.success) {
+                        $('#full-test-mode-status').html(
+                            '<div class="notice notice-success"><p>' + response.data.message + '</p></div>'
+                        );
+                        
+                        // Update button text and class
+                        if (response.data.test_mode) {
+                            $button.text('Disable Full Test Mode').removeClass('button-primary').addClass('button-secondary');
+                        } else {
+                            $button.text('Enable Full Test Mode').removeClass('button-secondary').addClass('button-primary');
+                        }
+                        
+                        // Reload page after 2 seconds to show updated status
+                        setTimeout(function() {
+                            location.reload();
+                        }, 2000);
+                    } else {
+                        $('#full-test-mode-status').html(
+                            '<div class="notice notice-error"><p>' + response.data.message + '</p></div>'
+                        );
+                    }
+                },
+                error: function() {
+                    $('#full-test-mode-status').html(
+                        '<div class="notice notice-error"><p>Request failed. Please try again.</p></div>'
+                    );
+                },
+                complete: function() {
+                    $button.prop('disabled', false);
+                }
+            });
+        });
+        
+        /**
+         * Handle incremental sync test mode toggle
+         */
+        $('#toggle-incremental-test-mode').on('click', function() {
+            const $button = $(this);
+            const originalText = $button.text();
+            
+            $button.prop('disabled', true).text('Processing...');
+            
+            $.ajax({
+                url: bytemashWooSync.ajax_url,
+                type: 'POST',
+                data: {
+                    action: 'bytemash_toggle_incremental_test_mode',
+                    nonce: bytemashWooSync.nonce
+                },
+                success: function(response) {
+                    if (response.success) {
+                        $('#incremental-test-mode-status').html(
+                            '<div class="notice notice-success"><p>' + response.data.message + '</p></div>'
+                        );
+                        
+                        // Update button text and class
+                        if (response.data.test_mode) {
+                            $button.text('Disable Incremental Test Mode').removeClass('button-primary').addClass('button-secondary');
+                        } else {
+                            $button.text('Enable Incremental Test Mode').removeClass('button-secondary').addClass('button-primary');
+                        }
+                        
+                        // Reload page after 2 seconds to show updated status
+                        setTimeout(function() {
+                            location.reload();
+                        }, 2000);
+                    } else {
+                        $('#incremental-test-mode-status').html(
+                            '<div class="notice notice-error"><p>' + response.data.message + '</p></div>'
+                        );
+                    }
+                },
+                error: function() {
+                    $('#incremental-test-mode-status').html(
+                        '<div class="notice notice-error"><p>Request failed. Please try again.</p></div>'
+                    );
+                },
+                complete: function() {
+                    $button.prop('disabled', false);
+                }
+            });
+        });
+        
+        /**
+         * Handle production cron enable
+         */
+        $('#enable-production-cron').on('click', function() {
+            const $button = $(this);
+            const originalText = $button.text();
+            
+            $button.prop('disabled', true).text('Enabling...');
+            
+            $.ajax({
+                url: bytemashWooSync.ajax_url,
+                type: 'POST',
+                data: {
+                    action: 'bytemash_enable_production_cron',
+                    nonce: bytemashWooSync.nonce
+                },
+                success: function(response) {
+                    if (response.success) {
+                        $('#production-cron-status').html(
+                            '<div class="notice notice-success"><p>' + response.data.message + '</p></div>'
+                        );
+                        $button.text('Enabled').prop('disabled', true);
+                    } else {
+                        $('#production-cron-status').html(
+                            '<div class="notice notice-error"><p>' + response.data.message + '</p></div>'
+                        );
+                        $button.text(originalText);
+                    }
+                },
+                error: function() {
+                    $('#production-cron-status').html(
+                        '<div class="notice notice-error"><p>Request failed. Please try again.</p></div>'
+                    );
+                    $button.text(originalText);
+                },
+                complete: function() {
+                    $button.prop('disabled', false);
+                }
+            });
+        });
+        
+        /**
+         * Handle emergency stop
+         */
+        $('#emergency-stop-syncs').on('click', function() {
+            if (!confirm('Are you sure you want to stop all running syncs? This action cannot be undone.')) {
+                return;
+            }
+            
+            const $button = $(this);
+            const originalText = $button.text();
+            
+            $button.prop('disabled', true).text('Stopping...');
+            
+            $.ajax({
+                url: bytemashWooSync.ajax_url,
+                type: 'POST',
+                data: {
+                    action: 'bytemash_emergency_stop_syncs',
+                    nonce: bytemashWooSync.nonce
+                },
+                success: function(response) {
+                    if (response.success) {
+                        $('#emergency-stop-status').html(
+                            '<div class="notice notice-success"><p>' + response.data.message + '</p></div>'
+                        );
+                    } else {
+                        $('#emergency-stop-status').html(
+                            '<div class="notice notice-error"><p>' + response.data.message + '</p></div>'
+                        );
+                    }
+                },
+                error: function() {
+                    $('#emergency-stop-status').html(
+                        '<div class="notice notice-error"><p>Request failed. Please try again.</p></div>'
+                    );
+                },
+                complete: function() {
+                    $button.prop('disabled', false).text(originalText);
+                }
+            });
+        });
+        
+        /**
+         * Handle production system cron enable (combined)
+         */
+        $('#enable-production-system-cron').on('click', function() {
+            const $button = $(this);
+            const originalText = $button.text();
+            
+            $button.prop('disabled', true).text('Enabling...');
+            
+            $.ajax({
+                url: bytemashWooSync.ajax_url,
+                type: 'POST',
+                data: {
+                    action: 'bytemash_enable_production_system_cron',
+                    nonce: bytemashWooSync.nonce
+                },
+                success: function(response) {
+                    if (response.success) {
+                        let html = '<div class="notice notice-success"><p>' + response.data.message + '</p></div>';
+                        
+                        // Check if there's a warning (exec() not available)
+                        if (response.data.warning) {
+                            html += '<div class="notice notice-warning" style="margin-top: 10px;"><p><strong>⚠️ ' + response.data.warning + '</strong></p></div>';
+                        }
+                        
+                        // Show instructions if provided
+                        if (response.data.show_instructions && response.data.instructions) {
+                            html += response.data.instructions;
+                        }
+                        
+                        $('#production-system-cron-status').html(html);
+                        
+                        // If fully successful, disable button
+                        if (!response.data.warning) {
+                            $button.text('Enabled').prop('disabled', true);
+                        } else {
+                            // If warning (exec not available), change button text but allow retry
+                            $button.text('Schedules Enabled').removeClass('button-primary').addClass('button-secondary');
+                        }
+                    } else {
+                        $('#production-system-cron-status').html(
+                            '<div class="notice notice-error"><p>' + response.data.message + '</p></div>'
+                        );
+                        $button.text(originalText);
+                    }
+                },
+                error: function() {
+                    $('#production-system-cron-status').html(
+                        '<div class="notice notice-error"><p>Request failed. Please try again.</p></div>'
+                    );
+                    $button.text(originalText);
+                },
+                complete: function() {
+                    // Only re-enable if there was an error
+                    if (!response || !response.success) {
+                        $button.prop('disabled', false);
+                    }
+                }
+            });
+        });
+        
+        /**
+         * Handle system cron enable
+         */
+        $('#enable-system-cron').on('click', function() {
+            const $button = $(this);
+            const originalText = $button.text();
+            
+            $button.prop('disabled', true).text('Installing...');
+            
+            $.ajax({
+                url: bytemashWooSync.ajax_url,
+                type: 'POST',
+                data: {
+                    action: 'bytemash_enable_system_cron',
+                    nonce: bytemashWooSync.nonce
+                },
+                success: function(response) {
+                    if (response.success) {
+                        $('#system-cron-status').html(
+                            '<div class="notice notice-success"><p>' + response.data.message + '</p></div>'
+                        );
+                        $button.text('Enabled').prop('disabled', true);
+                    } else {
+                        $('#system-cron-status').html(
+                            '<div class="notice notice-error"><p>' + response.data.message + '</p></div>'
+                        );
+                        $button.text(originalText);
+                    }
+                },
+                error: function() {
+                    $('#system-cron-status').html(
+                        '<div class="notice notice-error"><p>Request failed. Please try again.</p></div>'
+                    );
+                    $button.text(originalText);
+                },
+                complete: function() {
+                    $button.prop('disabled', false);
+                }
+            });
+        });
+        
+        /**
+         * Scheduled Sync Monitoring
+         */
+        let autoRefreshInterval = null;
+        let autoRefreshEnabled = false;
+        
+        // Auto-refresh toggle
+        $('#toggle_auto_refresh').on('click', function() {
+            if (autoRefreshEnabled) {
+                stopAutoRefresh();
+            } else {
+                startAutoRefresh();
+            }
+        });
+        
+        // Manual refresh
+        $('#refresh_scheduled_status').on('click', function() {
+            refreshScheduledStatus();
+        });
+        
+        function startAutoRefresh() {
+            autoRefreshEnabled = true;
+            autoRefreshInterval = setInterval(refreshScheduledStatus, 5000); // Every 5 seconds
+            
+            $('#auto_refresh_text').text('Disable Auto-refresh');
+            $('#auto_refresh_indicator').show();
+            $('#toggle_auto_refresh .dashicons').removeClass('dashicons-controls-play').addClass('dashicons-controls-pause');
+        }
+        
+        function stopAutoRefresh() {
+            autoRefreshEnabled = false;
+            if (autoRefreshInterval) {
+                clearInterval(autoRefreshInterval);
+                autoRefreshInterval = null;
+            }
+            
+            $('#auto_refresh_text').text('Enable Auto-refresh');
+            $('#auto_refresh_indicator').hide();
+            $('#toggle_auto_refresh .dashicons').removeClass('dashicons-controls-pause').addClass('dashicons-controls-play');
+        }
+        
+        function refreshScheduledStatus() {
+            $.ajax({
+                url: bytemashWooSync.ajax_url,
+                type: 'POST',
+                data: {
+                    action: 'bytemash_get_scheduled_sync_status',
+                    nonce: bytemashWooSync.nonce
+                },
+                success: function(response) {
+                    if (response.success) {
+                        updateScheduledStatus(response.data);
+                    }
+                },
+                error: function() {
+                    console.log('Failed to refresh scheduled status');
+                }
+            });
+        }
+        
+        function updateScheduledStatus(data) {
+            // Update sync times
+            $('#full_sync_status').text(data.full_sync_next || 'Not scheduled');
+            $('#incremental_sync_status').text(data.incremental_sync_next || 'Not scheduled');
+            
+            // Update test mode status
+            let testModeText = '';
+            if (data.full_test_mode) {
+                testModeText += '<span style="color: #28a745; font-weight: bold;">Full Test Mode: Enabled</span><br>';
+            }
+            if (data.incremental_test_mode) {
+                testModeText += '<span style="color: #28a745; font-weight: bold;">Incremental Test Mode: Enabled</span><br>';
+            }
+            if (!data.full_test_mode && !data.incremental_test_mode) {
+                testModeText = '<span style="color: #6c757d;">Test Modes: Disabled</span>';
+            }
+            $('#test_mode_status').html(testModeText);
+            
+            // Update running indicators
+            if (data.full_sync_running) {
+                $('#full_sync_running').show();
+            } else {
+                $('#full_sync_running').hide();
+            }
+            
+            if (data.incremental_sync_running) {
+                $('#incremental_sync_running').show();
+            } else {
+                $('#incremental_sync_running').hide();
+            }
+            
+            // Update real-time logs
+            if (data.recent_logs && data.recent_logs.length > 0) {
+                updateRealtimeLogs(data.recent_logs);
+            }
+            
+            // Update progress if sync is running
+            if (data.sync_progress) {
+                updateSyncProgress(data.sync_progress);
+            }
+        }
+        
+        function updateRealtimeLogs(logs) {
+            const $logsContainer = $('#realtime_sync_logs');
+            $logsContainer.empty();
+            
+            logs.slice(0, 5).forEach(function(log) {
+                const time = new Date(log.created_at).toLocaleTimeString();
+                const statusClass = log.status === 'success' ? 'success' : 
+                                   log.status === 'error' ? 'error' : 'info';
+                
+                const logEntry = `
+                    <div class="bytemash-log-entry">
+                        <span class="log-time">${time}</span>
+                        <span class="log-type">${log.sync_type}</span>
+                        <span class="log-status ${statusClass}">${log.message}</span>
+                    </div>
+                `;
+                $logsContainer.append(logEntry);
+            });
+        }
+        
+        function updateSyncProgress(progress) {
+            if (progress && progress.active_syncs && progress.active_syncs.length > 0) {
+                $('#scheduled_sync_progress').show();
+                updateScheduledActiveSyncs(progress.active_syncs);
+            } else {
+                $('#scheduled_sync_progress').hide();
+            }
+        }
+        
+        function updateScheduledActiveSyncs(activeSyncs) {
+            const $container = $('#scheduled_sync_batches');
+            $container.empty();
+            
+            if (activeSyncs && activeSyncs.length > 0) {
+                $('#scheduled_sync_progress').show();
+                
+                activeSyncs.forEach(function(sync) {
+                    createScheduledSyncDisplay(sync);
+                });
+            } else {
+                $('#scheduled_sync_progress').hide();
+            }
+        }
+        
+        /**
+         * Create scheduled sync batch processing display
+         */
+        function createScheduledSyncDisplay(sync) {
+            const $container = $('#scheduled_sync_batches');
+            const batchCount = sync.batch_count || Math.ceil(sync.total / 50);
+            const syncType = sync.type || 'Products';
+            const percentage = sync.total > 0 ? Math.round((sync.processed / sync.total) * 100) : 0;
+            
+            let html = '<div class="scheduled-sync-item">';
+            html += '<div class="sync-header">';
+            html += '<h4><span class="dashicons dashicons-update-alt spinning"></span> ' + syncType + ' Sync</h4>';
+            html += '<span class="sync-percentage">' + percentage + '%</span>';
+            html += '</div>';
+            html += '<div class="sync-progress-bar">';
+            html += '<div class="progress-fill" style="width: ' + percentage + '%"></div>';
+            html += '</div>';
+            html += '<div class="sync-stats">';
+            html += '<span class="processed">' + sync.processed.toLocaleString() + ' / ' + sync.total.toLocaleString() + ' processed</span>';
+            if (sync.errors > 0) {
+                html += '<span class="errors">' + sync.errors + ' errors</span>';
+            }
+            if (sync.skipped > 0) {
+                html += '<span class="skipped">' + sync.skipped + ' skipped</span>';
+            }
+            html += '</div>';
+            html += '<div class="batch-list">';
+            
+            // Show individual batches
+            for (let i = 0; i < Math.min(batchCount, 15); i++) {
+                const batchStatus = getBatchStatus(i, sync.processed, sync.total, batchCount);
+                html += '<div class="batch-item ' + batchStatus.class + '">';
+                html += '<span class="batch-number">Batch ' + (i + 1) + '</span>';
+                html += '<span class="batch-status">' + batchStatus.text + '</span>';
+                html += '</div>';
+            }
+            
+            if (batchCount > 15) {
+                html += '<div class="batch-item more">... and ' + (batchCount - 15) + ' more batches</div>';
+            }
+            
+            html += '</div>';
+            html += '</div>';
+            
+            $container.html(html);
+        }
+        
+        /**
+         * Get batch status based on progress
+         */
+        function getBatchStatus(batchIndex, processed, total, batchCount) {
+            const itemsPerBatch = Math.ceil(total / batchCount);
+            const currentBatch = Math.floor(processed / itemsPerBatch);
+            
+            if (batchIndex < currentBatch) {
+                return { class: 'completed', text: '✓ Completed' };
+            } else if (batchIndex === currentBatch) {
+                return { class: 'processing', text: '🔄 Processing...' };
+            } else {
+                return { class: 'waiting', text: '⏳ Waiting...' };
+            }
+        }
+        
+        // Start auto-refresh by default
+        startAutoRefresh();
+        
+        /**
+         * Handle stop scheduled sync button
+         */
+        $('#scheduled_stop_sync_button').on('click', function() {
+            if (!confirm('Are you sure you want to stop the scheduled sync? This action cannot be undone.')) {
+                return;
+            }
+            
+            const $button = $(this);
+            $button.prop('disabled', true).text('Stopping...');
+            
+            $.ajax({
+                url: bytemashWooSync.ajax_url,
+                type: 'POST',
+                data: {
+                    action: 'bytemash_stop_sync',
+                    nonce: bytemashWooSync.nonce
+                },
+                success: function(response) {
+                    if (response.success) {
+                        $('#scheduled_sync_message').html(
+                            '<div class="notice notice-success"><p>' + response.data.message + '</p></div>'
+                        );
+                        $('#scheduled_sync_progress').hide();
+                        $('#scheduled_stop_sync_container').hide();
+                    } else {
+                        $('#scheduled_sync_message').html(
+                            '<div class="notice notice-error"><p>' + response.data.message + '</p></div>'
+                        );
+                    }
+                },
+                error: function() {
+                    $('#scheduled_sync_message').html(
+                        '<div class="notice notice-error"><p>Request failed. Please try again.</p></div>'
+                    );
+                },
+                complete: function() {
+                    $button.prop('disabled', false).text('Stop Scheduled Sync');
+                }
+            });
+        });
         
         /**
          * Handle authentication form submission

@@ -117,6 +117,12 @@ class ByteMash_Admin_Dashboard {
                                     <span class="dashicons dashicons-download"></span>
                                     <?php esc_html_e('Incremental', 'bytemash-woo-sync'); ?>
                                 </button>
+                                <a href="<?php echo admin_url('admin.php?page=bytemash-amrod-tools'); ?>" 
+                                   class="button button-secondary"
+                                   style="background: #d63638; border-color: #d63638; color: white;">
+                                    <span class="dashicons dashicons-trash"></span>
+                                    <?php esc_html_e('Clear All Products', 'bytemash-woo-sync'); ?>
+                                </a>
                             </div>
                         </div>
                         
@@ -344,6 +350,112 @@ class ByteMash_Admin_Dashboard {
                     <?php else : ?>
                         <p><?php esc_html_e('No activity yet. Start your first sync!', 'bytemash-woo-sync'); ?></p>
                     <?php endif; ?>
+                </div>
+                
+                <!-- Scheduled Sync Monitoring -->
+                <div class="bytemash-card bytemash-scheduled-sync-card">
+                    <h2>
+                        <span class="dashicons dashicons-clock"></span>
+                        <?php esc_html_e('Scheduled Sync Monitoring', 'bytemash-woo-sync'); ?>
+                        <span class="bytemash-auto-refresh-indicator" id="auto_refresh_indicator">
+                            <span class="dashicons dashicons-update"></span>
+                            <?php esc_html_e('Auto-refresh', 'bytemash-woo-sync'); ?>
+                        </span>
+                    </h2>
+                    
+                    <div class="bytemash-scheduled-sync-content">
+                        <!-- Sync Status Overview -->
+                        <div class="bytemash-sync-status-overview">
+                            <div class="bytemash-sync-status-item">
+                                <strong><?php esc_html_e('Full Sync:', 'bytemash-woo-sync'); ?></strong>
+                                <span id="full_sync_status">
+                                    <?php 
+                                    $full_sync_next = wp_next_scheduled('bytemash_full_sync_cron');
+                                    if ($full_sync_next) {
+                                        echo esc_html(date_i18n(get_option('date_format') . ' ' . get_option('time_format'), $full_sync_next));
+                                    } else {
+                                        echo esc_html__('Not scheduled', 'bytemash-woo-sync');
+                                    }
+                                    ?>
+                                </span>
+                                <span id="full_sync_running" class="sync-running-indicator" style="display: none;">
+                                    <span class="dashicons dashicons-update-alt"></span>
+                                    <?php esc_html_e('Running', 'bytemash-woo-sync'); ?>
+                                </span>
+                            </div>
+                            
+                            <div class="bytemash-sync-status-item">
+                                <strong><?php esc_html_e('Incremental Sync:', 'bytemash-woo-sync'); ?></strong>
+                                <span id="incremental_sync_status">
+                                    <?php 
+                                    $incremental_sync_next = wp_next_scheduled('bytemash_incremental_sync_cron');
+                                    if ($incremental_sync_next) {
+                                        echo esc_html(date_i18n(get_option('date_format') . ' ' . get_option('time_format'), $incremental_sync_next));
+                                    } else {
+                                        echo esc_html__('Not scheduled', 'bytemash-woo-sync');
+                                    }
+                                    ?>
+                                </span>
+                                <span id="incremental_sync_running" class="sync-running-indicator" style="display: none;">
+                                    <span class="dashicons dashicons-update-alt"></span>
+                                    <?php esc_html_e('Running', 'bytemash-woo-sync'); ?>
+                                </span>
+                            </div>
+                            
+                            <div class="bytemash-sync-status-item">
+                                <strong><?php esc_html_e('Test Modes:', 'bytemash-woo-sync'); ?></strong>
+                                <span id="test_mode_status">
+                                    <?php 
+                                    $full_test_mode = get_option('bytemash_cron_full_test_mode_enabled', false);
+                                    $incremental_test_mode = get_option('bytemash_cron_incremental_test_mode_enabled', false);
+                                    
+                                    if ($full_test_mode || $incremental_test_mode) {
+                                        echo '<div style="color: #28a745; font-weight: bold;">';
+                                        if ($full_test_mode) {
+                                            echo esc_html__('Full Test Mode: Enabled', 'bytemash-woo-sync') . '<br>';
+                                        }
+                                        if ($incremental_test_mode) {
+                                            echo esc_html__('Incremental Test Mode: Enabled', 'bytemash-woo-sync') . '<br>';
+                                        }
+                                        echo '</div>';
+                                    } else {
+                                        echo '<span style="color: #6c757d;">' . esc_html__('Disabled', 'bytemash-woo-sync') . '</span>';
+                                    }
+                                    ?>
+                                </span>
+                            </div>
+                        </div>
+                        
+                        <!-- Real-time Sync Activity -->
+                        <div class="bytemash-realtime-activity">
+                            <h3><?php esc_html_e('Real-time Sync Activity', 'bytemash-woo-sync'); ?></h3>
+                            <div id="realtime_sync_logs" class="bytemash-realtime-logs">
+                                <div class="bytemash-log-entry">
+                                    <span class="log-time"><?php echo esc_html(current_time('H:i:s')); ?></span>
+                                    <span class="log-type">system</span>
+                                    <span class="log-status info"><?php esc_html_e('Monitoring started', 'bytemash-woo-sync'); ?></span>
+                                </div>
+                            </div>
+                        </div>
+                        
+                        <!-- Scheduled Sync Batch Processing -->
+                        <div id="scheduled_sync_progress" class="bytemash-scheduled-sync-progress" style="display: none;">
+                            <h3><?php esc_html_e('Scheduled Sync Batch Processing', 'bytemash-woo-sync'); ?></h3>
+                            <div id="scheduled_sync_batches" class="scheduled-batch-container"></div>
+                        </div>
+                        
+                        <!-- Manual Controls -->
+                        <div class="bytemash-scheduled-controls">
+                            <button type="button" id="refresh_scheduled_status" class="button button-secondary">
+                                <span class="dashicons dashicons-update"></span>
+                                <?php esc_html_e('Refresh Status', 'bytemash-woo-sync'); ?>
+                            </button>
+                            <button type="button" id="toggle_auto_refresh" class="button button-secondary">
+                                <span class="dashicons dashicons-controls-play"></span>
+                                <span id="auto_refresh_text"><?php esc_html_e('Enable Auto-refresh', 'bytemash-woo-sync'); ?></span>
+                            </button>
+                        </div>
+                    </div>
                 </div>
                 
                 <!-- Quick Actions -->

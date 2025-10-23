@@ -71,11 +71,13 @@ class ByteMash_Woo_Sync {
         require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-batch-processor.php';
         require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-product-sync.php';
         require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-sync-scheduler.php';
+        require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-true-cron-manager.php';
         
         // Admin classes
         if (is_admin()) {
             require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'admin/class-admin-settings.php';
             require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'admin/class-admin-dashboard.php';
+            require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'admin/class-admin-tools.php';
         }
     }
     
@@ -120,6 +122,16 @@ class ByteMash_Woo_Sync {
             add_action('wp_ajax_bytemash_sync_inclusive_brandings', array($this, 'ajax_sync_inclusive_brandings'));
             add_action('wp_ajax_bytemash_process_batch', array($this, 'ajax_process_batch'));
             add_action('wp_ajax_bytemash_get_batch', array($this, 'ajax_get_batch'));
+            
+            // Cron manager AJAX handlers
+            add_action('wp_ajax_bytemash_toggle_test_mode', array($this, 'ajax_toggle_test_mode'));
+            add_action('wp_ajax_bytemash_toggle_full_test_mode', array($this, 'ajax_toggle_full_test_mode'));
+            add_action('wp_ajax_bytemash_toggle_incremental_test_mode', array($this, 'ajax_toggle_incremental_test_mode'));
+            add_action('wp_ajax_bytemash_enable_production_cron', array($this, 'ajax_enable_production_cron'));
+            add_action('wp_ajax_bytemash_enable_production_system_cron', array($this, 'ajax_enable_production_system_cron'));
+            add_action('wp_ajax_bytemash_enable_system_cron', array($this, 'ajax_enable_system_cron'));
+            add_action('wp_ajax_bytemash_emergency_stop_syncs', array($this, 'ajax_emergency_stop_syncs'));
+            add_action('wp_ajax_bytemash_get_scheduled_sync_status', array($this, 'ajax_get_scheduled_sync_status'));
         }
         
         // Activation/deactivation hooks
@@ -208,6 +220,15 @@ class ByteMash_Woo_Sync {
             'bytemash-amrod-logs',
             array('ByteMash_Admin_Dashboard', 'render_logs')
         );
+        
+        add_submenu_page(
+            'bytemash-amrod-sync',
+            __('Admin Tools', 'bytemash-woo-sync'),
+            __('Admin Tools', 'bytemash-woo-sync'),
+            'manage_woocommerce',
+            'bytemash-amrod-tools',
+            array('ByteMash_Admin_Tools', 'render')
+        );
     }
     
     /**
@@ -218,22 +239,33 @@ class ByteMash_Woo_Sync {
             return;
         }
         
+        // Force enqueue jQuery first to ensure it's loaded
+        wp_enqueue_script('jquery');
+        
+        // Use filemtime for cache busting in addition to version
+        $css_file = BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'assets/css/admin.css';
+        $js_file = BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'assets/js/admin.js';
+        
+        $css_version = BYTEMASH_WOO_SYNC_VERSION . '.' . (file_exists($css_file) ? filemtime($css_file) : time());
+        $js_version = BYTEMASH_WOO_SYNC_VERSION . '.' . (file_exists($js_file) ? filemtime($js_file) : time());
+        
         wp_enqueue_style(
             'bytemash-woo-sync-admin',
             BYTEMASH_WOO_SYNC_PLUGIN_URL . 'assets/css/admin.css',
             array(),
-            BYTEMASH_WOO_SYNC_VERSION
+            $css_version
         );
         
         wp_enqueue_script(
             'bytemash-woo-sync-admin',
             BYTEMASH_WOO_SYNC_PLUGIN_URL . 'assets/js/admin.js',
             array('jquery'),
-            BYTEMASH_WOO_SYNC_VERSION,
+            $js_version,
             true
         );
         
-        wp_localize_script('bytemash-woo-sync-admin', 'bytemashWooSync', array(
+        // Ensure localized data is always available
+        $localize_data = array(
             'ajax_url' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('bytemash_woo_sync_nonce'),
             'strings' => array(
@@ -241,7 +273,20 @@ class ByteMash_Woo_Sync {
                 'success' => __('Sync completed successfully!', 'bytemash-woo-sync'),
                 'error' => __('Sync failed. Check logs for details.', 'bytemash-woo-sync'),
             ),
-        ));
+            'debug' => array(
+                'plugin_url' => BYTEMASH_WOO_SYNC_PLUGIN_URL,
+                'is_admin' => is_admin(),
+                'hook' => $hook,
+            ),
+        );
+        
+        wp_localize_script('bytemash-woo-sync-admin', 'bytemashWooSync', $localize_data);
+        
+        // Add inline script to verify JavaScript is loading
+        wp_add_inline_script('bytemash-woo-sync-admin', 
+            'console.log("ByteMash WooSync Admin JS Loaded", bytemashWooSync);',
+            'after'
+        );
     }
     
     /**
@@ -276,6 +321,9 @@ class ByteMash_Woo_Sync {
         // Initialize sync scheduler with default schedules
         $scheduler = new ByteMash_Sync_Scheduler();
         $scheduler->update_schedule('daily_at_0030', 'every_5_hours');
+        
+        // Initialize true cron manager
+        $cron_manager = new ByteMash_True_Cron_Manager();
     }
     
     /**
@@ -285,6 +333,10 @@ class ByteMash_Woo_Sync {
         // Clear all sync schedules
         $scheduler = new ByteMash_Sync_Scheduler();
         $scheduler->clear_all_schedules();
+        
+        // Clear true cron manager
+        $cron_manager = new ByteMash_True_Cron_Manager();
+        $cron_manager->clear_all_schedules();
     }
     
     /**
@@ -1225,29 +1277,29 @@ class ByteMash_Woo_Sync {
             } elseif ($sync_type === 'prices') {
                 $result = $product_sync->update_single_price($item_data);
             } elseif ($sync_type === 'orphan_prices') {
-                $prices_lookup = get_option("bytemash_sync_{$sync_id}_prices_lookup");
-                $result = $product_sync->update_single_orphan_product($item_data, $prices_lookup);
-            } elseif ($sync_type === 'categories') {
-                $result = $product_sync->sync_single_category($item_data);
-            } elseif ($sync_type === 'brands') {
-                $result = $product_sync->sync_single_brand($item_data);
-            } elseif ($sync_type === 'branding_departments') {
-                $result = $product_sync->sync_single_branding_department($item_data);
-            } elseif ($sync_type === 'branding_prices') {
-                $result = $product_sync->sync_single_branding_price($item_data);
-            } elseif ($sync_type === 'inclusive_brandings') {
-                $result = $product_sync->sync_single_inclusive_branding($item_data);
-            } elseif ($sync_type === 'color_swatches') {
-                $result = $product_sync->sync_single_color_swatch($item_data);
-            } else {
+                    $prices_lookup = get_option("bytemash_sync_{$sync_id}_prices_lookup");
+                    $result = $product_sync->update_single_orphan_product($item_data, $prices_lookup);
+                } elseif ($sync_type === 'categories') {
+                    $result = $product_sync->sync_single_category($item_data);
+                } elseif ($sync_type === 'brands') {
+                    $result = $product_sync->sync_single_brand($item_data);
+                } elseif ($sync_type === 'branding_departments') {
+                    $result = $product_sync->sync_single_branding_department($item_data);
+                } elseif ($sync_type === 'branding_prices') {
+                    $result = $product_sync->sync_single_branding_price($item_data);
+                } elseif ($sync_type === 'inclusive_brandings') {
+                    $result = $product_sync->sync_single_inclusive_branding($item_data);
+                } elseif ($sync_type === 'color_swatches') {
+                    $result = $product_sync->sync_single_color_swatch($item_data);
+                } else {
                 // Default: product sync
-                $result = $product_sync->sync_single_product($item_data);
-            }
-            
-            if ($result['success']) {
-                $processed++;
-            } else {
-                $errors++;
+                    $result = $product_sync->sync_single_product($item_data);
+                }
+                
+                if ($result['success']) {
+                    $processed++;
+                } else {
+                    $errors++;
             }
         }
         
@@ -1310,6 +1362,580 @@ class ByteMash_Woo_Sync {
         
         wp_send_json_success(array(
             'batch' => $batches[$batch_index]
+        ));
+    }
+    
+    /**
+     * AJAX: Toggle test mode
+     */
+    public function ajax_toggle_test_mode() {
+        check_ajax_referer('bytemash_woo_sync_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => __('Insufficient permissions', 'bytemash-woo-sync')));
+        }
+        
+        $test_mode = get_option('bytemash_cron_test_mode_enabled', false);
+        $new_test_mode = !$test_mode;
+        
+        if ($new_test_mode) {
+            $this->enable_test_mode();
+        } else {
+            $this->disable_test_mode();
+        }
+        
+        wp_send_json_success(array(
+            'test_mode' => $new_test_mode,
+            'message' => $new_test_mode ? __('Test mode enabled', 'bytemash-woo-sync') : __('Test mode disabled', 'bytemash-woo-sync'),
+        ));
+    }
+    
+    /**
+     * AJAX: Toggle full sync test mode
+     */
+    public function ajax_toggle_full_test_mode() {
+        check_ajax_referer('bytemash_woo_sync_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => __('Insufficient permissions', 'bytemash-woo-sync')));
+        }
+        
+        $test_mode = get_option('bytemash_cron_full_test_mode_enabled', false);
+        $new_test_mode = !$test_mode;
+        
+        if ($new_test_mode) {
+            $this->enable_full_test_mode();
+        } else {
+            $this->disable_full_test_mode();
+        }
+        
+        wp_send_json_success(array(
+            'test_mode' => $new_test_mode,
+            'message' => $new_test_mode ? __('Full sync test mode enabled', 'bytemash-woo-sync') : __('Full sync test mode disabled', 'bytemash-woo-sync'),
+        ));
+    }
+    
+    /**
+     * AJAX: Toggle incremental sync test mode
+     */
+    public function ajax_toggle_incremental_test_mode() {
+        check_ajax_referer('bytemash_woo_sync_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => __('Insufficient permissions', 'bytemash-woo-sync')));
+        }
+        
+        $test_mode = get_option('bytemash_cron_incremental_test_mode_enabled', false);
+        $new_test_mode = !$test_mode;
+        
+        if ($new_test_mode) {
+            $this->enable_incremental_test_mode();
+        } else {
+            $this->disable_incremental_test_mode();
+        }
+        
+        wp_send_json_success(array(
+            'test_mode' => $new_test_mode,
+            'message' => $new_test_mode ? __('Incremental sync test mode enabled', 'bytemash-woo-sync') : __('Incremental sync test mode disabled', 'bytemash-woo-sync'),
+        ));
+    }
+    
+    /**
+     * Enable test mode
+     */
+    private function enable_test_mode() {
+        // Store original schedules
+        $original_schedules = array(
+            'full_sync_frequency' => get_option('bytemash_full_sync_frequency', 'daily_at_0030'),
+            'incremental_frequency' => get_option('bytemash_incremental_sync_frequency', 'every_5_hours'),
+        );
+        update_option('bytemash_cron_original_schedules', $original_schedules);
+        
+        // Clear existing schedules
+        $scheduler = new ByteMash_Sync_Scheduler();
+        $scheduler->clear_all_schedules();
+        
+        // Schedule test schedules
+        wp_schedule_single_event(time() + 120, 'bytemash_full_sync_cron'); // 2 minutes from now
+        wp_schedule_event(time(), 'every_5_minutes', 'bytemash_incremental_sync_cron');
+        
+        update_option('bytemash_cron_test_mode_enabled', true);
+        
+        $logger = new ByteMash_Logger();
+        $logger->log('info', 'Test mode enabled', array(), 'cron_manager');
+    }
+    
+    /**
+     * Disable test mode
+     */
+    private function disable_test_mode() {
+        // Clear test schedules
+        wp_clear_scheduled_hook('bytemash_full_sync_cron');
+        wp_clear_scheduled_hook('bytemash_incremental_sync_cron');
+        
+        // Restore original schedules
+        $original_schedules = get_option('bytemash_cron_original_schedules', array());
+        if (!empty($original_schedules)) {
+            $scheduler = new ByteMash_Sync_Scheduler();
+            $scheduler->update_schedule(
+                $original_schedules['full_sync_frequency'],
+                $original_schedules['incremental_frequency']
+            );
+        }
+        
+        update_option('bytemash_cron_test_mode_enabled', false);
+        
+        $logger = new ByteMash_Logger();
+        $logger->log('info', 'Test mode disabled', array(), 'cron_manager');
+    }
+    
+    /**
+     * Enable full sync test mode
+     */
+    private function enable_full_test_mode() {
+        // Store original full sync schedule
+        $original_full_sync = get_option('bytemash_full_sync_frequency', 'daily_at_0030');
+        update_option('bytemash_cron_original_full_sync', $original_full_sync);
+        
+        // Clear existing full sync schedule
+        wp_clear_scheduled_hook('bytemash_full_sync_cron');
+        
+        // Schedule WordPress cron event (2 minutes from now)
+        wp_schedule_single_event(time() + 120, 'bytemash_full_sync_cron');
+        
+        // Create system cron script for test mode
+        $this->create_test_system_cron_script('full', 2); // 2 minutes from now
+        
+        update_option('bytemash_cron_full_test_mode_enabled', true);
+        
+        $logger = new ByteMash_Logger();
+        $logger->log('info', 'Full sync test mode enabled with system cron', array(), 'cron_manager');
+    }
+    
+    /**
+     * Disable full sync test mode
+     */
+    private function disable_full_test_mode() {
+        // Clear test full sync schedule
+        wp_clear_scheduled_hook('bytemash_full_sync_cron');
+        
+        // Clean up test system cron script
+        $script_path = get_option('bytemash_cron_test_full_script');
+        if ($script_path && file_exists($script_path)) {
+            unlink($script_path);
+            delete_option('bytemash_cron_test_full_script');
+        }
+        
+        // Restore original full sync schedule
+        $original_full_sync = get_option('bytemash_cron_original_full_sync', 'daily_at_0030');
+        if ($original_full_sync) {
+            $scheduler = new ByteMash_Sync_Scheduler();
+            $scheduler->update_schedule($original_full_sync, get_option('bytemash_incremental_sync_frequency', 'every_5_hours'));
+        }
+        
+        update_option('bytemash_cron_full_test_mode_enabled', false);
+        
+        $logger = new ByteMash_Logger();
+        $logger->log('info', 'Full sync test mode disabled and system cron script cleaned up', array(), 'cron_manager');
+    }
+    
+    /**
+     * Enable incremental sync test mode
+     */
+    private function enable_incremental_test_mode() {
+        // Store original incremental sync schedule
+        $original_incremental_sync = get_option('bytemash_incremental_sync_frequency', 'every_5_hours');
+        update_option('bytemash_cron_original_incremental_sync', $original_incremental_sync);
+        
+        // Clear existing incremental sync schedule
+        wp_clear_scheduled_hook('bytemash_incremental_sync_cron');
+        
+        // Schedule WordPress cron event (every 5 minutes)
+        wp_schedule_event(time(), 'every_5_minutes', 'bytemash_incremental_sync_cron');
+        
+        // Create system cron script for test mode
+        $this->create_test_system_cron_script('incremental', 5); // Every 5 minutes
+        
+        update_option('bytemash_cron_incremental_test_mode_enabled', true);
+        
+        $logger = new ByteMash_Logger();
+        $logger->log('info', 'Incremental sync test mode enabled with system cron', array(), 'cron_manager');
+    }
+    
+    /**
+     * Disable incremental sync test mode
+     */
+    private function disable_incremental_test_mode() {
+        // Clear test incremental sync schedule
+        wp_clear_scheduled_hook('bytemash_incremental_sync_cron');
+        
+        // Clean up test system cron script
+        $script_path = get_option('bytemash_cron_test_incremental_script');
+        if ($script_path && file_exists($script_path)) {
+            unlink($script_path);
+            delete_option('bytemash_cron_test_incremental_script');
+        }
+        
+        // Restore original incremental sync schedule
+        $original_incremental_sync = get_option('bytemash_cron_original_incremental_sync', 'every_5_hours');
+        if ($original_incremental_sync) {
+            $scheduler = new ByteMash_Sync_Scheduler();
+            $scheduler->update_schedule(get_option('bytemash_full_sync_frequency', 'daily_at_0030'), $original_incremental_sync);
+        }
+        
+        update_option('bytemash_cron_incremental_test_mode_enabled', false);
+        
+        $logger = new ByteMash_Logger();
+        $logger->log('info', 'Incremental sync test mode disabled and system cron script cleaned up', array(), 'cron_manager');
+    }
+    
+    /**
+     * AJAX: Enable system cron
+     */
+    public function ajax_enable_system_cron() {
+        check_ajax_referer('bytemash_woo_sync_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => __('Insufficient permissions', 'bytemash-woo-sync')));
+        }
+        
+        $result = $this->install_system_cron();
+        
+        if ($result['success']) {
+            update_option('bytemash_cron_system_cron_enabled', true);
+            wp_send_json_success($result);
+        } else {
+            wp_send_json_error($result);
+        }
+    }
+    
+    /**
+     * Install system cron
+     */
+    private function install_system_cron() {
+        // Check prerequisites
+        if (!function_exists('exec')) {
+            return array(
+                'success' => false, 
+                'message' => __('exec() function is not available on this server. Please set up cron manually via cPanel or use an external cron service. See documentation for instructions.', 'bytemash-woo-sync'),
+                'show_instructions' => true
+            );
+        }
+        
+        // Create cron script directory
+        $upload_dir = wp_upload_dir();
+        $cron_dir = $upload_dir['basedir'] . '/bytemash-cron';
+        
+        if (!wp_mkdir_p($cron_dir)) {
+            return array('success' => false, 'message' => __('Cannot create cron directory', 'bytemash-woo-sync'));
+        }
+        
+        // Generate cron script
+        $script_path = $cron_dir . '/cron-runner.sh';
+        $cron_url = site_url('/wp-cron.php?doing_wp_cron');
+        
+        $script_content = "#!/bin/bash\n";
+        $script_content .= "# ByteMash Woo Sync Cron Runner\n";
+        $script_content .= "# Generated: " . date('Y-m-d H:i:s') . "\n\n";
+        $script_content .= "wget -q -O - \"$cron_url\" >/dev/null 2>&1\n";
+        
+        if (file_put_contents($script_path, $script_content) === false) {
+            return array('success' => false, 'message' => __('Cannot write cron script', 'bytemash-woo-sync'));
+        }
+        
+        chmod($script_path, 0755);
+        
+        // Store configuration
+        update_option('bytemash_cron_system_cron_script', $script_path);
+        
+        $logger = new ByteMash_Logger();
+        $logger->log('info', 'System cron script created', array(
+            'script_path' => $script_path,
+        ), 'cron_manager');
+        
+        return array('success' => true, 'message' => __('System cron script created successfully. Please add this line to your crontab: */5 * * * * ' . $script_path, 'bytemash-woo-sync'));
+    }
+    
+    /**
+     * Create test system cron script
+     */
+    private function create_test_system_cron_script($type, $minutes) {
+        // Check prerequisites
+        if (!function_exists('exec')) {
+            return array('success' => false, 'message' => __('exec() function is not available', 'bytemash-woo-sync'));
+        }
+        
+        // Create cron script directory
+        $upload_dir = wp_upload_dir();
+        $cron_dir = $upload_dir['basedir'] . '/bytemash-cron';
+        
+        if (!wp_mkdir_p($cron_dir)) {
+            return array('success' => false, 'message' => __('Cannot create cron directory', 'bytemash-woo-sync'));
+        }
+        
+        // Generate test cron script
+        $script_path = $cron_dir . "/test-{$type}-sync.sh";
+        $cron_url = site_url('/wp-cron.php?doing_wp_cron');
+        
+        $script_content = "#!/bin/bash\n";
+        $script_content .= "# ByteMash Woo Sync Test {$type} Sync\n";
+        $script_content .= "# Generated: " . date('Y-m-d H:i:s') . "\n\n";
+        
+        if ($type === 'full') {
+            // Single execution for full sync
+            $script_content .= "wget -q -O - \"$cron_url\" >/dev/null 2>&1\n";
+        } else {
+            // Recurring execution for incremental sync
+            $script_content .= "wget -q -O - \"$cron_url\" >/dev/null 2>&1\n";
+        }
+        
+        if (file_put_contents($script_path, $script_content) === false) {
+            return array('success' => false, 'message' => __('Cannot write test cron script', 'bytemash-woo-sync'));
+        }
+        
+        chmod($script_path, 0755);
+        
+        // Store configuration
+        update_option("bytemash_cron_test_{$type}_script", $script_path);
+        
+        $logger = new ByteMash_Logger();
+        $logger->log('info', "Test {$type} sync system cron script created", array(
+            'script_path' => $script_path,
+            'minutes' => $minutes,
+        ), 'cron_manager');
+        
+        if ($type === 'full') {
+            $crontab_line = "*/{$minutes} * * * * {$script_path}";
+        } else {
+            $crontab_line = "*/{$minutes} * * * * {$script_path}";
+        }
+        
+        return array('success' => true, 'message' => sprintf(
+            __('Test %s sync system cron script created. Add this line to your crontab: %s', 'bytemash-woo-sync'),
+            $type,
+            $crontab_line
+        ));
+    }
+    
+    /**
+     * AJAX: Enable production cron
+     */
+    public function ajax_enable_production_cron() {
+        check_ajax_referer('bytemash_woo_sync_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => __('Insufficient permissions', 'bytemash-woo-sync')));
+        }
+        
+        // Clear any test mode schedules
+        wp_clear_scheduled_hook('bytemash_full_sync_cron');
+        wp_clear_scheduled_hook('bytemash_incremental_sync_cron');
+        
+        // Enable production schedules
+        $scheduler = new ByteMash_Sync_Scheduler();
+        $scheduler->update_schedule('daily_at_0030', 'every_5_hours');
+        
+        // Disable test modes
+        update_option('bytemash_cron_full_test_mode_enabled', false);
+        update_option('bytemash_cron_incremental_test_mode_enabled', false);
+        
+        $logger = new ByteMash_Logger();
+        $logger->log('info', 'Production cron enabled', array(), 'cron_manager');
+        
+        wp_send_json_success(array(
+            'message' => __('Production cron schedules enabled successfully', 'bytemash-woo-sync'),
+        ));
+    }
+    
+    /**
+     * AJAX: Enable production system cron (combined)
+     */
+    public function ajax_enable_production_system_cron() {
+        check_ajax_referer('bytemash_woo_sync_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => __('Insufficient permissions', 'bytemash-woo-sync')));
+        }
+        
+        // First enable production schedules
+        wp_clear_scheduled_hook('bytemash_full_sync_cron');
+        wp_clear_scheduled_hook('bytemash_incremental_sync_cron');
+        
+        $scheduler = new ByteMash_Sync_Scheduler();
+        $scheduler->update_schedule('daily_at_0030', 'every_5_hours');
+        
+        // Disable test modes
+        update_option('bytemash_cron_full_test_mode_enabled', false);
+        update_option('bytemash_cron_incremental_test_mode_enabled', false);
+        
+        // Then enable system cron
+        $system_cron_result = $this->install_system_cron();
+        
+        if ($system_cron_result['success']) {
+            update_option('bytemash_cron_system_cron_enabled', true);
+            
+            $logger = new ByteMash_Logger();
+            $logger->log('info', 'Production system cron enabled (combined)', array(), 'cron_manager');
+            
+            wp_send_json_success(array(
+                'message' => __('Production schedules and system cron enabled successfully. ' . $system_cron_result['message'], 'bytemash-woo-sync'),
+            ));
+        } else {
+            // Production schedules are enabled, but system cron failed
+            $logger = new ByteMash_Logger();
+            $logger->log('warning', 'Production schedules enabled but system cron failed', array(
+                'error' => $system_cron_result['message']
+            ), 'cron_manager');
+            
+            // Build detailed message with instructions
+            $site_url = site_url();
+            $cron_url = site_url('/wp-cron.php?doing_wp_cron');
+            
+            $instructions = '<div style="text-align: left; padding: 10px; background: #fff3cd; border-left: 4px solid #ffc107; margin-top: 10px;">';
+            $instructions .= '<h4 style="margin-top: 0;">✅ Production Schedules Enabled!</h4>';
+            $instructions .= '<p><strong>However, automatic system cron installation failed because exec() is disabled on your server.</strong></p>';
+            $instructions .= '<h4>📋 Setup Instructions (Choose One):</h4>';
+            $instructions .= '<h5>Option 1: Manual cPanel Cron (Recommended)</h5>';
+            $instructions .= '<ol>';
+            $instructions .= '<li>Login to your <strong>cPanel</strong> or hosting control panel</li>';
+            $instructions .= '<li>Find <strong>"Cron Jobs"</strong> section</li>';
+            $instructions .= '<li>Add new cron job with these settings:<br>';
+            $instructions .= '<code style="background: #f0f0f0; padding: 5px; display: block; margin: 5px 0;">*/5 * * * * wget -q -O - "' . esc_url($cron_url) . '" >/dev/null 2>&1</code>';
+            $instructions .= '</li>';
+            $instructions .= '</ol>';
+            $instructions .= '<h5>Option 2: External Cron Service (Free)</h5>';
+            $instructions .= '<ul>';
+            $instructions .= '<li><strong>EasyCron.com</strong> - Free tier available</li>';
+            $instructions .= '<li><strong>cron-job.org</strong> - Completely free</li>';
+            $instructions .= '<li><strong>UptimeRobot.com</strong> - Free monitoring + cron</li>';
+            $instructions .= '</ul>';
+            $instructions .= '<p>Configure to ping: <code style="background: #f0f0f0; padding: 2px 5px;">' . esc_url($cron_url) . '</code> every 5 minutes</p>';
+            $instructions .= '<p><a href="' . esc_url(BYTEMASH_WOO_SYNC_PLUGIN_URL . 'documentation/TROUBLESHOOTING-LIVE-SERVER.md') . '" target="_blank" class="button">View Full Documentation</a></p>';
+            $instructions .= '</div>';
+            
+            wp_send_json_success(array(
+                'message' => __('Production schedules enabled successfully!', 'bytemash-woo-sync'),
+                'warning' => $system_cron_result['message'],
+                'instructions' => $instructions,
+                'show_instructions' => true,
+            ));
+        }
+    }
+    
+    /**
+     * AJAX: Emergency stop all syncs
+     */
+    public function ajax_emergency_stop_syncs() {
+        check_ajax_referer('bytemash_woo_sync_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => __('Insufficient permissions', 'bytemash-woo-sync')));
+        }
+        
+        // Clear all sync schedules
+        wp_clear_scheduled_hook('bytemash_full_sync_cron');
+        wp_clear_scheduled_hook('bytemash_incremental_sync_cron');
+        wp_clear_scheduled_hook('bytemash_cron_health_check');
+        
+        // Clear running transients
+        delete_transient('bytemash_full_sync_running');
+        delete_transient('bytemash_incremental_sync_running');
+        delete_transient('bytemash_sync_running');
+        
+        // Clear batch processor active syncs
+        $batch_processor = new ByteMash_Batch_Processor();
+        $active_syncs = $batch_processor->get_active_syncs();
+        
+        foreach ($active_syncs as $sync) {
+            $batch_processor->stop_sync($sync['sync_id']);
+        }
+        
+        // Clear all sync-related transients
+        global $wpdb;
+        $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_bytemash_sync_%'");
+        $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_timeout_bytemash_sync_%'");
+        
+        $logger = new ByteMash_Logger();
+        $logger->log('warning', 'Emergency stop executed - all syncs stopped', array(
+            'user' => get_current_user_id(),
+            'stopped_syncs' => count($active_syncs)
+        ), 'emergency_stop');
+        
+        wp_send_json_success(array(
+            'message' => sprintf(
+                __('Emergency stop executed. Stopped %d active syncs and cleared all schedules.', 'bytemash-woo-sync'),
+                count($active_syncs)
+            ),
+        ));
+    }
+    
+    /**
+     * AJAX: Get scheduled sync status
+     */
+    public function ajax_get_scheduled_sync_status() {
+        check_ajax_referer('bytemash_woo_sync_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => __('Insufficient permissions', 'bytemash-woo-sync')));
+        }
+        
+        // Get next scheduled times
+        $full_sync_next = wp_next_scheduled('bytemash_full_sync_cron');
+        $incremental_sync_next = wp_next_scheduled('bytemash_incremental_sync_cron');
+        
+        // Check if syncs are running
+        $full_sync_running = get_transient('bytemash_full_sync_running');
+        $incremental_sync_running = get_transient('bytemash_incremental_sync_running');
+        
+        // Get test mode status
+        $test_mode = get_option('bytemash_cron_test_mode_enabled', false);
+        $full_test_mode = get_option('bytemash_cron_full_test_mode_enabled', false);
+        $incremental_test_mode = get_option('bytemash_cron_incremental_test_mode_enabled', false);
+        
+        // Adjust display for test modes
+        if ($full_test_mode && $full_sync_next) {
+            $full_sync_next = date_i18n(get_option('date_format') . ' ' . get_option('time_format'), $full_sync_next) . ' (Test Mode)';
+        } elseif (!$full_sync_next) {
+            $full_sync_next = __('Not scheduled', 'bytemash-woo-sync');
+        }
+        
+        if ($incremental_test_mode && $incremental_sync_next) {
+            $incremental_sync_next = date_i18n(get_option('date_format') . ' ' . get_option('time_format'), $incremental_sync_next) . ' (Test Mode)';
+        } elseif (!$incremental_sync_next) {
+            $incremental_sync_next = __('Not scheduled', 'bytemash-woo-sync');
+        }
+        
+        // Get recent logs
+        $logger = new ByteMash_Logger();
+        $recent_logs = $logger->get_logs(5);
+        
+        // Format times
+        $full_sync_next_formatted = $full_sync_next;
+        $incremental_sync_next_formatted = $incremental_sync_next;
+        
+        // Check for active sync progress
+        $sync_progress = null;
+        if ($full_sync_running || $incremental_sync_running) {
+            $batch_processor = new ByteMash_Batch_Processor();
+            $active_syncs = $batch_processor->get_active_syncs();
+            
+            if (!empty($active_syncs)) {
+                $sync_progress = array(
+                    'active_syncs' => $active_syncs
+                );
+            }
+        }
+        
+        wp_send_json_success(array(
+            'full_sync_next' => $full_sync_next_formatted,
+            'incremental_sync_next' => $incremental_sync_next_formatted,
+            'full_sync_running' => (bool) $full_sync_running,
+            'incremental_sync_running' => (bool) $incremental_sync_running,
+            'test_mode' => $test_mode,
+            'full_test_mode' => $full_test_mode,
+            'incremental_test_mode' => $incremental_test_mode,
+            'recent_logs' => $recent_logs,
+            'sync_progress' => $sync_progress,
         ));
     }
 }
