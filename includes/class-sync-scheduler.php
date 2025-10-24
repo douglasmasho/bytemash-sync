@@ -140,7 +140,7 @@ class ByteMash_Sync_Scheduler {
             // Run full sync for enabled endpoints in sequence (queue-like behavior)
             if ($sync_products) {
                 $this->logger->log('info', 'Starting full product sync', array(), 'full_sync');
-                $results['products'] = $this->product_sync->sync_all_products(false, true);
+                $results['products'] = $this->sync_products_for_cron(true);
             }
             
             if ($sync_stock) {
@@ -191,6 +191,196 @@ class ByteMash_Sync_Scheduler {
     }
     
     /**
+     * Sync products for cron (processes directly without JavaScript)
+     */
+    private function sync_products_for_cron($with_branding = true) {
+        $this->logger->log('info', 'Starting cron-based product sync', array(
+            'with_branding' => $with_branding,
+        ), 'cron_sync');
+        
+        // Fetch products from Amrod API
+        $api_client = new ByteMash_Amrod_API_Client();
+        if ($with_branding) {
+            $products = $api_client->get_products_with_branding();
+        } else {
+            $products = $api_client->get_products_without_branding();
+        }
+        
+        if (is_wp_error($products)) {
+            $this->logger->log('error', 'Failed to fetch products for cron sync', array(
+                'error' => $products->get_error_message(),
+            ), 'cron_sync');
+            return array('success' => false, 'message' => $products->get_error_message());
+        }
+        
+        if (!is_array($products) || empty($products)) {
+            $this->logger->log('warning', 'No products found for cron sync', array(), 'cron_sync');
+            return array('success' => false, 'message' => 'No products found');
+        }
+        
+        $total = count($products);
+        $batch_size = (int) get_option('bytemash_amrod_batch_size', 10);
+        $batches = array_chunk($products, $batch_size);
+        $batch_count = count($batches);
+        
+        $this->logger->log('info', "Processing {$total} products in {$batch_count} batches for cron", array(
+            'total' => $total,
+            'batch_size' => $batch_size,
+            'batch_count' => $batch_count,
+        ), 'cron_sync');
+        
+        $processed = 0;
+        $errors = 0;
+        $skipped = 0;
+        
+        // Process each batch directly
+        foreach ($batches as $batch_index => $batch) {
+            $this->logger->log('info', "Processing batch " . ($batch_index + 1) . "/{$batch_count}", array(
+                'batch_index' => $batch_index,
+                'batch_size' => count($batch),
+            ), 'cron_sync');
+            
+            foreach ($batch as $product_data) {
+                try {
+                    $result = $this->product_sync->sync_single_product($product_data, false);
+                    if ($result['success']) {
+                        $processed++;
+                    } else {
+                        $skipped++;
+                        $this->logger->log('warning', 'Product sync skipped', array(
+                            'sku' => $product_data['sku'] ?? 'unknown',
+                            'reason' => $result['message'] ?? 'Unknown',
+                        ), 'cron_sync');
+                    }
+                } catch (Exception $e) {
+                    $errors++;
+                    $this->logger->log('error', 'Product sync failed', array(
+                        'sku' => $product_data['sku'] ?? 'unknown',
+                        'error' => $e->getMessage(),
+                    ), 'cron_sync');
+                }
+            }
+            
+            // Clear memory after each batch
+            unset($batch);
+            if (function_exists('gc_collect_cycles')) {
+                gc_collect_cycles();
+            }
+        }
+        
+        $this->logger->log('success', 'Cron product sync completed', array(
+            'total' => $total,
+            'processed' => $processed,
+            'errors' => $errors,
+            'skipped' => $skipped,
+        ), 'cron_sync');
+        
+        return array(
+            'success' => true,
+            'message' => "Processed {$processed} products, {$errors} errors, {$skipped} skipped",
+            'processed' => $processed,
+            'errors' => $errors,
+            'skipped' => $skipped,
+            'total' => $total,
+        );
+    }
+    
+    /**
+     * Sync updated products for cron (processes directly without JavaScript)
+     */
+    private function sync_updated_products_for_cron($with_branding = true) {
+        $this->logger->log('info', 'Starting cron-based incremental product sync', array(
+            'with_branding' => $with_branding,
+        ), 'cron_sync');
+        
+        // Fetch updated products from Amrod API
+        $api_client = new ByteMash_Amrod_API_Client();
+        if ($with_branding) {
+            $products = $api_client->get_products_with_branding_updated();
+        } else {
+            $products = $api_client->get_products_without_branding_updated();
+        }
+        
+        if (is_wp_error($products)) {
+            $this->logger->log('error', 'Failed to fetch updated products for cron sync', array(
+                'error' => $products->get_error_message(),
+            ), 'cron_sync');
+            return array('success' => false, 'message' => $products->get_error_message());
+        }
+        
+        if (!is_array($products) || empty($products)) {
+            $this->logger->log('info', 'No updated products found for cron sync', array(), 'cron_sync');
+            return array('success' => true, 'message' => 'No updates available', 'total' => 0);
+        }
+        
+        $total = count($products);
+        $batch_size = (int) get_option('bytemash_amrod_batch_size', 10);
+        $batches = array_chunk($products, $batch_size);
+        $batch_count = count($batches);
+        
+        $this->logger->log('info', "Processing {$total} updated products in {$batch_count} batches for cron", array(
+            'total' => $total,
+            'batch_size' => $batch_size,
+            'batch_count' => $batch_count,
+        ), 'cron_sync');
+        
+        $processed = 0;
+        $errors = 0;
+        $skipped = 0;
+        
+        // Process each batch directly
+        foreach ($batches as $batch_index => $batch) {
+            $this->logger->log('info', "Processing updated batch " . ($batch_index + 1) . "/{$batch_count}", array(
+                'batch_index' => $batch_index,
+                'batch_size' => count($batch),
+            ), 'cron_sync');
+            
+            foreach ($batch as $product_data) {
+                try {
+                    $result = $this->product_sync->sync_single_product($product_data, false);
+                    if ($result['success']) {
+                        $processed++;
+                    } else {
+                        $skipped++;
+                        $this->logger->log('warning', 'Updated product sync skipped', array(
+                            'sku' => $product_data['sku'] ?? 'unknown',
+                            'reason' => $result['message'] ?? 'Unknown',
+                        ), 'cron_sync');
+                    }
+                } catch (Exception $e) {
+                    $errors++;
+                    $this->logger->log('error', 'Updated product sync failed', array(
+                        'sku' => $product_data['sku'] ?? 'unknown',
+                        'error' => $e->getMessage(),
+                    ), 'cron_sync');
+                }
+            }
+            
+            // Clear memory after each batch
+            unset($batch);
+            if (function_exists('gc_collect_cycles')) {
+                gc_collect_cycles();
+            }
+        }
+        
+        $this->logger->log('success', 'Cron incremental product sync completed', array(
+            'total' => $total,
+            'processed' => $processed,
+            'errors' => $errors,
+            'skipped' => $skipped,
+        ), 'cron_sync');
+        
+        return array(
+            'success' => true,
+            'message' => "Processed {$processed} updated products, {$errors} errors, {$skipped} skipped",
+            'processed' => $processed,
+            'errors' => $errors,
+            'skipped' => $skipped,
+            'total' => $total,
+        );
+    }
+    
+    /**
      * Run incremental sync (every 5 hours by default)
      * Only runs if full sync has been completed
      */
@@ -231,7 +421,7 @@ class ByteMash_Sync_Scheduler {
                 $this->logger->log('info', 'Starting incremental product sync', array(
                     'since' => $last_incremental
                 ), 'incremental_sync');
-                $results['products'] = $this->product_sync->sync_updated_products(true);
+                $results['products'] = $this->sync_updated_products_for_cron(true);
             }
             
             if ($sync_stock) {
@@ -303,6 +493,23 @@ class ByteMash_Sync_Scheduler {
         if ($incremental_frequency && $incremental_frequency !== 'manual') {
             wp_schedule_event(time(), $incremental_frequency, 'bytemash_incremental_sync_cron');
             $this->logger->log('info', "Incremental sync schedule updated to: {$incremental_frequency}", array(), 'scheduler');
+        }
+    }
+    
+    /**
+     * Restore only the full sync schedule (don't touch incremental)
+     */
+    public function restore_full_sync_schedule($full_sync_frequency = 'daily_at_0030') {
+        // Clear only the full sync schedule
+        $timestamp = wp_next_scheduled('bytemash_full_sync_cron');
+        if ($timestamp) {
+            wp_unschedule_event($timestamp, 'bytemash_full_sync_cron');
+        }
+        
+        // Schedule only the full sync (don't touch incremental)
+        if ($full_sync_frequency && $full_sync_frequency !== 'manual') {
+            $this->schedule_full_sync();
+            $this->logger->log('info', "Full sync schedule restored to: {$full_sync_frequency}", array(), 'scheduler');
         }
     }
     

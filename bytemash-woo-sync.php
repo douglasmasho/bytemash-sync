@@ -318,6 +318,14 @@ class ByteMash_Woo_Sync {
         add_option('bytemash_amrod_batch_size', 10); // Conservative batch size for products
         add_option('bytemash_amrod_sync_schedule', 'daily');
         
+        // Ensure test modes are disabled by default
+        add_option('bytemash_cron_full_test_mode_enabled', false);
+        add_option('bytemash_cron_incremental_test_mode_enabled', false);
+        
+        // Force disable test modes on activation (in case they were previously enabled)
+        update_option('bytemash_cron_full_test_mode_enabled', false);
+        update_option('bytemash_cron_incremental_test_mode_enabled', false);
+        
         // Initialize sync scheduler with default schedules
         $scheduler = new ByteMash_Sync_Scheduler();
         $scheduler->update_schedule('daily_at_0030', 'every_5_hours');
@@ -1401,17 +1409,34 @@ class ByteMash_Woo_Sync {
         }
         
         $test_mode = get_option('bytemash_cron_full_test_mode_enabled', false);
+        
+        // Ensure the option exists and is boolean
+        if (!get_option('bytemash_cron_full_test_mode_enabled')) {
+            update_option('bytemash_cron_full_test_mode_enabled', false);
+        }
+        
+        // Force check - if option is not explicitly false, set it to false
+        $current_value = get_option('bytemash_cron_full_test_mode_enabled', false);
+        if ($current_value !== false) {
+            update_option('bytemash_cron_full_test_mode_enabled', false);
+        }
         $new_test_mode = !$test_mode;
         
         if ($new_test_mode) {
-            $this->enable_full_test_mode();
+            $cron_result = $this->enable_full_test_mode();
+            $message = __('Full sync test mode enabled', 'bytemash-woo-sync');
+            
+            if (!$cron_result['success']) {
+                $message .= '. ' . $cron_result['message'];
+            }
         } else {
             $this->disable_full_test_mode();
+            $message = __('Full sync test mode disabled', 'bytemash-woo-sync');
         }
         
         wp_send_json_success(array(
             'test_mode' => $new_test_mode,
-            'message' => $new_test_mode ? __('Full sync test mode enabled', 'bytemash-woo-sync') : __('Full sync test mode disabled', 'bytemash-woo-sync'),
+            'message' => $message,
         ));
     }
     
@@ -1426,6 +1451,17 @@ class ByteMash_Woo_Sync {
         }
         
         $test_mode = get_option('bytemash_cron_incremental_test_mode_enabled', false);
+        
+        // Ensure the option exists and is boolean
+        if (!get_option('bytemash_cron_incremental_test_mode_enabled')) {
+            update_option('bytemash_cron_incremental_test_mode_enabled', false);
+        }
+        
+        // Force check - if option is not explicitly false, set it to false
+        $current_value = get_option('bytemash_cron_incremental_test_mode_enabled', false);
+        if ($current_value !== false) {
+            update_option('bytemash_cron_incremental_test_mode_enabled', false);
+        }
         $new_test_mode = !$test_mode;
         
         if ($new_test_mode) {
@@ -1503,13 +1539,21 @@ class ByteMash_Woo_Sync {
         // Schedule WordPress cron event (2 minutes from now)
         wp_schedule_single_event(time() + 120, 'bytemash_full_sync_cron');
         
-        // Create system cron script for test mode
-        $this->create_test_system_cron_script('full', 2); // 2 minutes from now
+        // Try to create and install system cron script for test mode
+        $cron_result = $this->create_test_system_cron_script('full', 2);
         
         update_option('bytemash_cron_full_test_mode_enabled', true);
         
         $logger = new ByteMash_Logger();
-        $logger->log('info', 'Full sync test mode enabled with system cron', array(), 'cron_manager');
+        if ($cron_result['success']) {
+            $logger->log('info', 'Full sync test mode enabled with system cron', array(), 'cron_manager');
+        } else {
+            $logger->log('warning', 'Full sync test mode enabled but system cron failed', array(
+                'error' => $cron_result['message']
+            ), 'cron_manager');
+        }
+        
+        return $cron_result;
     }
     
     /**
@@ -1526,11 +1570,12 @@ class ByteMash_Woo_Sync {
             delete_option('bytemash_cron_test_full_script');
         }
         
-        // Restore original full sync schedule
+        // Restore original full sync schedule only (don't touch incremental)
         $original_full_sync = get_option('bytemash_cron_original_full_sync', 'daily_at_0030');
         if ($original_full_sync) {
             $scheduler = new ByteMash_Sync_Scheduler();
-            $scheduler->update_schedule($original_full_sync, get_option('bytemash_incremental_sync_frequency', 'every_5_hours'));
+            // Only restore the full sync schedule, leave incremental unchanged
+            $scheduler->restore_full_sync_schedule($original_full_sync);
         }
         
         update_option('bytemash_cron_full_test_mode_enabled', false);
@@ -1710,11 +1755,61 @@ class ByteMash_Woo_Sync {
             $crontab_line = "*/{$minutes} * * * * {$script_path}";
         }
         
-        return array('success' => true, 'message' => sprintf(
-            __('Test %s sync system cron script created. Add this line to your crontab: %s', 'bytemash-woo-sync'),
-            $type,
-            $crontab_line
-        ));
+        // Try to install the cron job automatically
+        $install_result = $this->install_test_cron_job($crontab_line);
+        
+        if ($install_result['success']) {
+            return array('success' => true, 'message' => sprintf(
+                __('Test %s sync system cron script created and installed successfully', 'bytemash-woo-sync'),
+                $type
+            ));
+        } else {
+            return array('success' => false, 'message' => sprintf(
+                __('Test %s sync system cron script created but installation failed: %s. Manual installation required: %s', 'bytemash-woo-sync'),
+                $type,
+                $install_result['message'],
+                $crontab_line
+            ));
+        }
+    }
+    
+    /**
+     * Install test cron job
+     */
+    private function install_test_cron_job($crontab_line) {
+        // Check prerequisites
+        if (!function_exists('exec')) {
+            return array('success' => false, 'message' => __('exec() function is not available', 'bytemash-woo-sync'));
+        }
+        
+        try {
+            // Get current crontab
+            $current_crontab = shell_exec('crontab -l 2>/dev/null') ?: '';
+            
+            // Check if line already exists
+            if (strpos($current_crontab, $crontab_line) !== false) {
+                return array('success' => true, 'message' => __('Cron job already exists', 'bytemash-woo-sync'));
+            }
+            
+            // Add new line to crontab
+            $new_crontab = $current_crontab . "\n" . $crontab_line . "\n";
+            
+            // Install new crontab
+            $temp_file = tempnam(sys_get_temp_dir(), 'crontab_');
+            file_put_contents($temp_file, $new_crontab);
+            
+            $result = shell_exec("crontab {$temp_file} 2>&1");
+            unlink($temp_file);
+            
+            if (empty($result)) {
+                return array('success' => true, 'message' => __('Cron job installed successfully', 'bytemash-woo-sync'));
+            } else {
+                return array('success' => false, 'message' => sprintf(__('Failed to install cron job: %s', 'bytemash-woo-sync'), $result));
+            }
+            
+        } catch (Exception $e) {
+            return array('success' => false, 'message' => sprintf(__('Error installing cron job: %s', 'bytemash-woo-sync'), $e->getMessage()));
+        }
     }
     
     /**

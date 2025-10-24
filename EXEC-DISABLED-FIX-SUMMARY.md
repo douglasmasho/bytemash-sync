@@ -351,3 +351,4 @@ Choose a method above and you'll be done in 5-10 minutes. Your syncs will then r
 **Last Updated:** October 2024  
 **Plugin Version:** 1.1.2+
 
+
