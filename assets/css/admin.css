@@ -164,6 +164,10 @@
     overflow: hidden;
 }
 
+.emergency-section .description{
+    color: black;
+}
+
 .bytemash-button-group .button::before {
     content: '';
     position: absolute;

@@ -28,11 +28,11 @@ class ByteMash_Admin_Settings {
         $api_url = get_option('bytemash_amrod_api_url', 'https://identity.amrod.co.za');
         $api_token = get_option('bytemash_amrod_api_token', '');
         $batch_size = get_option('bytemash_amrod_batch_size', 50);
-        $full_sync_frequency = get_option('bytemash_full_sync_frequency', 'daily_at_0030');
+        $full_sync_frequency = get_option('bytemash_full_sync_frequency', 'daily');
         $incremental_frequency = get_option('bytemash_incremental_sync_frequency', 'every_5_hours');
         
         // Get sync status
-        $scheduler = new ByteMash_Sync_Scheduler();
+        $scheduler = ByteMash_Sync_Scheduler::get_instance();
         $sync_status = $scheduler->get_sync_status();
         
         // Check if authenticated
@@ -423,6 +423,7 @@ class ByteMash_Admin_Settings {
                                         <?php 
                                         $full_test_mode = get_option('bytemash_cron_full_test_mode_enabled', false);
                                         $incremental_test_mode = get_option('bytemash_cron_incremental_test_mode_enabled', false);
+                                        $production_sync_enabled = get_option('bytemash_production_sync_enabled', false);
                                         $active_method = self::get_active_cron_method();
                                         ?>
                                         
@@ -470,8 +471,8 @@ class ByteMash_Admin_Settings {
                                         <div class="test-mode-section">
                                             <h4><?php esc_html_e('Production Sync', 'bytemash-woo-sync'); ?></h4>
                                             <div class="test-mode-item">
-                                                <span class="test-mode-badge <?php echo (wp_next_scheduled('bytemash_full_sync_cron') || wp_next_scheduled('bytemash_incremental_sync_cron')) ? 'enabled' : 'disabled'; ?>">
-                                                    <?php echo (wp_next_scheduled('bytemash_full_sync_cron') || wp_next_scheduled('bytemash_incremental_sync_cron')) ? __('Enabled', 'bytemash-woo-sync') : __('Disabled', 'bytemash-woo-sync'); ?>
+                                                <span class="test-mode-badge <?php echo $production_sync_enabled ? 'enabled' : 'disabled'; ?>">
+                                                    <?php echo $production_sync_enabled ? __('Enabled', 'bytemash-woo-sync') : __('Disabled', 'bytemash-woo-sync'); ?>
                                                 </span>
                                                 <button type="button" id="enable_production_sync" class="button button-primary">
                                                     <?php esc_html_e('Enable Production Sync', 'bytemash-woo-sync'); ?>
@@ -504,7 +505,7 @@ class ByteMash_Admin_Settings {
                                         <div class="test-mode-section emergency-section">
                                             <h4><?php esc_html_e('Emergency Stop', 'bytemash-woo-sync'); ?></h4>
                                             <div class="test-mode-item">
-                                                <button type="button" id="emergency-stop-syncs" class="button button-secondary" style="background: #dc3545; color: white; border-color: #dc3545;">
+                                                <button type="button" id="emergency-stop-syncs" class="button button-secondary" style="background: #dc3545; color: white; border-color: #dc3545; margin-left: unset">
                                                     <span class="dashicons dashicons-no"></span>
                                                     <?php esc_html_e('Stop All Running Syncs', 'bytemash-woo-sync'); ?>
                                                 </button>
@@ -688,7 +689,7 @@ class ByteMash_Admin_Settings {
         }
         
         // Update cron schedules
-        $scheduler = new ByteMash_Sync_Scheduler();
+        $scheduler = ByteMash_Sync_Scheduler::get_instance();
         $scheduler->update_schedule($full_sync_frequency, $incremental_frequency);
         
         // Save advanced settings

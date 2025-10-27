@@ -72,6 +72,10 @@ class ByteMash_Admin_Dashboard {
         $stats = $logger->get_sync_stats(7);
         $last_sync = $logger->get_last_sync_time('product_sync');
         
+        // Get sync status using the scheduler
+        $scheduler = ByteMash_Sync_Scheduler::get_instance();
+        $sync_status = $scheduler->get_sync_status();
+        
         // Get WooCommerce product counts
         $total_products = wp_count_posts('product');
         $amrod_products = self::get_amrod_product_count();
@@ -95,7 +99,11 @@ class ByteMash_Admin_Dashboard {
                     <h2><?php esc_html_e('Sync Status', 'bytemash-woo-sync'); ?></h2>
                     
                     <div class="bytemash-status-info">
-                        <?php if ($is_syncing) : ?>
+                        <?php 
+                        // Check if any sync is running (Action Scheduler or WordPress cron)
+                        $any_sync_running = $is_syncing || $sync_status['full_sync_running'] || $sync_status['incremental_sync_running'];
+                        ?>
+                        <?php if ($any_sync_running) : ?>
                             <div class="bytemash-status-badge syncing">
                                 <span class="dashicons dashicons-update-alt"></span>
                                 <?php esc_html_e('Sync in Progress', 'bytemash-woo-sync'); ?>
@@ -404,37 +412,27 @@ class ByteMash_Admin_Dashboard {
                             <div class="bytemash-sync-status-item">
                                 <strong><?php esc_html_e('Full Sync:', 'bytemash-woo-sync'); ?></strong>
                                 <span id="full_sync_status">
-                                    <?php 
-                                    $full_sync_next = wp_next_scheduled('bytemash_full_sync_cron');
-                                    if ($full_sync_next) {
-                                        echo esc_html(date_i18n(get_option('date_format') . ' ' . get_option('time_format'), $full_sync_next));
-                                    } else {
-                                        echo esc_html__('Not scheduled', 'bytemash-woo-sync');
-                                    }
-                                    ?>
+                                    <?php echo esc_html($sync_status['next_full_sync']); ?>
                                 </span>
-                                <span id="full_sync_running" class="sync-running-indicator" style="display: none;">
-                                    <span class="dashicons dashicons-update-alt"></span>
-                                    <?php esc_html_e('Running', 'bytemash-woo-sync'); ?>
-                                </span>
+                                <?php if ($sync_status['full_sync_running']) : ?>
+                                    <span id="full_sync_running" class="sync-running-indicator">
+                                        <span class="dashicons dashicons-update-alt"></span>
+                                        <?php esc_html_e('Running', 'bytemash-woo-sync'); ?>
+                                    </span>
+                                <?php endif; ?>
                             </div>
                             
                             <div class="bytemash-sync-status-item">
                                 <strong><?php esc_html_e('Incremental Sync:', 'bytemash-woo-sync'); ?></strong>
                                 <span id="incremental_sync_status">
-                                    <?php 
-                                    $incremental_sync_next = wp_next_scheduled('bytemash_incremental_sync_cron');
-                                    if ($incremental_sync_next) {
-                                        echo esc_html(date_i18n(get_option('date_format') . ' ' . get_option('time_format'), $incremental_sync_next));
-                                    } else {
-                                        echo esc_html__('Not scheduled', 'bytemash-woo-sync');
-                                    }
-                                    ?>
+                                    <?php echo esc_html($sync_status['next_incremental_sync']); ?>
                                 </span>
-                                <span id="incremental_sync_running" class="sync-running-indicator" style="display: none;">
-                                    <span class="dashicons dashicons-update-alt"></span>
-                                    <?php esc_html_e('Running', 'bytemash-woo-sync'); ?>
-                                </span>
+                                <?php if ($sync_status['incremental_sync_running']) : ?>
+                                    <span id="incremental_sync_running" class="sync-running-indicator">
+                                        <span class="dashicons dashicons-update-alt"></span>
+                                        <?php esc_html_e('Running', 'bytemash-woo-sync'); ?>
+                                    </span>
+                                <?php endif; ?>
                             </div>
                             
                             <div class="bytemash-sync-status-item">

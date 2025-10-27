@@ -115,7 +115,7 @@
                 url: bytemashWooSync.ajax_url,
                 type: 'POST',
                 data: {
-                    action: 'bytemash_enable_test_mode_full_sync',
+                    action: 'bytemash_toggle_full_test_mode',
                     nonce: bytemashWooSync.nonce
                 },
                 success: function(response) {
@@ -127,8 +127,22 @@
                         // Update button text and class
                         if (response.data.test_mode) {
                             $button.text('Disable Full Test Mode').removeClass('button-primary').addClass('button-secondary');
+                            
+                            // Update test mode badge
+                            $button.siblings('.test-mode-badge').removeClass('disabled').addClass('enabled').text('Enabled');
+                            
+                            // Update production sync badge to disabled
+                            $('.test-mode-section').each(function() {
+                                const $section = $(this);
+                                if ($section.find('h4').text().includes('Production Sync')) {
+                                    $section.find('.test-mode-badge').removeClass('enabled').addClass('disabled').text('Disabled');
+                                }
+                            });
                         } else {
                             $button.text('Enable Full Test Mode').removeClass('button-secondary').addClass('button-primary');
+                            
+                            // Update test mode badge
+                            $button.siblings('.test-mode-badge').removeClass('enabled').addClass('disabled').text('Disabled');
                         }
                         
                         // Reload page after 2 seconds to show updated status
@@ -165,7 +179,7 @@
                 url: bytemashWooSync.ajax_url,
                 type: 'POST',
                 data: {
-                    action: 'bytemash_enable_test_mode_incremental_sync',
+                    action: 'bytemash_toggle_incremental_test_mode',
                     nonce: bytemashWooSync.nonce
                 },
                 success: function(response) {
@@ -177,8 +191,22 @@
                         // Update button text and class
                         if (response.data.test_mode) {
                             $button.text('Disable Incremental Test Mode').removeClass('button-primary').addClass('button-secondary');
+                            
+                            // Update test mode badge
+                            $button.siblings('.test-mode-badge').removeClass('disabled').addClass('enabled').text('Enabled');
+                            
+                            // Update production sync badge to disabled
+                            $('.test-mode-section').each(function() {
+                                const $section = $(this);
+                                if ($section.find('h4').text().includes('Production Sync')) {
+                                    $section.find('.test-mode-badge').removeClass('enabled').addClass('disabled').text('Disabled');
+                                }
+                            });
                         } else {
                             $button.text('Enable Incremental Test Mode').removeClass('button-secondary').addClass('button-primary');
+                            
+                            // Update test mode badge
+                            $button.siblings('.test-mode-badge').removeClass('enabled').addClass('disabled').text('Disabled');
                         }
                         
                         // Reload page after 2 seconds to show updated status
@@ -215,7 +243,7 @@
                 url: bytemashWooSync.ajax_url,
                 type: 'POST',
                 data: {
-                    action: 'bytemash_enable_production_sync',
+                    action: 'bytemash_enable_production_cron',
                     nonce: bytemashWooSync.nonce
                 },
                 success: function(response) {
@@ -224,6 +252,24 @@
                             '<div class="notice notice-success"><p>' + response.data.message + '</p></div>'
                         );
                         $button.text('Enabled').prop('disabled', true);
+                        
+                        // Update production sync badge
+                        $button.siblings('.test-mode-badge').removeClass('disabled').addClass('enabled').text('Enabled');
+                        
+                        // Update test mode badges to disabled
+                        $('.test-mode-section').each(function() {
+                            const $section = $(this);
+                            const $h4 = $section.find('h4');
+                            if ($h4.text().includes('Full Sync Test Mode') || $h4.text().includes('Incremental Sync Test Mode')) {
+                                $section.find('.test-mode-badge').removeClass('enabled').addClass('disabled').text('Disabled');
+                                $section.find('button').removeClass('button-secondary').addClass('button-primary');
+                                if ($h4.text().includes('Full Sync Test Mode')) {
+                                    $section.find('button').text('Enable Full Test Mode');
+                                } else {
+                                    $section.find('button').text('Enable Incremental Test Mode');
+                                }
+                            }
+                        });
                     } else {
                         $('#production-cron-status').html(
                             '<div class="notice notice-error"><p>' + response.data.message + '</p></div>'

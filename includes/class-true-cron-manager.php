@@ -43,7 +43,7 @@ class ByteMash_True_Cron_Manager {
      */
     public function __construct() {
         $this->logger = new ByteMash_Logger();
-        $this->scheduler = new ByteMash_Sync_Scheduler();
+        $this->scheduler = ByteMash_Sync_Scheduler::get_instance();
         
         $this->init_hooks();
     }

@@ -153,7 +153,7 @@ class ByteMash_Woo_Sync {
      * Initialize scheduler after all dependencies are loaded
      */
     public function init_scheduler() {
-        new ByteMash_Sync_Scheduler();
+        ByteMash_Sync_Scheduler::get_instance();
         new ByteMash_Action_Scheduler_Sync();
     }
     
@@ -329,8 +329,8 @@ class ByteMash_Woo_Sync {
         update_option('bytemash_cron_incremental_test_mode_enabled', false);
         
         // Initialize sync scheduler with default schedules
-        $scheduler = new ByteMash_Sync_Scheduler();
-        $scheduler->update_schedule('daily_at_0030', 'every_5_hours');
+        $scheduler = ByteMash_Sync_Scheduler::get_instance();
+        $scheduler->update_schedule('daily', 'every_5_hours');
         
         // Initialize true cron manager
         $cron_manager = new ByteMash_True_Cron_Manager();
@@ -341,7 +341,7 @@ class ByteMash_Woo_Sync {
      */
     public function deactivate() {
         // Clear all sync schedules
-        $scheduler = new ByteMash_Sync_Scheduler();
+        $scheduler = ByteMash_Sync_Scheduler::get_instance();
         $scheduler->clear_all_schedules();
         
         // Clear true cron manager
@@ -1425,6 +1425,9 @@ class ByteMash_Woo_Sync {
         $new_test_mode = !$test_mode;
         
         if ($new_test_mode) {
+            // Disable production sync when enabling test mode
+            update_option('bytemash_production_sync_enabled', false);
+            
             $cron_result = $this->enable_full_test_mode();
             $message = __('Full sync test mode enabled', 'bytemash-woo-sync');
             
@@ -1467,6 +1470,9 @@ class ByteMash_Woo_Sync {
         $new_test_mode = !$test_mode;
         
         if ($new_test_mode) {
+            // Disable production sync when enabling test mode
+            update_option('bytemash_production_sync_enabled', false);
+            
             $this->enable_incremental_test_mode();
         } else {
             $this->disable_incremental_test_mode();
@@ -1490,7 +1496,7 @@ class ByteMash_Woo_Sync {
         update_option('bytemash_cron_original_schedules', $original_schedules);
         
         // Clear existing schedules
-        $scheduler = new ByteMash_Sync_Scheduler();
+        $scheduler = ByteMash_Sync_Scheduler::get_instance();
         $scheduler->clear_all_schedules();
         
         // Schedule test schedules
@@ -1514,7 +1520,7 @@ class ByteMash_Woo_Sync {
         // Restore original schedules
         $original_schedules = get_option('bytemash_cron_original_schedules', array());
         if (!empty($original_schedules)) {
-            $scheduler = new ByteMash_Sync_Scheduler();
+            $scheduler = ByteMash_Sync_Scheduler::get_instance();
             $scheduler->update_schedule(
                 $original_schedules['full_sync_frequency'],
                 $original_schedules['incremental_frequency']
@@ -1575,7 +1581,7 @@ class ByteMash_Woo_Sync {
         // Restore original full sync schedule only (don't touch incremental)
         $original_full_sync = get_option('bytemash_cron_original_full_sync', 'daily_at_0030');
         if ($original_full_sync) {
-            $scheduler = new ByteMash_Sync_Scheduler();
+            $scheduler = ByteMash_Sync_Scheduler::get_instance();
             // Only restore the full sync schedule, leave incremental unchanged
             $scheduler->restore_full_sync_schedule($original_full_sync);
         }
@@ -1626,7 +1632,7 @@ class ByteMash_Woo_Sync {
         // Restore original incremental sync schedule
         $original_incremental_sync = get_option('bytemash_cron_original_incremental_sync', 'every_5_hours');
         if ($original_incremental_sync) {
-            $scheduler = new ByteMash_Sync_Scheduler();
+            $scheduler = ByteMash_Sync_Scheduler::get_instance();
             $scheduler->update_schedule(get_option('bytemash_full_sync_frequency', 'daily_at_0030'), $original_incremental_sync);
         }
         
@@ -1829,12 +1835,15 @@ class ByteMash_Woo_Sync {
         wp_clear_scheduled_hook('bytemash_incremental_sync_cron');
         
         // Enable production schedules
-        $scheduler = new ByteMash_Sync_Scheduler();
+        $scheduler = ByteMash_Sync_Scheduler::get_instance();
         $scheduler->update_schedule('daily_at_0030', 'every_5_hours');
         
         // Disable test modes
         update_option('bytemash_cron_full_test_mode_enabled', false);
         update_option('bytemash_cron_incremental_test_mode_enabled', false);
+        
+        // Enable production sync state
+        update_option('bytemash_production_sync_enabled', true);
         
         $logger = new ByteMash_Logger();
         $logger->log('info', 'Production cron enabled', array(), 'cron_manager');
@@ -1858,7 +1867,7 @@ class ByteMash_Woo_Sync {
         wp_clear_scheduled_hook('bytemash_full_sync_cron');
         wp_clear_scheduled_hook('bytemash_incremental_sync_cron');
         
-        $scheduler = new ByteMash_Sync_Scheduler();
+        $scheduler = ByteMash_Sync_Scheduler::get_instance();
         $scheduler->update_schedule('daily_at_0030', 'every_5_hours');
         
         // Disable test modes
