@@ -439,13 +439,13 @@ class ByteMash_Admin_Settings {
                                                 <span class="test-mode-badge <?php echo $full_test_mode ? 'enabled' : 'disabled'; ?>">
                                                     <?php echo $full_test_mode ? __('Enabled', 'bytemash-woo-sync') : __('Disabled', 'bytemash-woo-sync'); ?>
                                                 </span>
-                                                <button type="button" id="toggle-full-test-mode" class="button <?php echo $full_test_mode ? 'button-secondary' : 'button-primary'; ?>">
+                                                <button type="button" id="enable_test_mode_full_sync" class="button <?php echo $full_test_mode ? 'button-secondary' : 'button-primary'; ?>">
                                                     <?php echo $full_test_mode ? __('Disable Full Test Mode', 'bytemash-woo-sync') : __('Enable Full Test Mode', 'bytemash-woo-sync'); ?>
                                                 </button>
                                             </div>
                                             <div id="full-test-mode-status"></div>
                                             <p class="description">
-                                                <?php esc_html_e('Runs full sync in 2 minutes when enabled using system cron (not dependent on website traffic). Disables production full sync schedule.', 'bytemash-woo-sync'); ?>
+                                                <?php esc_html_e('Runs full sync in 2 minutes when enabled using Action Scheduler (reliable background processing). Disables production full sync schedule.', 'bytemash-woo-sync'); ?>
                                             </p>
                                         </div>
                                         
@@ -456,30 +456,30 @@ class ByteMash_Admin_Settings {
                                                 <span class="test-mode-badge <?php echo $incremental_test_mode ? 'enabled' : 'disabled'; ?>">
                                                     <?php echo $incremental_test_mode ? __('Enabled', 'bytemash-woo-sync') : __('Disabled', 'bytemash-woo-sync'); ?>
                                                 </span>
-                                                <button type="button" id="toggle-incremental-test-mode" class="button <?php echo $incremental_test_mode ? 'button-secondary' : 'button-primary'; ?>">
+                                                <button type="button" id="enable_test_mode_incremental_sync" class="button <?php echo $incremental_test_mode ? 'button-secondary' : 'button-primary'; ?>">
                                                     <?php echo $incremental_test_mode ? __('Disable Incremental Test Mode', 'bytemash-woo-sync') : __('Enable Incremental Test Mode', 'bytemash-woo-sync'); ?>
                                                 </button>
                                             </div>
                                             <div id="incremental-test-mode-status"></div>
                                             <p class="description">
-                                                <?php esc_html_e('Runs incremental sync every 5 minutes when enabled using system cron (not dependent on website traffic). Disables production incremental sync schedule.', 'bytemash-woo-sync'); ?>
+                                                <?php esc_html_e('Runs incremental sync every 5 minutes when enabled using Action Scheduler (reliable background processing). Disables production incremental sync schedule.', 'bytemash-woo-sync'); ?>
                                             </p>
                                         </div>
                                         
                                         <!-- Production Cron -->
                                         <div class="test-mode-section">
-                                            <h4><?php esc_html_e('Production Cron', 'bytemash-woo-sync'); ?></h4>
+                                            <h4><?php esc_html_e('Production Sync', 'bytemash-woo-sync'); ?></h4>
                                             <div class="test-mode-item">
                                                 <span class="test-mode-badge <?php echo (wp_next_scheduled('bytemash_full_sync_cron') || wp_next_scheduled('bytemash_incremental_sync_cron')) ? 'enabled' : 'disabled'; ?>">
                                                     <?php echo (wp_next_scheduled('bytemash_full_sync_cron') || wp_next_scheduled('bytemash_incremental_sync_cron')) ? __('Enabled', 'bytemash-woo-sync') : __('Disabled', 'bytemash-woo-sync'); ?>
                                                 </span>
-                                                <button type="button" id="enable-production-cron" class="button button-primary">
-                                                    <?php esc_html_e('Enable Production Cron', 'bytemash-woo-sync'); ?>
+                                                <button type="button" id="enable_production_sync" class="button button-primary">
+                                                    <?php esc_html_e('Enable Production Sync', 'bytemash-woo-sync'); ?>
                                                 </button>
                                             </div>
                                             <div id="production-cron-status"></div>
                                             <p class="description">
-                                                <?php esc_html_e('Enables production sync schedules (daily full sync, every 5 hours incremental).', 'bytemash-woo-sync'); ?>
+                                                <?php esc_html_e('Enables production sync schedules using Action Scheduler (daily full sync at 00:30, incremental every 5 hours).', 'bytemash-woo-sync'); ?>
                                             </p>
                                         </div>
                                         

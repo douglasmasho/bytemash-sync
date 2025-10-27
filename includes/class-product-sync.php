@@ -42,6 +42,79 @@ class ByteMash_Product_Sync {
     }
     
     /**
+     * Comprehensive sync - processes all selected sync types in sequence
+     * 
+     * @param bool $force Force sync even if already running
+     * @param bool $with_branding Include branding data
+     * @return array Result with sync_id
+     */
+    public function sync_comprehensive($force = false, $with_branding = true) {
+        $this->logger->log('info', 'Starting comprehensive sync (all selected types)', array(), 'comprehensive_sync');
+        
+        $results = array();
+        $sync_id = 'comprehensive_' . time() . '_' . wp_generate_password(8, false);
+        
+        try {
+            // 1. Sync Products (with branding guides, color swatches, etc.)
+            $this->logger->log('info', 'Step 1: Syncing products with branding data', array(), 'comprehensive_sync');
+            $product_result = $this->sync_all_products($force, $with_branding);
+            $results['products'] = $product_result;
+            
+            if (!$product_result['success']) {
+                $this->logger->log('error', 'Product sync failed, stopping comprehensive sync', array(
+                    'error' => $product_result['message'],
+                ), 'comprehensive_sync');
+                return $product_result;
+            }
+            
+            // 2. Sync Stock (full stock information)
+            $this->logger->log('info', 'Step 2: Syncing stock information', array(), 'comprehensive_sync');
+            $stock_result = $this->sync_stock();
+            $results['stock'] = $stock_result;
+            
+            // 3. Sync Prices (pricing data)
+            $this->logger->log('info', 'Step 3: Syncing pricing information', array(), 'comprehensive_sync');
+            $price_result = $this->sync_prices();
+            $results['prices'] = $price_result;
+            
+            // 4. Sync Categories (category management)
+            $this->logger->log('info', 'Step 4: Syncing categories', array(), 'comprehensive_sync');
+            $category_result = $this->sync_categories();
+            $results['categories'] = $category_result;
+            
+            // 5. Sync Brands (brand information)
+            $this->logger->log('info', 'Step 5: Syncing brands', array(), 'comprehensive_sync');
+            $brand_result = $this->sync_brands();
+            $results['brands'] = $brand_result;
+            
+            $this->logger->log('success', 'Comprehensive sync completed successfully', array(
+                'sync_id' => $sync_id,
+                'results' => $results,
+            ), 'comprehensive_sync');
+            
+            return array(
+                'success' => true,
+                'message' => 'Comprehensive sync completed successfully',
+                'sync_id' => $sync_id,
+                'results' => $results,
+            );
+            
+        } catch (Exception $e) {
+            $this->logger->log('error', 'Comprehensive sync failed', array(
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ), 'comprehensive_sync');
+            
+            return array(
+                'success' => false,
+                'message' => 'Comprehensive sync failed: ' . $e->getMessage(),
+                'sync_id' => $sync_id,
+                'results' => $results,
+            );
+        }
+    }
+
+    /**
      * Sync all products (uses batch processor for memory efficiency)
      * 
      * @param bool $force Force update existing products
@@ -49,9 +122,7 @@ class ByteMash_Product_Sync {
      * @return array Result with sync_id
      */
     public function sync_all_products($force = false, $with_branding = true) {
-        $this->logger->log('info', 'Starting full product sync', array(
-            'with_branding' => $with_branding,
-        ), 'product_sync');
+        $this->logger->log('info', 'Starting full product sync', array(), 'product_sync');
         
         // Fetch products from Amrod API
         if ($with_branding) {
@@ -73,10 +144,7 @@ class ByteMash_Product_Sync {
         }
         
         $total = count($products);
-        $this->logger->log('info', "Found {$total} products to sync", array(
-            'total' => $total,
-            'memory_usage_mb' => round(memory_get_usage(true) / 1024 / 1024, 2),
-        ), 'product_sync');
+        $this->logger->log('info', "Found {$total} products to sync", array(), 'product_sync');
         
         // Generate unique sync ID
         $sync_id = 'products_' . time() . '_' . wp_generate_password(8, false);
@@ -85,11 +153,7 @@ class ByteMash_Product_Sync {
         $batches = array_chunk($products, $this->batch_size);
         $batch_count = count($batches);
         
-        $this->logger->log('info', "Split into {$batch_count} batches", array(
-            'total_products' => $total,
-            'batch_size' => $this->batch_size,
-            'batch_count' => $batch_count,
-        ), 'product_sync');
+        $this->logger->log('info', "Split into {$batch_count} batches", array(), 'product_sync');
         
         // DON'T store in transient - causes memory exhaustion!
         // Instead, return batches directly to JavaScript
@@ -109,10 +173,7 @@ class ByteMash_Product_Sync {
             'started' => current_time('mysql'),
         ), false);
         
-        $this->logger->log('info', "Sync ready - returning batches to JavaScript", array(
-            'sync_id' => $sync_id,
-            'batch_count' => $batch_count,
-        ), 'product_sync');
+        $this->logger->log('info', "Sync ready - returning batches to JavaScript", array(), 'product_sync');
         
             return array(
                 'success' => true,
@@ -131,9 +192,7 @@ class ByteMash_Product_Sync {
      * @return array Result
      */
     public function sync_updated_products($with_branding = true) {
-        $this->logger->log('info', 'Starting incremental product sync', array(
-            'with_branding' => $with_branding,
-        ), 'product_sync');
+        $this->logger->log('info', 'Starting incremental product sync', array(), 'product_sync');
         
         // Fetch updated products only
         if ($with_branding) {
@@ -158,11 +217,7 @@ class ByteMash_Product_Sync {
         $batches = array_chunk($products, $this->batch_size);
         $batch_count = count($batches);
         
-        $this->logger->log('info', "Split into {$batch_count} batches", array(
-            'total_products' => $total,
-            'batch_size' => $this->batch_size,
-            'batch_count' => $batch_count,
-        ), 'product_sync');
+        $this->logger->log('info', "Split into {$batch_count} batches", array(), 'product_sync');
         
         // Store minimal sync info
         update_option("bytemash_sync_{$sync_id}", array(
@@ -193,10 +248,7 @@ class ByteMash_Product_Sync {
      */
     private function sync_variable_product($product_data, $parent_sku, $force = false) {
         try {
-            $this->logger->log('info', 'Creating/updating variable product with variations', array(
-                'sku' => $parent_sku,
-                'variant_count' => count($product_data['variants']),
-            ), 'product_sync');
+            $this->logger->log('info', 'Creating/updating variable product with variations', array(), 'product_sync');
             
             // Check if parent product exists
             $product_id = wc_get_product_id_by_sku($parent_sku);
@@ -206,7 +258,7 @@ class ByteMash_Product_Sync {
                 
                 // If exists but is not variable, delete and recreate
                 if ($product && !$product->is_type('variable')) {
-                    $this->logger->log('info', 'Converting simple product to variable', array('product_id' => $product_id), 'product_sync');
+                    $this->logger->log('info', 'Converting simple product to variable', array(), 'product_sync');
                     wp_delete_post($product_id, true);
                     $product_id = null;
                 }
@@ -242,8 +294,8 @@ class ByteMash_Product_Sync {
             $this->set_product_brand($product, $product_data['brand']);
         }
         
-        // Save parent product
-        $product_id = $product->save();
+        // Save parent product using safe method
+        $product_id = $this->save_product_safely($product);
         
         // Sync parent images
         if (!empty($product_data['images']) && is_array($product_data['images'])) {
@@ -364,25 +416,26 @@ class ByteMash_Product_Sync {
         $variant_sku = $variant_data['fullCode'] ?? '';
         
         if (empty($variant_sku)) {
-            $this->logger->log('warning', 'Variation missing SKU', array('parent_id' => $parent_id), 'product_sync');
+            $this->logger->log('warning', 'Variation missing SKU', array(
+                'parent_id' => $parent_id,
+                'variant_data' => $variant_data,
+            ), 'product_sync');
             return false;
         }
         
         $this->logger->log('info', 'Creating variation', array(
             'parent_id' => $parent_id,
             'sku' => $variant_sku,
-            'size' => $variant_data['codeSizeName'] ?? 'N/A',
-            'color' => $variant_data['codeColourName'] ?? 'N/A',
         ), 'product_sync');
         
         // Check if variation exists
         $variation_id = wc_get_product_id_by_sku($variant_sku);
         
         if ($variation_id) {
-            $this->logger->log('info', 'Updating existing variation', array('variation_id' => $variation_id), 'product_sync');
+            $this->logger->log('info', 'Updating existing variation', array(), 'product_sync');
             $variation = new WC_Product_Variation($variation_id);
         } else {
-            $this->logger->log('info', 'Creating new variation', array('sku' => $variant_sku), 'product_sync');
+            $this->logger->log('info', 'Creating new variation', array(), 'product_sync');
             $variation = new WC_Product_Variation();
             $variation->set_parent_id($parent_id);
         }
@@ -427,22 +480,34 @@ class ByteMash_Product_Sync {
                 $variation->set_width($dim['width']);
             }
         }
-        
+        //
         // Save variation
-        $variation_id = $variation->save();
-        
-        if (!$variation_id) {
-            $this->logger->log('error', 'Failed to save variation - save() returned false', array(
+        try {
+            $variation_id = $variation->save();
+            
+            if (!$variation_id) {
+                $this->logger->log('error', 'Failed to save variation - save() returned false', array(
+                    'parent_id' => $parent_id,
+                    'sku' => $variant_sku,
+                    'variation_attributes' => $variation_attributes,
+                ), 'product_sync');
+                return false;
+            }
+            
+            $this->logger->log('success', 'Variation saved successfully', array(
+                'variation_id' => $variation_id,
                 'parent_id' => $parent_id,
                 'sku' => $variant_sku,
             ), 'product_sync');
+        } catch (Exception $e) {
+            $this->logger->log('error', 'Variation save failed with exception', array(
+                'parent_id' => $parent_id,
+                'sku' => $variant_sku,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ), 'product_sync');
             return false;
         }
-        
-        $this->logger->log('success', 'Variation saved successfully', array(
-            'variation_id' => $variation_id,
-            'sku' => $variant_sku,
-        ), 'product_sync');
         
         // Set variation image from colourImages if available
         if (!empty($parent_data['colourImages']) && !empty($variant_data['codeColour'])) {
@@ -501,16 +566,11 @@ class ByteMash_Product_Sync {
         $enable_variable_products = get_option('bytemash_enable_variable_products', true);
         $has_variants = $enable_variable_products && !empty($product_data['variants']) && is_array($product_data['variants']) && count($product_data['variants']) > 0;
         
-        $this->logger->log('info', 'Product variant check', array(
-            'sku' => $sku,
-            'has_variants' => $has_variants,
-            'variant_count' => isset($product_data['variants']) ? count($product_data['variants']) : 0,
-            'variable_products_enabled' => $enable_variable_products,
-        ), 'product_sync');
+        $this->logger->log('info', 'Product variant check', array(), 'product_sync');
         
         if ($has_variants) {
             // Create/update as Variable Product with variations
-            $this->logger->log('info', 'Routing to variable product sync', array('sku' => $sku), 'product_sync');
+            $this->logger->log('info', 'Routing to variable product sync', array(), 'product_sync');
             
             try {
                 return $this->sync_variable_product($product_data, $sku, $force);
@@ -522,12 +582,12 @@ class ByteMash_Product_Sync {
                 ), 'product_sync');
                 
                 // Fallback: Create as simple product to prevent total failure
-                $this->logger->log('warning', 'Creating as simple product instead', array('sku' => $sku), 'product_sync');
+                $this->logger->log('warning', 'Creating as simple product instead', array(), 'product_sync');
                 $has_variants = false; // Force simple product creation
             }
         }
         
-        $this->logger->log('info', 'Routing to simple product sync', array('sku' => $sku), 'product_sync');
+        $this->logger->log('info', 'Routing to simple product sync', array(), 'product_sync');
         
         // Otherwise create/update as Simple Product
         $product_id = wc_get_product_id_by_sku($sku);
@@ -560,8 +620,8 @@ class ByteMash_Product_Sync {
             // Note: Stock and prices are synced separately via their own endpoints
             // Amrod recommends separate syncs for better performance
             
-            // Save product
-            $product_id = $product->save();
+            // Save product using safe method
+            $product_id = $this->save_product_safely($product);
             
             // Sync images (Amrod returns image objects with URLs and metadata)
             // Images are optional - if they fail, product still syncs
@@ -587,10 +647,7 @@ class ByteMash_Product_Sync {
                 $product->set_stock_status($stock_qty > 0 ? 'instock' : 'outofstock');
             }
             
-            $this->logger->log('success', "Product synced: {$sku}", array(
-                'product_id' => $product_id,
-                'sku' => $sku,
-            ), 'product_sync');
+            $this->logger->log('success', "Product synced: {$sku}", array(), 'product_sync');
             
             return array('success' => true, 'product_id' => $product_id);
             
@@ -601,6 +658,51 @@ class ByteMash_Product_Sync {
             ), 'product_sync');
             
             return array('success' => false, 'message' => $e->getMessage());
+        }
+    }
+    
+    /**
+     * Handle product save with proper WooCommerce hooks and database management
+     */
+    private function save_product_safely($product) {
+        // Use WordPress's built-in bulk operation handling
+        wp_defer_term_counting(true);
+        wp_defer_comment_counting(true);
+        
+        try {
+            // Save the product using WooCommerce's native method
+            $product_id = $product->save();
+            
+            // Ensure the product is properly saved
+            if (!$product_id) {
+                $this->logger->log('error', 'Product save failed - no ID returned', array(
+                    'sku' => $product->get_sku(),
+                    'name' => $product->get_name(),
+                    'type' => $product->get_type(),
+                ), 'product_sync');
+                throw new Exception('Failed to save product');
+            }
+            
+            $this->logger->log('info', 'Product saved successfully', array(
+                'product_id' => $product_id,
+                'sku' => $product->get_sku(),
+                'type' => $product->get_type(),
+            ), 'product_sync');
+            
+            return $product_id;
+        } catch (Exception $e) {
+            $this->logger->log('error', 'Product save failed with exception', array(
+                'sku' => $product->get_sku(),
+                'name' => $product->get_name(),
+                'type' => $product->get_type(),
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ), 'product_sync');
+            throw $e;
+        } finally {
+            // Re-enable counting
+            wp_defer_term_counting(false);
+            wp_defer_comment_counting(false);
         }
     }
     
@@ -668,24 +770,11 @@ class ByteMash_Product_Sync {
         $image_ids = array();
         $default_image_id = null;
         
-        $this->logger->log('info', 'Starting image sync', array(
-            'product_id' => $product_id,
-            'image_count' => count($images),
-            'images_structure' => array_map(function($img) {
-                return array(
-                    'name' => $img['name'] ?? 'unknown',
-                    'isDefault' => $img['isDefault'] ?? false,
-                    'urls_count' => isset($img['urls']) ? count($img['urls']) : 0,
-                );
-            }, $images),
-        ), 'image_sync');
+        $this->logger->log('info', 'Starting image sync', array(), 'image_sync');
         
         foreach ($images as $image_data) {
             if (empty($image_data['urls']) || !is_array($image_data['urls'])) {
-                $this->logger->log('warning', 'Skipping image - no urls array', array(
-                    'image_data' => $image_data,
-                    'product_id' => $product_id,
-                ), 'image_sync');
+                $this->logger->log('warning', 'Skipping image - no urls array', array(), 'image_sync');
                 continue;
             }
             
@@ -701,10 +790,7 @@ class ByteMash_Product_Sync {
             }
             
             if (empty($image_url)) {
-                $this->logger->log('warning', 'Skipping image - no URL found', array(
-                    'image_name' => $image_data['name'] ?? 'unknown',
-                    'product_id' => $product_id,
-                ), 'image_sync');
+                $this->logger->log('warning', 'Skipping image - no URL found', array(), 'image_sync');
                 continue;
             }
             
@@ -732,11 +818,7 @@ class ByteMash_Product_Sync {
             update_post_meta($product_id, '_amrod_all_images', $all_images);
         }
         
-        $this->logger->log('success', 'Image URLs stored (using Amrod CDN)', array(
-            'product_id' => $product_id,
-            'featured_url' => $default_image_id,
-            'gallery_count' => count($image_ids),
-        ), 'image_sync');
+        $this->logger->log('success', 'Image URLs stored (using Amrod CDN)', array(), 'image_sync');
     }
     
     /**
@@ -1006,11 +1088,7 @@ class ByteMash_Product_Sync {
         $batches = array_chunk($stock_data, 100);
         $batch_count = count($batches);
         
-        $this->logger->log('info', "Split into {$batch_count} batches", array(
-            'total_items' => $total,
-            'batch_size' => 100,
-            'batch_count' => $batch_count,
-        ), 'stock_sync');
+        $this->logger->log('info', "Split into {$batch_count} batches", array(), 'stock_sync');
         
         // Just store minimal sync info
         update_option("bytemash_sync_{$sync_id}", array(
@@ -1062,11 +1140,7 @@ class ByteMash_Product_Sync {
         $batches = array_chunk($stock_data, 100);
         $batch_count = count($batches);
         
-        $this->logger->log('info', "Split into {$batch_count} batches", array(
-            'total_items' => $total,
-            'batch_size' => 100,
-            'batch_count' => $batch_count,
-        ), 'stock_sync');
+        $this->logger->log('info', "Split into {$batch_count} batches", array(), 'stock_sync');
         
         // Store minimal sync info
         update_option("bytemash_sync_{$sync_id}", array(
@@ -1121,11 +1195,7 @@ class ByteMash_Product_Sync {
         $batches = array_chunk($prices_data, 100);
         $batch_count = count($batches);
         
-        $this->logger->log('info', "Split into {$batch_count} batches", array(
-            'total_items' => $total,
-            'batch_size' => 100,
-            'batch_count' => $batch_count,
-        ), 'price_sync');
+        $this->logger->log('info', "Split into {$batch_count} batches", array(), 'price_sync');
         
         // Just store minimal sync info
         update_option("bytemash_sync_{$sync_id}", array(
@@ -1177,11 +1247,7 @@ class ByteMash_Product_Sync {
         $batches = array_chunk($prices_data, 100);
         $batch_count = count($batches);
         
-        $this->logger->log('info', "Split into {$batch_count} batches", array(
-            'total_items' => $total,
-            'batch_size' => 100,
-            'batch_count' => $batch_count,
-        ), 'price_sync');
+        $this->logger->log('info', "Split into {$batch_count} batches", array(), 'price_sync');
         
         // Store minimal sync info
         update_option("bytemash_sync_{$sync_id}", array(
@@ -1339,12 +1405,7 @@ class ByteMash_Product_Sync {
             preg_replace('/-0-0$/', '', $fullCode) // Try fullCode without "-0-0" suffix
         ));
         
-        $this->logger->log('info', '🔍 Attempting to match stock SKU', array(
-            'fullCode' => $fullCode,
-            'simpleCode' => $simpleCode,
-            'trying_skus' => $skus_to_try,
-            'stock' => $stock_item['stock'] ?? 'N/A',
-        ), 'stock_sync');
+        $this->logger->log('info', '🔍 Attempting to match stock SKU', array(), 'stock_sync');
         
         $product_ids = array();
         $matched_sku = '';
@@ -1357,7 +1418,7 @@ class ByteMash_Product_Sync {
                 $product_ids[] = $product_id;
                 $matched_sku = $sku;
                 $exact_match_found = true;
-                $this->logger->log('success', "✅ Exact SKU matched: {$sku} (Product ID: {$product_id})", array(), 'stock_sync');
+                $this->logger->log('success', "✅ Exact SKU matched: {$sku}", array(), 'stock_sync');
                 break;
             }
         }
@@ -1390,23 +1451,14 @@ class ByteMash_Product_Sync {
                         ? "✅ Pattern matched {$pattern_matched_count} additional variant(s) with SKU starting with: {$simpleCode}"
                         : "✅ Pattern matched {$pattern_matched_count} product(s) with SKU starting with: {$simpleCode}";
                     
-                    $this->logger->log('success', $log_msg, array(
-                        'total_products' => count($product_ids),
-                        'pattern_matched' => $pattern_matched_count,
-                        'exact_match' => $exact_match_found,
-                    ), 'stock_sync');
+                    $this->logger->log('success', $log_msg, array(), 'stock_sync');
                 }
             }
         }
         
         if (empty($product_ids)) {
             $attempted = implode(', ', $skus_to_try);
-            $this->logger->log('warning', "⚠️ No SKU match found", array(
-                'tried_skus' => $skus_to_try,
-                'tried_pattern' => $simpleCode . '%',
-                'fullCode' => $fullCode,
-                'simpleCode' => $simpleCode,
-            ), 'stock_sync');
+            $this->logger->log('warning', "⚠️ No SKU match found", array(), 'stock_sync');
             return array('success' => false, 'message' => "Product not found. Tried SKUs: {$attempted}, Pattern: {$simpleCode}%");
         }
         
@@ -1416,19 +1468,40 @@ class ByteMash_Product_Sync {
         $stock_qty = isset($stock_item['stock']) ? (int) $stock_item['stock'] : 0;
         
         foreach ($product_ids as $pid) {
-            $product = wc_get_product($pid);
-            
-            if (!$product) {
+            try {
+                $product = wc_get_product($pid);
+                
+                if (!$product) {
+                    $failed_count++;
+                    $this->logger->log('warning', 'Product not found for stock update', array(
+                        'product_id' => $pid,
+                        'sku' => $matched_sku,
+                    ), 'product_sync');
+                    continue;
+                }
+                
+                // Update stock
+                $product->set_manage_stock(true);
+                $product->set_stock_quantity($stock_qty);
+                $product->set_stock_status($stock_qty > 0 ? 'instock' : 'outofstock');
+                $this->save_product_safely($product);
+                $updated_count++;
+                
+                $this->logger->log('info', 'Stock updated successfully', array(
+                    'product_id' => $pid,
+                    'sku' => $product->get_sku(),
+                    'stock_qty' => $stock_qty,
+                ), 'product_sync');
+            } catch (Exception $e) {
                 $failed_count++;
-                continue;
+                $this->logger->log('error', 'Stock update failed', array(
+                    'product_id' => $pid,
+                    'sku' => $matched_sku,
+                    'stock_qty' => $stock_qty,
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ), 'product_sync');
             }
-            
-            // Update stock
-            $product->set_manage_stock(true);
-            $product->set_stock_quantity($stock_qty);
-            $product->set_stock_status($stock_qty > 0 ? 'instock' : 'outofstock');
-            $product->save();
-            $updated_count++;
         }
         
         if ($updated_count === 0) {
@@ -1459,12 +1532,7 @@ class ByteMash_Product_Sync {
             preg_replace('/-0-0$/', '', $fullCode) // Try fullCode without "-0-0" suffix
         ));
         
-        $this->logger->log('info', '🔍 Attempting to match price SKU', array(
-            'fullCode' => $fullCode,
-            'simpleCode' => $simpleCode,
-            'trying_skus' => $skus_to_try,
-            'price' => $price_item['price'] ?? 'N/A',
-        ), 'price_sync');
+        $this->logger->log('info', '🔍 Attempting to match price SKU', array(), 'price_sync');
         
         $product_ids = array();
         $matched_sku = '';
@@ -1477,7 +1545,7 @@ class ByteMash_Product_Sync {
                 $product_ids[] = $product_id;
                 $matched_sku = $sku;
                 $exact_match_found = true;
-                $this->logger->log('success', "✅ Exact SKU matched: {$sku} (Product ID: {$product_id})", array(), 'price_sync');
+                $this->logger->log('success', "✅ Exact SKU matched: {$sku}", array(), 'price_sync');
                 break;
             }
         }
@@ -1510,23 +1578,14 @@ class ByteMash_Product_Sync {
                         ? "✅ Pattern matched {$pattern_matched_count} additional variant(s) with SKU starting with: {$simpleCode}"
                         : "✅ Pattern matched {$pattern_matched_count} product(s) with SKU starting with: {$simpleCode}";
                     
-                    $this->logger->log('success', $log_msg, array(
-                        'total_products' => count($product_ids),
-                        'pattern_matched' => $pattern_matched_count,
-                        'exact_match' => $exact_match_found,
-                    ), 'price_sync');
+                    $this->logger->log('success', $log_msg, array(), 'price_sync');
                 }
             }
         }
         
         if (empty($product_ids)) {
             $attempted = implode(', ', $skus_to_try);
-            $this->logger->log('warning', "⚠️ No SKU match found", array(
-                'tried_skus' => $skus_to_try,
-                'tried_pattern' => $simpleCode . '%',
-                'fullCode' => $fullCode,
-                'simpleCode' => $simpleCode,
-            ), 'price_sync');
+            $this->logger->log('warning', "⚠️ No SKU match found", array(), 'price_sync');
             return array('success' => false, 'message' => "Product not found. Tried SKUs: {$attempted}, Pattern: {$simpleCode}%");
         }
         
@@ -1535,24 +1594,47 @@ class ByteMash_Product_Sync {
         $failed_count = 0;
         
         foreach ($product_ids as $pid) {
-            $product = wc_get_product($pid);
-            
-            if (!$product) {
+            try {
+                $product = wc_get_product($pid);
+                
+                if (!$product) {
+                    $failed_count++;
+                    $this->logger->log('warning', 'Product not found for price update', array(
+                        'product_id' => $pid,
+                        'sku' => $matched_sku,
+                    ), 'product_sync');
+                    continue;
+                }
+                
+                // Update prices
+                if (isset($price_item['price'])) {
+                    $product->set_regular_price($price_item['price']);
+                }
+                
+                if (isset($price_item['salePrice']) && $price_item['salePrice'] > 0) {
+                    $product->set_sale_price($price_item['salePrice']);
+                }
+                
+                $this->save_product_safely($product);
+                $updated_count++;
+                
+                $this->logger->log('info', 'Price updated successfully', array(
+                    'product_id' => $pid,
+                    'sku' => $product->get_sku(),
+                    'regular_price' => $price_item['price'] ?? 'not set',
+                    'sale_price' => $price_item['salePrice'] ?? 'not set',
+                ), 'product_sync');
+            } catch (Exception $e) {
                 $failed_count++;
-                continue;
+                $this->logger->log('error', 'Price update failed', array(
+                    'product_id' => $pid,
+                    'sku' => $matched_sku,
+                    'regular_price' => $price_item['price'] ?? 'not set',
+                    'sale_price' => $price_item['salePrice'] ?? 'not set',
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ), 'product_sync');
             }
-            
-            // Update prices
-            if (isset($price_item['price'])) {
-                $product->set_regular_price($price_item['price']);
-            }
-            
-            if (isset($price_item['salePrice']) && $price_item['salePrice'] > 0) {
-                $product->set_sale_price($price_item['salePrice']);
-            }
-            
-            $product->save();
-            $updated_count++;
         }
         
         if ($updated_count === 0) {
@@ -1587,7 +1669,7 @@ class ByteMash_Product_Sync {
         }
         
         $total = count($orphan_products);
-        $this->logger->log('info', "Found {$total} orphan products without prices", array('total' => $total), 'price_sync_orphan');
+        $this->logger->log('info', "Found {$total} orphan products without prices", array(), 'price_sync_orphan');
         
         // Step 2: Fetch all prices for matching
         $prices_data = $this->api_client->get_prices();
@@ -1606,11 +1688,7 @@ class ByteMash_Product_Sync {
         $batches = array_chunk($orphan_products, 50); // Process 50 orphans per batch
         $batch_count = count($batches);
         
-        $this->logger->log('info', "Split into {$batch_count} batches", array(
-            'total_orphans' => $total,
-            'batch_size' => 50,
-            'batch_count' => $batch_count,
-        ), 'price_sync_orphan');
+        $this->logger->log('info', "Split into {$batch_count} batches", array(), 'price_sync_orphan');
         
         // Store minimal sync info
         update_option("bytemash_sync_{$sync_id}", array(
@@ -1691,12 +1769,7 @@ class ByteMash_Product_Sync {
         
         $product->save();
         
-        $this->logger->log('success', "✅ Orphan matched: {$sku} → prefix: {$prefix} → price: " . ($matched_price['price'] ?? 0), array(
-            'sku' => $sku,
-            'product_id' => $product_id,
-            'prefix' => $prefix,
-            'price' => $matched_price['price'] ?? 0,
-        ), 'price_sync_orphan');
+        $this->logger->log('success', "✅ Orphan matched: {$sku} → prefix: {$prefix} → price: " . ($matched_price['price'] ?? 0), array(), 'price_sync_orphan');
         
         return array('success' => true, 'sku' => $sku, 'price' => $matched_price['price'] ?? 0);
     }
@@ -1750,11 +1823,7 @@ class ByteMash_Product_Sync {
         $batches = array_chunk($brands, 50);
         $batch_count = count($batches);
         
-        $this->logger->log('info', "Split into {$batch_count} batches", array(
-            'total_brands' => $total,
-            'batch_size' => 50,
-            'batch_count' => $batch_count,
-        ), 'brands_sync');
+        $this->logger->log('info', "Split into {$batch_count} batches", array(), 'brands_sync');
         
         // Store minimal sync info
         update_option("bytemash_sync_{$sync_id}", array(
@@ -1801,9 +1870,7 @@ class ByteMash_Product_Sync {
             'order' => $brand_order,
         ));
         
-        $this->logger->log('success', "Brand synced: {$brand_name}", array(
-            'code' => $brand_code,
-        ), 'brands_sync');
+        $this->logger->log('success', "Brand synced: {$brand_name}", array(), 'brands_sync');
         
         return array('success' => true, 'code' => $brand_code, 'name' => $brand_name);
     }
@@ -1833,10 +1900,7 @@ class ByteMash_Product_Sync {
         $batches = array_chunk($departments, 25);
         $batch_count = count($batches);
         
-        $this->logger->log('info', "Split into {$batch_count} batches", array(
-            'total_departments' => $total,
-            'batch_count' => $batch_count,
-        ), 'branding_sync');
+        $this->logger->log('info', "Split into {$batch_count} batches", array(), 'branding_sync');
         
         update_option("bytemash_sync_{$sync_id}", array(
             'type' => 'branding_departments',
@@ -1902,10 +1966,7 @@ class ByteMash_Product_Sync {
         $batches = array_chunk($prices, 25);
         $batch_count = count($batches);
         
-        $this->logger->log('info', "Split into {$batch_count} batches", array(
-            'total_price_groups' => $total,
-            'batch_count' => $batch_count,
-        ), 'branding_sync');
+        $this->logger->log('info', "Split into {$batch_count} batches", array(), 'branding_sync');
         
         update_option("bytemash_sync_{$sync_id}", array(
             'type' => 'branding_prices',
@@ -1970,10 +2031,7 @@ class ByteMash_Product_Sync {
         $batches = array_chunk($brandings, 50);
         $batch_count = count($batches);
         
-        $this->logger->log('info', "Split into {$batch_count} batches", array(
-            'total_brandings' => $total,
-            'batch_count' => $batch_count,
-        ), 'branding_sync');
+        $this->logger->log('info', "Split into {$batch_count} batches", array(), 'branding_sync');
         
         update_option("bytemash_sync_{$sync_id}", array(
             'type' => 'inclusive_brandings',
@@ -2044,10 +2102,7 @@ class ByteMash_Product_Sync {
         $batches = array_chunk($swatches, 50);
         $batch_count = count($batches);
         
-        $this->logger->log('info', "Split into {$batch_count} batches", array(
-            'total_swatches' => $total,
-            'batch_count' => $batch_count,
-        ), 'color_swatches_sync');
+        $this->logger->log('info', "Split into {$batch_count} batches", array(), 'color_swatches_sync');
         
         update_option("bytemash_sync_{$sync_id}", array(
             'type' => 'color_swatches',
@@ -2086,10 +2141,7 @@ class ByteMash_Product_Sync {
         // Store as individual option with color code as key
         update_option("amrod_color_swatch_{$color_code}", $swatch_data);
         
-        $this->logger->log('success', "Color swatch synced: {$color_name}", array(
-            'code' => $color_code,
-            'hex' => $swatch_data['hexValue'] ?? 'N/A',
-        ), 'color_swatches_sync');
+        $this->logger->log('success', "Color swatch synced: {$color_name}", array(), 'color_swatches_sync');
         
         return array('success' => true, 'code' => $color_code, 'name' => $color_name);
     }
@@ -2154,10 +2206,7 @@ class ByteMash_Product_Sync {
         // Flatten hierarchical categories (include all children)
         $flat_categories = $this->flatten_categories($categories);
         
-        $this->logger->log('info', "Flattened hierarchical categories", array(
-            'original_count' => count($categories),
-            'flattened_count' => count($flat_categories),
-        ), 'category_sync');
+        $this->logger->log('info', "Flattened hierarchical categories", array(), 'category_sync');
         
         $total = count($flat_categories);
         $sync_id = 'categories_' . time() . '_' . wp_generate_password(8, false);
@@ -2166,11 +2215,7 @@ class ByteMash_Product_Sync {
         $batches = array_chunk($flat_categories, 25);
         $batch_count = count($batches);
         
-        $this->logger->log('info', "Split into {$batch_count} batches", array(
-            'total_categories' => $total,
-            'batch_size' => 25,
-            'batch_count' => $batch_count,
-        ), 'category_sync');
+        $this->logger->log('info', "Split into {$batch_count} batches", array(), 'category_sync');
         
         // Store minimal sync info
         update_option("bytemash_sync_{$sync_id}", array(
@@ -2228,10 +2273,7 @@ class ByteMash_Product_Sync {
                 
                 if (!empty($parent_terms) && !is_wp_error($parent_terms)) {
                     $parent_id = $parent_terms[0]->term_id;
-                    $this->logger->log('info', "Found parent category for: {$category_name}", array(
-                        'parent_path' => $parent_path,
-                        'parent_id' => $parent_id,
-                    ), 'category_sync');
+                    $this->logger->log('info', "Found parent category for: {$category_name}", array(), 'category_sync');
                 }
             }
             
@@ -2247,10 +2289,7 @@ class ByteMash_Product_Sync {
                     wp_update_term($term_id, 'product_cat', array('parent' => $parent_id));
                 }
                 
-                $this->logger->log('info', "Category already exists: {$category_name}", array(
-                    'term_id' => $term_id,
-                    'parent_id' => $parent_id,
-                ), 'category_sync');
+                $this->logger->log('info', "Category already exists: {$category_name}", array(), 'category_sync');
             } else {
                 // Create new with parent
                 $args = array('slug' => sanitize_title($category_name));
@@ -2281,10 +2320,7 @@ class ByteMash_Product_Sync {
                 update_term_meta($term_id, '_amrod_category_image', esc_url_raw($category_image));
             }
             
-            $this->logger->log('success', "Category synced: {$category_name}", array(
-                'term_id' => $term_id,
-                'code' => $category_code,
-            ), 'category_sync');
+            $this->logger->log('success', "Category synced: {$category_name}", array(), 'category_sync');
             
             return array('success' => true, 'term_id' => $term_id, 'name' => $category_name);
         } catch (Exception $e) {

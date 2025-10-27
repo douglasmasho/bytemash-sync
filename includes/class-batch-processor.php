@@ -59,11 +59,7 @@ class ByteMash_Batch_Processor {
             return false;
         }
         
-        $this->logger->log('info', "Scheduling {$chunk_count} chunks for {$total} products", array(
-            'sync_id' => $sync_id,
-            'total_products' => $total,
-            'chunk_count' => $chunk_count,
-        ), 'batch_processor');
+        $this->logger->log('info', "Scheduling {$chunk_count} chunks for {$total} products", array(), 'batch_processor');
         
         // Store sync metadata
         $this->save_sync_progress($sync_id, array(
@@ -77,9 +73,7 @@ class ByteMash_Batch_Processor {
         ));
         
         // PROCESS FIRST CHUNK IMMEDIATELY (don't rely on WP-Cron)
-        $this->logger->log('info', "Starting immediate processing of first chunk", array(
-            'sync_id' => $sync_id,
-        ), 'batch_processor');
+        $this->logger->log('info', "Starting immediate processing of first chunk", array(), 'batch_processor');
         
         $this->process_products_chunk($sync_id, 0);
         
@@ -103,12 +97,7 @@ class ByteMash_Batch_Processor {
         $batches = array_chunk($products, $this->batch_size);
         $batch_count = count($batches);
         
-        $this->logger->log('info', "Scheduling {$batch_count} batches for {$total} products", array(
-            'sync_id' => $sync_id,
-            'total_products' => $total,
-            'batch_count' => $batch_count,
-            'batch_size' => $this->batch_size,
-        ), 'batch_processor');
+        $this->logger->log('info', "Scheduling {$batch_count} batches for {$total} products", array(), 'batch_processor');
         
         // Store sync metadata
         $this->save_sync_progress($sync_id, array(
@@ -138,18 +127,13 @@ class ByteMash_Batch_Processor {
         $original_memory = ini_get('memory_limit');
         @ini_set('memory_limit', '512M');
         
-        $this->logger->log('info', "Processing products batch {$batch_index}", array(
-            'sync_id' => $sync_id,
-            'batch_index' => $batch_index,
-            'memory_limit' => ini_get('memory_limit'),
-            'memory_usage_mb' => round(memory_get_usage(true) / 1024 / 1024, 2),
-        ), 'batch_processor');
+        $this->logger->log('info', "Processing products batch {$batch_index}", array(), 'batch_processor');
         
         // Get sync progress
         $progress = $this->get_sync_progress($sync_id);
         
         if (!$progress) {
-            $this->logger->log('error', 'Sync progress not found', array('sync_id' => $sync_id), 'batch_processor');
+            $this->logger->log('error', 'Sync progress not found', array(), 'batch_processor');
             @ini_set('memory_limit', $original_memory);
             return;
         }
@@ -158,7 +142,7 @@ class ByteMash_Batch_Processor {
         $products = get_transient("bytemash_sync_{$sync_id}_products");
         
         if (!$products) {
-            $this->logger->log('error', 'Cached products not found', array('sync_id' => $sync_id), 'batch_processor');
+            $this->logger->log('error', 'Cached products not found', array(), 'batch_processor');
             $this->update_sync_status($sync_id, 'error', 'Cached data expired');
             @ini_set('memory_limit', $original_memory);
             return;
@@ -172,13 +156,13 @@ class ByteMash_Batch_Processor {
         unset($products);
         
         if (empty($batch)) {
-            $this->logger->log('warning', 'Batch index out of range', array(
-                'sync_id' => $sync_id,
-                'batch_index' => $batch_index,
-            ), 'batch_processor');
+            $this->logger->log('warning', 'Batch index out of range', array(), 'batch_processor');
             @ini_set('memory_limit', $original_memory);
             return;
         }
+        
+        // Set up proper bulk operation handling
+        $this->handle_bulk_database_operations();
         
         // Suspend cache to reduce memory usage
         wp_suspend_cache_addition(true);
@@ -189,12 +173,31 @@ class ByteMash_Batch_Processor {
         $errors = 0;
         
         foreach ($batch as $product_data) {
-            $result = $product_sync->sync_single_product($product_data);
-            
-            if ($result['success']) {
-                $processed++;
-            } else {
+            try {
+                $result = $product_sync->sync_single_product($product_data);
+                
+                if ($result['success']) {
+                    $processed++;
+                    $this->logger->log('info', 'Product synced successfully', array(
+                        'sku' => $product_data['fullCode'] ?? 'unknown',
+                        'product_name' => $product_data['productName'] ?? 'unknown',
+                    ), 'batch_processor');
+                } else {
+                    $errors++;
+                    $this->logger->log('error', 'Product sync failed', array(
+                        'sku' => $product_data['fullCode'] ?? 'unknown',
+                        'product_name' => $product_data['productName'] ?? 'unknown',
+                        'error_message' => $result['message'] ?? 'Unknown error',
+                    ), 'batch_processor');
+                }
+            } catch (Exception $e) {
                 $errors++;
+                $this->logger->log('error', 'Product sync exception', array(
+                    'sku' => $product_data['fullCode'] ?? 'unknown',
+                    'product_name' => $product_data['productName'] ?? 'unknown',
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ), 'batch_processor');
             }
             
             // Clear memory after each product
@@ -203,6 +206,9 @@ class ByteMash_Batch_Processor {
         
         // Resume cache
         wp_suspend_cache_addition(false);
+        
+        // Clean up after bulk operations
+        $this->cleanup_after_bulk_operations();
         
         // Clear memory aggressively
         unset($batch, $product_sync);
@@ -220,14 +226,7 @@ class ByteMash_Batch_Processor {
         
         $this->save_sync_progress($sync_id, $progress);
         
-        $this->logger->log('info', "Batch {$batch_index} completed", array(
-            'sync_id' => $sync_id,
-            'processed' => $processed,
-            'errors' => $errors,
-            'total_progress' => $progress['processed'] . '/' . $progress['total'],
-            'memory_usage_mb' => round(memory_get_usage(true) / 1024 / 1024, 2),
-            'memory_peak_mb' => round(memory_get_peak_usage(true) / 1024 / 1024, 2),
-        ), 'batch_processor');
+        $this->logger->log('info', "Batch {$batch_index} completed", array(), 'batch_processor');
         
         // Schedule next batch
         $next_batch = $batch_index + 1;
@@ -244,12 +243,7 @@ class ByteMash_Batch_Processor {
             // Delete cached data
             delete_transient("bytemash_sync_{$sync_id}_products");
             
-            $this->logger->log('success', 'All product batches completed', array(
-                'sync_id' => $sync_id,
-                'total_processed' => $progress['processed'],
-                'total_errors' => $progress['errors'],
-                'memory_peak_mb' => round(memory_get_peak_usage(true) / 1024 / 1024, 2),
-            ), 'batch_processor');
+            $this->logger->log('success', 'All product batches completed', array(), 'batch_processor');
         }
         
         // Restore original memory limit
@@ -267,18 +261,13 @@ class ByteMash_Batch_Processor {
         $original_memory = ini_get('memory_limit');
         @ini_set('memory_limit', '512M');
         
-        $this->logger->log('info', "Processing products chunk {$chunk_index}", array(
-            'sync_id' => $sync_id,
-            'chunk_index' => $chunk_index,
-            'memory_limit' => ini_get('memory_limit'),
-            'memory_usage_mb' => round(memory_get_usage(true) / 1024 / 1024, 2),
-        ), 'batch_processor');
+        $this->logger->log('info', "Processing products chunk {$chunk_index}", array(), 'batch_processor');
         
         // Get sync progress
         $progress = $this->get_sync_progress($sync_id);
         
         if (!$progress) {
-            $this->logger->log('error', 'Sync progress not found', array('sync_id' => $sync_id), 'batch_processor');
+            $this->logger->log('error', 'Sync progress not found', array(), 'batch_processor');
             @ini_set('memory_limit', $original_memory);
             return;
         }
@@ -287,21 +276,16 @@ class ByteMash_Batch_Processor {
         $chunk = get_transient("bytemash_sync_{$sync_id}_chunk_{$chunk_index}");
         
         if (!$chunk || !is_array($chunk)) {
-            $this->logger->log('error', 'Chunk data not found', array(
-                'sync_id' => $sync_id,
-                'chunk_index' => $chunk_index,
-            ), 'batch_processor');
+            $this->logger->log('error', 'Chunk data not found', array(), 'batch_processor');
             @ini_set('memory_limit', $original_memory);
             return;
         }
         
         $chunk_size = count($chunk);
-        $this->logger->log('info', "Chunk loaded: {$chunk_size} products", array(
-            'sync_id' => $sync_id,
-            'chunk_index' => $chunk_index,
-            'chunk_size' => $chunk_size,
-            'memory_usage_mb' => round(memory_get_usage(true) / 1024 / 1024, 2),
-        ), 'batch_processor');
+        $this->logger->log('info', "Chunk loaded: {$chunk_size} products", array(), 'batch_processor');
+        
+        // Set up proper bulk operation handling
+        $this->handle_bulk_database_operations();
         
         // Suspend cache to reduce memory usage
         wp_suspend_cache_addition(true);
@@ -312,12 +296,31 @@ class ByteMash_Batch_Processor {
         $errors = 0;
         
         foreach ($chunk as $product_data) {
-            $result = $product_sync->sync_single_product($product_data);
-            
-            if ($result['success']) {
-                $processed++;
-            } else {
+            try {
+                $result = $product_sync->sync_single_product($product_data);
+                
+                if ($result['success']) {
+                    $processed++;
+                    $this->logger->log('info', 'Product synced successfully', array(
+                        'sku' => $product_data['fullCode'] ?? 'unknown',
+                        'product_name' => $product_data['productName'] ?? 'unknown',
+                    ), 'batch_processor');
+                } else {
+                    $errors++;
+                    $this->logger->log('error', 'Product sync failed', array(
+                        'sku' => $product_data['fullCode'] ?? 'unknown',
+                        'product_name' => $product_data['productName'] ?? 'unknown',
+                        'error_message' => $result['message'] ?? 'Unknown error',
+                    ), 'batch_processor');
+                }
+            } catch (Exception $e) {
                 $errors++;
+                $this->logger->log('error', 'Product sync exception', array(
+                    'sku' => $product_data['fullCode'] ?? 'unknown',
+                    'product_name' => $product_data['productName'] ?? 'unknown',
+                    'error' => $e->getMessage(),
+                    'trace' => $e->getTraceAsString(),
+                ), 'batch_processor');
             }
             
             // Clear memory after each product
@@ -326,6 +329,9 @@ class ByteMash_Batch_Processor {
         
         // Resume cache
         wp_suspend_cache_addition(false);
+        
+        // Clean up after bulk operations
+        $this->cleanup_after_bulk_operations();
         
         // Delete this chunk transient immediately to free memory
         delete_transient("bytemash_sync_{$sync_id}_chunk_{$chunk_index}");
@@ -346,14 +352,7 @@ class ByteMash_Batch_Processor {
         
         $this->save_sync_progress($sync_id, $progress);
         
-        $this->logger->log('info', "Chunk {$chunk_index} completed", array(
-            'sync_id' => $sync_id,
-            'processed' => $processed,
-            'errors' => $errors,
-            'total_progress' => $progress['processed'] . '/' . $progress['total'],
-            'memory_usage_mb' => round(memory_get_usage(true) / 1024 / 1024, 2),
-            'memory_peak_mb' => round(memory_get_peak_usage(true) / 1024 / 1024, 2),
-        ), 'batch_processor');
+        $this->logger->log('info', "Chunk {$chunk_index} completed", array(), 'batch_processor');
         
         // Schedule next chunk
         $next_chunk = $chunk_index + 1;
@@ -364,10 +363,7 @@ class ByteMash_Batch_Processor {
             $progress['current_chunk'] = $next_chunk;
             $this->save_sync_progress($sync_id, $progress);
             
-            $this->logger->log('info', "Ready for next chunk: {$next_chunk}", array(
-                'sync_id' => $sync_id,
-                'next_chunk' => $next_chunk,
-            ), 'batch_processor');
+            $this->logger->log('info', "Ready for next chunk: {$next_chunk}", array(), 'batch_processor');
             
             // DON'T schedule via WP-Cron - AJAX will call process_next_chunk endpoint
         } else {
@@ -384,12 +380,7 @@ class ByteMash_Batch_Processor {
                 delete_transient("bytemash_sync_{$sync_id}_chunk_{$i}");
             }
             
-            $this->logger->log('success', 'All product chunks completed', array(
-                'sync_id' => $sync_id,
-                'total_processed' => $progress['processed'],
-                'total_errors' => $progress['errors'],
-                'memory_peak_mb' => round(memory_get_peak_usage(true) / 1024 / 1024, 2),
-            ), 'batch_processor');
+            $this->logger->log('success', 'All product chunks completed', array(), 'batch_processor');
         }
         
         // Restore original memory limit
@@ -408,10 +399,7 @@ class ByteMash_Batch_Processor {
         $batches = array_chunk($stock_data, 50); // Larger batches for stock (simpler data)
         $batch_count = count($batches);
         
-        $this->logger->log('info', "Scheduling {$batch_count} batches for {$total} stock items", array(
-            'sync_id' => $sync_id,
-            'total' => $total,
-        ), 'batch_processor');
+        $this->logger->log('info', "Scheduling {$batch_count} batches for {$total} stock items", array(), 'batch_processor');
         
         // Cache stock data temporarily (1 hour)
         set_transient("bytemash_sync_{$sync_id}_stock", $stock_data, HOUR_IN_SECONDS);
@@ -498,10 +486,7 @@ class ByteMash_Batch_Processor {
             $this->save_sync_progress($sync_id, $progress);
             delete_transient("bytemash_sync_{$sync_id}_stock");
             
-            $this->logger->log('success', 'Stock sync completed', array(
-                'processed' => $progress['processed'],
-                'errors' => $progress['errors'],
-            ), 'batch_processor');
+            $this->logger->log('success', 'Stock sync completed', array(), 'batch_processor');
         }
     }
     
@@ -517,9 +502,7 @@ class ByteMash_Batch_Processor {
         $batches = array_chunk($prices_data, 100); // Even larger batches for prices
         $batch_count = count($batches);
         
-        $this->logger->log('info', "Scheduling {$batch_count} batches for {$total} price items", array(
-            'sync_id' => $sync_id,
-        ), 'batch_processor');
+        $this->logger->log('info', "Scheduling {$batch_count} batches for {$total} price items", array(), 'batch_processor');
         
         set_transient("bytemash_sync_{$sync_id}_prices", $prices_data, HOUR_IN_SECONDS);
         
@@ -601,10 +584,7 @@ class ByteMash_Batch_Processor {
             $this->save_sync_progress($sync_id, $progress);
             delete_transient("bytemash_sync_{$sync_id}_prices");
             
-            $this->logger->log('success', 'Prices sync completed', array(
-                'processed' => $progress['processed'],
-                'errors' => $progress['errors'],
-            ), 'batch_processor');
+            $this->logger->log('success', 'Prices sync completed', array(), 'batch_processor');
         }
     }
     
@@ -743,6 +723,61 @@ class ByteMash_Batch_Processor {
         }
         
         return $syncs;
+    }
+    
+    /**
+     * Properly handle database operations for bulk processing
+     */
+    private function handle_bulk_database_operations() {
+        global $wpdb;
+        
+        try {
+            // Use WordPress's built-in bulk operation handling
+            wp_defer_term_counting(true);
+            wp_defer_comment_counting(true);
+            
+            // Clear any pending queries
+            if (method_exists($wpdb, 'flush')) {
+                $wpdb->flush();
+            }
+            
+            // Ensure we have a clean connection state
+            $wpdb->check_connection();
+            
+            $this->logger->log('info', 'Bulk database operations initialized', array(), 'batch_processor');
+        } catch (Exception $e) {
+            $this->logger->log('error', 'Failed to initialize bulk database operations', array(
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ), 'batch_processor');
+            throw $e;
+        }
+    }
+    
+    /**
+     * Clean up after bulk operations
+     */
+    private function cleanup_after_bulk_operations() {
+        try {
+            // Re-enable counting
+            wp_defer_term_counting(false);
+            wp_defer_comment_counting(false);
+            
+            // Clear object cache
+            wp_cache_flush();
+            
+            // Force garbage collection
+            if (function_exists('gc_collect_cycles')) {
+                gc_collect_cycles();
+            }
+            
+            $this->logger->log('info', 'Bulk operations cleanup completed', array(), 'batch_processor');
+        } catch (Exception $e) {
+            $this->logger->log('error', 'Error during bulk operations cleanup', array(
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ), 'batch_processor');
+        }
     }
     
     /**

@@ -22,7 +22,16 @@ class ByteMash_Admin_Dashboard {
         if (!$is_authenticated) {
             ?>
             <div class="wrap bytemash-admin-wrap">
-                <h1><?php esc_html_e('Amrod Sync Dashboard', 'bytemash-woo-sync'); ?></h1>
+                <div class="bytemash-header-logo">
+                    <a href="https://byte.mashdev.org" target="_blank" rel="noopener noreferrer" class="bytemash-logo-link">
+                        <img src="<?php echo BYTEMASH_WOO_SYNC_PLUGIN_URL; ?>assets/bmlogo.svg" alt="ByteMash Development" class="bytemash-logo">
+                    </a>
+                </div>
+                <h1>
+                    <a href="https://byte.mashdev.org" target="_blank" rel="noopener noreferrer" style="text-decoration: none; color: inherit;">
+                        <?php esc_html_e('Amrod Sync Dashboard', 'bytemash-woo-sync'); ?>
+                    </a>
+                </h1>
                 
                 <div class="bytemash-auth-required">
                     <div class="bytemash-notice-card">
@@ -69,7 +78,16 @@ class ByteMash_Admin_Dashboard {
         
         ?>
         <div class="wrap bytemash-admin-wrap">
-            <h1><?php esc_html_e('Amrod Sync Dashboard', 'bytemash-woo-sync'); ?></h1>
+            <div class="bytemash-header-logo">
+                <a href="https://byte.mashdev.org" target="_blank" rel="noopener noreferrer" class="bytemash-logo-link">
+                    <img src="<?php echo BYTEMASH_WOO_SYNC_PLUGIN_URL; ?>assets/bmlogo.svg" alt="ByteMash Development" class="bytemash-logo">
+                </a>
+            </div>
+            <h1>
+                <a href="https://byte.mashdev.org" target="_blank" rel="noopener noreferrer" style="text-decoration: none; color: inherit;">
+                    <?php esc_html_e('Amrod Sync Dashboard', 'bytemash-woo-sync'); ?>
+                </a>
+            </h1>
             
             <div class="bytemash-dashboard">
                 <!-- Sync Status Card -->
@@ -100,6 +118,23 @@ class ByteMash_Admin_Dashboard {
                     </div>
                     
                     <div class="bytemash-sync-actions">
+                        <div class="bytemash-sync-section">
+                            <h3><?php esc_html_e('Complete Sync', 'bytemash-woo-sync'); ?></h3>
+                            <div class="bytemash-button-group">
+                                <button type="button" 
+                                        class="button button-primary" 
+                                        data-action="sync_all"
+                                        data-ajax-action="bytemash_sync_all"
+                                        style="background: #2563eb; border-color: #2563eb; color: white; font-weight: bold;">
+                                    <span class="dashicons dashicons-update"></span>
+                                    <?php esc_html_e('Sync All', 'bytemash-woo-sync'); ?>
+                                </button>
+                            </div>
+                            <p class="description">
+                                <?php esc_html_e('Syncs products, stock, prices, categories, and brands in one operation.', 'bytemash-woo-sync'); ?>
+                            </p>
+                        </div>
+                        
                         <div class="bytemash-sync-section">
                             <h3><?php esc_html_e('Products', 'bytemash-woo-sync'); ?></h3>
                             <div class="bytemash-button-group">
@@ -294,7 +329,7 @@ class ByteMash_Admin_Dashboard {
                     </div>
                     
                     <div class="bytemash-card bytemash-stat-card">
-                        <div class="bytemash-stat-icon error">
+                        <div class="bytemash-stat-icon">
                             <span class="dashicons dashicons-warning"></span>
                         </div>
                         <div class="bytemash-stat-content">

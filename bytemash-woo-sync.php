@@ -72,6 +72,7 @@ class ByteMash_Woo_Sync {
         require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-product-sync.php';
         require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-sync-scheduler.php';
         require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-true-cron-manager.php';
+        require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-action-scheduler-sync.php';
         
         // Admin classes
         if (is_admin()) {
@@ -153,6 +154,7 @@ class ByteMash_Woo_Sync {
      */
     public function init_scheduler() {
         new ByteMash_Sync_Scheduler();
+        new ByteMash_Action_Scheduler_Sync();
     }
     
     /**
