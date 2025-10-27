@@ -558,7 +558,7 @@
     padding: 4px 8px;
     border-radius: 4px;
     font-size: 11px;
-    color: var(--bytemash-text);
+    color: black;
 }
 
 /* ===== AUTHENTICATION SECTION ===== */
@@ -793,6 +793,170 @@
 
 .bytemash-log-entry{
     color: white
+}
+
+/* ===== REALTIME ACTIVITY PROGRESS ===== */
+.bytemash-realtime-logs {
+    max-height: 300px;
+    overflow-y: auto;
+    padding: 12px;
+    background: rgba(255, 255, 255, 0.05);
+    border-radius: var(--bytemash-radius-sm);
+    border: 1px solid rgba(255, 255, 255, 0.1);
+}
+
+.bytemash-log-entry {
+    margin-bottom: 12px;
+    padding: 12px;
+    background: rgba(255, 255, 255, 0.08);
+    border-radius: var(--bytemash-radius-sm);
+    border-left: 3px solid var(--bytemash-info);
+    transition: all 0.3s ease;
+}
+
+.bytemash-log-entry:hover {
+    background: rgba(255, 255, 255, 0.12);
+    transform: translateX(2px);
+}
+
+.bytemash-log-entry.system-info {
+    border-left-color: var(--bytemash-info);
+}
+
+.bytemash-log-entry.sync-activity {
+    border-left-color: var(--bytemash-primary);
+}
+
+.activity-header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+    flex-wrap: wrap;
+}
+
+.log-time {
+    font-size: 11px;
+    color: rgba(255, 255, 255, 0.7);
+    font-family: 'Courier New', monospace;
+    min-width: 60px;
+}
+
+.log-type {
+    font-size: 11px;
+    padding: 2px 8px;
+    border-radius: 12px;
+    background: var(--bytemash-primary);
+    color: white;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.log-status {
+    font-size: 12px;
+    font-weight: 600;
+    padding: 2px 8px;
+    border-radius: 12px;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+}
+
+.log-status.info {
+    background: var(--bytemash-info);
+    color: white;
+}
+
+.log-status.success {
+    background: var(--bytemash-success);
+    color: white;
+}
+
+.log-status.error {
+    background: var(--bytemash-error);
+    color: white;
+}
+
+.log-status.processing {
+    background: var(--bytemash-warning);
+    color: white;
+    animation: pulse 2s infinite;
+}
+
+@keyframes pulse {
+    0%, 100% { opacity: 1; }
+    50% { opacity: 0.7; }
+}
+
+.activity-progress {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    margin-bottom: 8px;
+}
+
+.mini-progress-bar {
+    flex: 1;
+    height: 6px;
+    background: rgba(255, 255, 255, 0.2);
+    border-radius: 3px;
+    overflow: hidden;
+    position: relative;
+}
+
+.mini-progress-fill {
+    height: 100%;
+    background: linear-gradient(90deg, var(--bytemash-primary), var(--bytemash-primary-light));
+    border-radius: 3px;
+    transition: width 0.5s ease;
+    position: relative;
+}
+
+.mini-progress-fill::after {
+    content: '';
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: linear-gradient(90deg, transparent, rgba(255, 255, 255, 0.3), transparent);
+    animation: shimmer 2s infinite;
+}
+
+@keyframes shimmer {
+    0% { transform: translateX(-100%); }
+    100% { transform: translateX(100%); }
+}
+
+.progress-text {
+    font-size: 11px;
+    font-weight: 600;
+    color: rgba(255, 255, 255, 0.9);
+    min-width: 35px;
+    text-align: right;
+}
+
+.activity-stats {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+    font-size: 11px;
+}
+
+.activity-stats .processed {
+    color: var(--bytemash-success);
+    font-weight: 600;
+}
+
+.activity-stats .errors {
+    color: var(--bytemash-error);
+    font-weight: 600;
+}
+
+.activity-stats .skipped {
+    color: var(--bytemash-warning);
+    font-weight: 600;
 }
 
 .test-mode-section .description{

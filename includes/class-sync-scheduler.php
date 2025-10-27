@@ -33,6 +33,11 @@ class ByteMash_Sync_Scheduler {
     private $use_action_scheduler = false;
     
     /**
+     * Static flag to prevent repeated logging
+     */
+    private static $action_scheduler_logged = false;
+    
+    /**
      * Constructor
      */
     public function __construct() {
@@ -54,14 +59,20 @@ class ByteMash_Sync_Scheduler {
             // Use Action Scheduler for scheduling if available
             $this->use_action_scheduler = $this->action_scheduler->is_action_scheduler_available();
             
-            if ($this->use_action_scheduler) {
+            // Only log once per request to prevent spam
+            if ($this->use_action_scheduler && !self::$action_scheduler_logged) {
                 $this->logger->log('info', 'Action Scheduler integration enabled', array(), 'sync_scheduler');
-            } else {
+                self::$action_scheduler_logged = true;
+            } elseif (!$this->use_action_scheduler && !self::$action_scheduler_logged) {
                 $this->logger->log('warning', 'Action Scheduler not available, falling back to WordPress cron', array(), 'sync_scheduler');
+                self::$action_scheduler_logged = true;
             }
         } else {
             $this->use_action_scheduler = false;
-            $this->logger->log('warning', 'Action Scheduler class not found, using WordPress cron', array(), 'sync_scheduler');
+            if (!self::$action_scheduler_logged) {
+                $this->logger->log('warning', 'Action Scheduler class not found, using WordPress cron', array(), 'sync_scheduler');
+                self::$action_scheduler_logged = true;
+            }
         }
     }
     
