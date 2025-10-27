@@ -329,7 +329,7 @@ class ByteMash_Woo_Sync {
         update_option('bytemash_cron_incremental_test_mode_enabled', false);
         
         // Initialize sync scheduler with default schedules
-        $scheduler = ByteMash_Sync_Scheduler::get_instance();
+        $scheduler = new ByteMash_Sync_Scheduler();
         $scheduler->update_schedule('daily', 'every_5_hours');
         
         // Initialize true cron manager
@@ -341,7 +341,7 @@ class ByteMash_Woo_Sync {
      */
     public function deactivate() {
         // Clear all sync schedules
-        $scheduler = ByteMash_Sync_Scheduler::get_instance();
+        $scheduler = new ByteMash_Sync_Scheduler();
         $scheduler->clear_all_schedules();
         
         // Clear true cron manager
