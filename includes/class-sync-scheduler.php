@@ -13,11 +13,6 @@ if (!defined('ABSPATH')) {
 class ByteMash_Sync_Scheduler {
     
     /**
-     * Single instance of the class
-     */
-    private static $instance = null;
-    
-    /**
      * Logger
      */
     private $logger;
@@ -33,29 +28,14 @@ class ByteMash_Sync_Scheduler {
     private $action_scheduler;
     
     /**
-     * Whether to use Action Scheduler (always true now)
+     * Whether to use Action Scheduler
      */
-    private $use_action_scheduler = true;
-    
-    /**
-     * Whether hooks have been initialized
-     */
-    private $hooks_initialized = false;
-    
-    /**
-     * Get single instance
-     */
-    public static function get_instance() {
-        if (null === self::$instance) {
-            self::$instance = new self();
-        }
-        return self::$instance;
-    }
+    private $use_action_scheduler = false;
     
     /**
      * Constructor
      */
-    private function __construct() {
+    public function __construct() {
         $this->logger = new ByteMash_Logger();
         $this->product_sync = new ByteMash_Product_Sync();
         
@@ -67,17 +47,21 @@ class ByteMash_Sync_Scheduler {
      * Initialize Action Scheduler integration
      */
     private function init_action_scheduler() {
-        // Always use Action Scheduler - WordPress cron is unreliable
+        // Check if Action Scheduler is available
         if (class_exists('ByteMash_Action_Scheduler_Sync')) {
             $this->action_scheduler = new ByteMash_Action_Scheduler_Sync();
             
-            if ($this->action_scheduler->is_action_scheduler_available()) {
+            // Use Action Scheduler for scheduling if available
+            $this->use_action_scheduler = $this->action_scheduler->is_action_scheduler_available();
+            
+            if ($this->use_action_scheduler) {
                 $this->logger->log('info', 'Action Scheduler integration enabled', array(), 'sync_scheduler');
             } else {
-                $this->logger->log('error', 'Action Scheduler not available - automatic syncs will not work', array(), 'sync_scheduler');
+                $this->logger->log('warning', 'Action Scheduler not available, falling back to WordPress cron', array(), 'sync_scheduler');
             }
         } else {
-            $this->logger->log('error', 'Action Scheduler class not found - automatic syncs will not work', array(), 'sync_scheduler');
+            $this->use_action_scheduler = false;
+            $this->logger->log('warning', 'Action Scheduler class not found, using WordPress cron', array(), 'sync_scheduler');
         }
     }
     
@@ -85,18 +69,17 @@ class ByteMash_Sync_Scheduler {
      * Initialize hooks
      */
     private function init_hooks() {
-        // Prevent duplicate hook registrations
-        if ($this->hooks_initialized) {
-            return;
-        }
+        // Register cron schedules
+        add_filter('cron_schedules', array($this, 'add_cron_schedules'));
         
-        // No WordPress cron hooks - we only use Action Scheduler
+        // Hook into cron events
+        add_action('bytemash_full_sync_cron', array($this, 'run_full_sync'));
+        add_action('bytemash_incremental_sync_cron', array($this, 'run_incremental_sync'));
         
         // AJAX handlers for manual sync
         add_action('wp_ajax_bytemash_save_api_url', array($this, 'ajax_save_api_url'));
         add_action('wp_ajax_bytemash_authenticate', array($this, 'ajax_authenticate'));
         add_action('wp_ajax_bytemash_manual_sync', array($this, 'ajax_manual_sync'));
-        add_action('wp_ajax_bytemash_sync_all', array($this, 'ajax_sync_all'));
         add_action('wp_ajax_bytemash_sync_products_incremental', array($this, 'ajax_sync_products_incremental'));
         add_action('wp_ajax_bytemash_stock_sync', array($this, 'ajax_stock_sync'));
         add_action('wp_ajax_bytemash_stock_sync_incremental', array($this, 'ajax_stock_sync_incremental'));
@@ -111,7 +94,6 @@ class ByteMash_Sync_Scheduler {
         add_action('wp_ajax_bytemash_enable_test_mode_full_sync', array($this, 'ajax_enable_test_mode_full_sync'));
         add_action('wp_ajax_bytemash_enable_test_mode_incremental_sync', array($this, 'ajax_enable_test_mode_incremental_sync'));
         add_action('wp_ajax_bytemash_enable_production_sync', array($this, 'ajax_enable_production_sync'));
-        
         add_action('wp_ajax_bytemash_disable_test_mode', array($this, 'ajax_disable_test_mode'));
         add_action('wp_ajax_bytemash_get_test_mode_status', array($this, 'ajax_get_test_mode_status'));
         
@@ -119,9 +101,6 @@ class ByteMash_Sync_Scheduler {
         add_action('wp_ajax_bytemash_get_sync_status_progress', array($this, 'ajax_get_sync_status_progress'));
         add_action('wp_ajax_bytemash_get_scheduled_times', array($this, 'ajax_get_scheduled_times'));
         add_action('wp_ajax_bytemash_get_batch_progress', array($this, 'ajax_get_batch_progress'));
-        
-        // Mark hooks as initialized
-        $this->hooks_initialized = true;
     }
     
     /**
@@ -145,7 +124,37 @@ class ByteMash_Sync_Scheduler {
         wp_send_json_success(array('message' => 'API URL saved'));
     }
     
-    // WordPress cron schedules removed - using Action Scheduler only
+    /**
+     * Add custom cron schedules
+     */
+    public function add_cron_schedules($schedules) {
+        $schedules['every_5_hours'] = array(
+            'interval' => 5 * HOUR_IN_SECONDS,
+            'display' => __('Every 5 Hours', 'bytemash-woo-sync'),
+        );
+        
+        $schedules['every_6_hours'] = array(
+            'interval' => 6 * HOUR_IN_SECONDS,
+            'display' => __('Every 6 Hours', 'bytemash-woo-sync'),
+        );
+        
+        $schedules['every_12_hours'] = array(
+            'interval' => 12 * HOUR_IN_SECONDS,
+            'display' => __('Every 12 Hours', 'bytemash-woo-sync'),
+        );
+        
+        $schedules['daily_at_0030'] = array(
+            'interval' => DAY_IN_SECONDS,
+            'display' => __('Daily at 00:30 GMT+2', 'bytemash-woo-sync'),
+        );
+        
+        $schedules['every_5_minutes'] = array(
+            'interval' => 5 * MINUTE_IN_SECONDS,
+            'display' => __('Every 5 Minutes', 'bytemash-woo-sync'),
+        );
+        
+        return $schedules;
+    }
     
     /**
      * Run full sync (daily at 00:30 GMT+2)
@@ -156,27 +165,12 @@ class ByteMash_Sync_Scheduler {
         
         // Check if sync is already running
         if (get_transient('bytemash_full_sync_running')) {
-            // Check if the sync has been running too long (safety mechanism)
-            $sync_start_time = get_option('bytemash_full_sync_start_time', 0);
-            $max_runtime = 7200; // 2 hours in seconds
-            
-            if (time() - $sync_start_time > $max_runtime) {
-                $this->logger->log('warning', 'Full sync has been running too long, forcing cleanup', array(
-                    'runtime' => time() - $sync_start_time,
-                ), 'full_sync');
-                
-                // Force clear the stuck sync
-                delete_transient('bytemash_full_sync_running');
-                delete_option('bytemash_full_sync_start_time');
-            } else {
-                $this->logger->log('warning', 'Full sync already running, skipping', array(), 'full_sync');
-                return;
-            }
+            $this->logger->log('warning', 'Full sync already running, skipping', array(), 'full_sync');
+            return;
         }
         
         // Set sync running flag
         set_transient('bytemash_full_sync_running', true, 7200); // 2 hours timeout
-        update_option('bytemash_full_sync_start_time', time()); // Track start time
         
         try {
             // Get enabled sync attributes
@@ -236,7 +230,6 @@ class ByteMash_Sync_Scheduler {
         
         // Clear sync running flag
         delete_transient('bytemash_full_sync_running');
-        delete_option('bytemash_full_sync_start_time');
         
         // Clean old logs
         $this->logger->clear_old_logs(30);
@@ -433,27 +426,12 @@ class ByteMash_Sync_Scheduler {
         
         // Check if sync is already running
         if (get_transient('bytemash_incremental_sync_running')) {
-            // Check if the sync has been running too long (safety mechanism)
-            $sync_start_time = get_option('bytemash_incremental_sync_start_time', 0);
-            $max_runtime = 3600; // 1 hour in seconds
-            
-            if (time() - $sync_start_time > $max_runtime) {
-                $this->logger->log('warning', 'Incremental sync has been running too long, forcing cleanup', array(
-                    'runtime' => time() - $sync_start_time,
-                ), 'incremental_sync');
-                
-                // Force clear the stuck sync
-                delete_transient('bytemash_incremental_sync_running');
-                delete_option('bytemash_incremental_sync_start_time');
-            } else {
-                $this->logger->log('warning', 'Incremental sync already running, skipping', array(), 'incremental_sync');
-                return;
-            }
+            $this->logger->log('warning', 'Incremental sync already running, skipping', array(), 'incremental_sync');
+            return;
         }
         
         // Set sync running flag
         set_transient('bytemash_incremental_sync_running', true, 3600); // 1 hour timeout
-        update_option('bytemash_incremental_sync_start_time', time()); // Track start time
         
         try {
             // Get enabled sync attributes
@@ -507,33 +485,31 @@ class ByteMash_Sync_Scheduler {
         
         // Clear sync running flag
         delete_transient('bytemash_incremental_sync_running');
-        delete_option('bytemash_incremental_sync_start_time');
     }
     
     /**
      * Update sync schedules
      */
-    public function update_schedule($full_sync_frequency = 'daily', $incremental_frequency = 'every_5_hours') {
+    public function update_schedule($full_sync_frequency = 'daily_at_0030', $incremental_frequency = 'every_5_hours') {
         // Clear existing schedules
         $this->clear_all_schedules();
         
-        // Schedule full sync with Action Scheduler
+        // Schedule full sync (daily at 00:30 GMT+2)
         if ($full_sync_frequency && $full_sync_frequency !== 'manual') {
-            if ($this->action_scheduler) {
-                $this->action_scheduler->schedule_full_sync($full_sync_frequency);
-                $this->logger->log('info', "Full sync scheduled with Action Scheduler: {$full_sync_frequency}", array(), 'scheduler');
-            } else {
-                $this->logger->log('error', "Cannot schedule full sync - Action Scheduler not available", array(), 'scheduler');
-            }
+            $this->schedule_full_sync();
+            $this->logger->log('info', "Full sync schedule updated to: {$full_sync_frequency}", array(), 'scheduler');
         }
         
-        // Schedule incremental sync with Action Scheduler
+        // Schedule incremental sync
         if ($incremental_frequency && $incremental_frequency !== 'manual') {
-            if ($this->action_scheduler) {
+            if ($this->use_action_scheduler && $this->action_scheduler) {
+                // Use Action Scheduler for more reliable processing
                 $this->action_scheduler->schedule_incremental_sync($incremental_frequency);
                 $this->logger->log('info', "Incremental sync scheduled with Action Scheduler: {$incremental_frequency}", array(), 'scheduler');
             } else {
-                $this->logger->log('error', "Cannot schedule incremental sync - Action Scheduler not available", array(), 'scheduler');
+                // Fall back to WordPress cron
+                wp_schedule_event(time(), $incremental_frequency, 'bytemash_incremental_sync_cron');
+                $this->logger->log('info', "Incremental sync schedule updated to: {$incremental_frequency}", array(), 'scheduler');
             }
         }
     }
@@ -541,28 +517,69 @@ class ByteMash_Sync_Scheduler {
     /**
      * Restore only the full sync schedule (don't touch incremental)
      */
-    public function restore_full_sync_schedule($full_sync_frequency = 'daily') {
-        // Schedule full sync with Action Scheduler
+    public function restore_full_sync_schedule($full_sync_frequency = 'daily_at_0030') {
+        // Clear only the full sync schedule
+        $timestamp = wp_next_scheduled('bytemash_full_sync_cron');
+        if ($timestamp) {
+            wp_unschedule_event($timestamp, 'bytemash_full_sync_cron');
+        }
+        
+        // Schedule only the full sync (don't touch incremental)
         if ($full_sync_frequency && $full_sync_frequency !== 'manual') {
-            if ($this->action_scheduler) {
-                $this->action_scheduler->schedule_full_sync($full_sync_frequency);
-                $this->logger->log('info', "Full sync schedule restored with Action Scheduler: {$full_sync_frequency}", array(), 'scheduler');
-            } else {
-                $this->logger->log('error', "Cannot restore full sync - Action Scheduler not available", array(), 'scheduler');
-            }
+            $this->schedule_full_sync();
+            $this->logger->log('info', "Full sync schedule restored to: {$full_sync_frequency}", array(), 'scheduler');
         }
     }
     
-    // WordPress cron scheduling removed - using Action Scheduler only
+    /**
+     * Schedule full sync at 00:30 GMT+2 daily
+     */
+    private function schedule_full_sync() {
+        if ($this->use_action_scheduler && $this->action_scheduler) {
+            // Use Action Scheduler for more reliable processing
+            $this->action_scheduler->schedule_full_sync('daily');
+            $this->logger->log('info', "Full sync scheduled with Action Scheduler", array(), 'sync_scheduler');
+            return;
+        }
+        // Calculate next 00:30 GMT+2 (South Africa time)
+        $timezone = new DateTimeZone('Africa/Johannesburg');
+        $now = new DateTime('now', $timezone);
+        
+        // Set to 00:30 today
+        $next_sync = clone $now;
+        $next_sync->setTime(0, 30, 0);
+        
+        // If it's already past 00:30 today, schedule for tomorrow
+        if ($next_sync <= $now) {
+            $next_sync->add(new DateInterval('P1D'));
+        }
+        
+        // Convert to WordPress timezone
+        $wp_timestamp = $next_sync->getTimestamp() - (get_option('gmt_offset') * HOUR_IN_SECONDS);
+        
+        wp_schedule_event($wp_timestamp, 'daily_at_0030', 'bytemash_full_sync_cron');
+    }
     
     /**
      * Clear all sync schedules
      */
     public function clear_all_schedules() {
-        // Clear Action Scheduler schedules
-        if ($this->action_scheduler) {
-            $this->action_scheduler->clear_schedules();
-            $this->logger->log('info', "All Action Scheduler schedules cleared", array(), 'scheduler');
+        // Clear full sync
+        $timestamp = wp_next_scheduled('bytemash_full_sync_cron');
+        if ($timestamp) {
+            wp_unschedule_event($timestamp, 'bytemash_full_sync_cron');
+        }
+        
+        // Clear incremental sync
+        $timestamp = wp_next_scheduled('bytemash_incremental_sync_cron');
+        if ($timestamp) {
+            wp_unschedule_event($timestamp, 'bytemash_incremental_sync_cron');
+        }
+        
+        // Clear old schedule for backward compatibility
+        $timestamp = wp_next_scheduled('bytemash_amrod_sync_cron');
+        if ($timestamp) {
+            wp_unschedule_event($timestamp, 'bytemash_amrod_sync_cron');
         }
     }
     
@@ -588,46 +605,6 @@ class ByteMash_Sync_Scheduler {
         
         try {
             $result = $this->product_sync->sync_all_products(true);
-            
-            delete_transient('bytemash_sync_running');
-            
-            if ($result['success']) {
-                wp_send_json_success($result);
-            } else {
-                wp_send_json_error($result);
-            }
-            
-        } catch (Exception $e) {
-            delete_transient('bytemash_sync_running');
-            
-            wp_send_json_error(array(
-                'message' => $e->getMessage(),
-            ));
-        }
-    }
-    
-    /**
-     * AJAX: Sync all (comprehensive sync)
-     */
-    public function ajax_sync_all() {
-        check_ajax_referer('bytemash_woo_sync_nonce', 'nonce');
-        
-        if (!current_user_can('manage_woocommerce')) {
-            wp_send_json_error(array('message' => 'Insufficient permissions'));
-        }
-        
-        $this->logger->log('info', 'Comprehensive sync triggered', array(), 'comprehensive_sync');
-        
-        // Check if sync is already running
-        if (get_transient('bytemash_sync_running')) {
-            wp_send_json_error(array('message' => 'Sync is already running. Please wait.'));
-        }
-        
-        // Set sync running flag
-        set_transient('bytemash_sync_running', true, 3600);
-        
-        try {
-            $result = $this->product_sync->sync_comprehensive(true);
             
             delete_transient('bytemash_sync_running');
             
@@ -895,7 +872,31 @@ class ByteMash_Sync_Scheduler {
         ));
     }
     
-    // WordPress cron time checking removed - using Action Scheduler only
+    /**
+     * Get next scheduled full sync time
+     */
+    public function get_next_full_sync_time() {
+        $timestamp = wp_next_scheduled('bytemash_full_sync_cron');
+        
+        if (!$timestamp) {
+            return __('Not scheduled', 'bytemash-woo-sync');
+        }
+        
+        return date_i18n(get_option('date_format') . ' ' . get_option('time_format'), $timestamp);
+    }
+    
+    /**
+     * Get next scheduled incremental sync time
+     */
+    public function get_next_incremental_sync_time() {
+        $timestamp = wp_next_scheduled('bytemash_incremental_sync_cron');
+        
+        if (!$timestamp) {
+            return __('Not scheduled', 'bytemash-woo-sync');
+        }
+        
+        return date_i18n(get_option('date_format') . ' ' . get_option('time_format'), $timestamp);
+    }
     
     /**
      * Get last sync times
@@ -911,43 +912,13 @@ class ByteMash_Sync_Scheduler {
      * Get sync status
      */
     public function get_sync_status() {
-        $status = array(
+        return array(
+            'full_sync_running' => (bool) get_transient('bytemash_full_sync_running'),
+            'incremental_sync_running' => (bool) get_transient('bytemash_incremental_sync_running'),
+            'next_full_sync' => $this->get_next_full_sync_time(),
+            'next_incremental_sync' => $this->get_next_incremental_sync_time(),
             'last_sync_times' => $this->get_last_sync_times(),
         );
-        
-        // Get running status and scheduled times based on which system is being used
-        if ($this->use_action_scheduler && $this->action_scheduler) {
-            // Use Action Scheduler status
-            $action_scheduler_status = $this->action_scheduler->get_sync_status_and_progress();
-            
-            
-            // Extract running status from Action Scheduler
-            $status['full_sync_running'] = isset($action_scheduler_status['progress']['running']) && $action_scheduler_status['progress']['running'] > 0;
-            $status['incremental_sync_running'] = isset($action_scheduler_status['progress']['running']) && $action_scheduler_status['progress']['running'] > 0;
-            
-            // Extract next scheduled times from Action Scheduler
-            if (isset($action_scheduler_status['next_scheduled']['full_sync']) && $action_scheduler_status['next_scheduled']['full_sync']) {
-                $next_full_sync_timestamp = strtotime($action_scheduler_status['next_scheduled']['full_sync']);
-                $status['next_full_sync'] = date_i18n(get_option('date_format') . ' ' . get_option('time_format'), $next_full_sync_timestamp);
-            } else {
-                $status['next_full_sync'] = __('Not scheduled', 'bytemash-woo-sync');
-            }
-                
-            if (isset($action_scheduler_status['next_scheduled']['incremental_sync']) && $action_scheduler_status['next_scheduled']['incremental_sync']) {
-                $next_incremental_sync_timestamp = strtotime($action_scheduler_status['next_scheduled']['incremental_sync']);
-                $status['next_incremental_sync'] = date_i18n(get_option('date_format') . ' ' . get_option('time_format'), $next_incremental_sync_timestamp);
-            } else {
-                $status['next_incremental_sync'] = __('Not scheduled', 'bytemash-woo-sync');
-            }
-        } else {
-            // Use WordPress cron status
-            $status['full_sync_running'] = (bool) get_transient('bytemash_full_sync_running');
-            $status['incremental_sync_running'] = (bool) get_transient('bytemash_incremental_sync_running');
-            $status['next_full_sync'] = $this->get_next_full_sync_time();
-            $status['next_incremental_sync'] = $this->get_next_incremental_sync_time();
-        }
-        
-        return $status;
     }
     
     /**
@@ -1050,36 +1021,12 @@ class ByteMash_Sync_Scheduler {
             wp_send_json_error(array('message' => 'Insufficient permissions'));
         }
         
-        $result = array();
-        
-        // Get Action Scheduler status if available
         if ($this->use_action_scheduler && $this->action_scheduler) {
-            $action_scheduler_status = $this->action_scheduler->get_sync_status_and_progress();
-            $result = array_merge($result, $action_scheduler_status);
+            $result = $this->action_scheduler->get_sync_status_and_progress();
+            wp_send_json_success($result);
+        } else {
+            wp_send_json_error(array('message' => 'Action Scheduler not available'));
         }
-        
-        // Get batch processor status (for manual syncs and batch processing)
-        $batch_processor = new ByteMash_Batch_Processor();
-        $active_syncs = $batch_processor->get_active_syncs();
-        $result['active_syncs'] = $active_syncs;
-        $result['has_active_syncs'] = !empty($active_syncs);
-        
-        // Get recent logs
-        $logger = new ByteMash_Logger();
-        $recent_logs = $logger->get_logs(10);
-        $result['recent_logs'] = $recent_logs;
-        
-        // Check if any sync is currently running
-        $is_syncing = get_transient('bytemash_sync_running');
-        $result['sync_running'] = (bool) $is_syncing;
-        
-        // Get test mode status
-        $result['full_test_mode'] = get_option('bytemash_cron_full_test_mode_enabled', false);
-        $result['incremental_test_mode'] = get_option('bytemash_cron_incremental_test_mode_enabled', false);
-        
-        // WordPress cron fallback removed - using Action Scheduler only
-        
-        wp_send_json_success($result);
     }
     
     /**

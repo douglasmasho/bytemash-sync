@@ -43,7 +43,7 @@ class ByteMash_True_Cron_Manager {
      */
     public function __construct() {
         $this->logger = new ByteMash_Logger();
-        $this->scheduler = ByteMash_Sync_Scheduler::get_instance();
+        $this->scheduler = new ByteMash_Sync_Scheduler();
         
         $this->init_hooks();
     }
@@ -761,11 +761,13 @@ class ByteMash_True_Cron_Manager {
      * Plugin activation
      */
     public function activate() {
-        // Schedule health check only
+        // Schedule health check
         wp_schedule_event(time(), 'hourly', 'bytemash_cron_health_check');
         
-        // Do NOT automatically schedule syncs - user must enable them manually
-        $this->logger->log('info', 'Cron manager activated - no automatic scheduling', array(), 'cron_manager');
+        // Initialize default schedules
+        $this->scheduler->update_schedule('daily_at_0030', 'every_5_hours');
+        
+        $this->logger->log('info', 'Cron manager activated', array(), 'cron_manager');
     }
     
     /**

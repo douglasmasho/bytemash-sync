@@ -103,9 +103,9 @@
         });
         
         /**
-         * Handle full sync test mode toggle (Action Scheduler)
+         * Handle full sync test mode toggle
          */
-        $('#enable_test_mode_full_sync').on('click', function() {
+        $('#toggle-full-test-mode').on('click', function() {
             const $button = $(this);
             const originalText = $button.text();
             
@@ -127,22 +127,8 @@
                         // Update button text and class
                         if (response.data.test_mode) {
                             $button.text('Disable Full Test Mode').removeClass('button-primary').addClass('button-secondary');
-                            
-                            // Update test mode badge
-                            $button.siblings('.test-mode-badge').removeClass('disabled').addClass('enabled').text('Enabled');
-                            
-                            // Update production sync badge to disabled
-                            $('.test-mode-section').each(function() {
-                                const $section = $(this);
-                                if ($section.find('h4').text().includes('Production Sync')) {
-                                    $section.find('.test-mode-badge').removeClass('enabled').addClass('disabled').text('Disabled');
-                                }
-                            });
                         } else {
                             $button.text('Enable Full Test Mode').removeClass('button-secondary').addClass('button-primary');
-                            
-                            // Update test mode badge
-                            $button.siblings('.test-mode-badge').removeClass('enabled').addClass('disabled').text('Disabled');
                         }
                         
                         // Reload page after 2 seconds to show updated status
@@ -167,9 +153,9 @@
         });
         
         /**
-         * Handle incremental sync test mode toggle (Action Scheduler)
+         * Handle incremental sync test mode toggle
          */
-        $('#enable_test_mode_incremental_sync').on('click', function() {
+        $('#toggle-incremental-test-mode').on('click', function() {
             const $button = $(this);
             const originalText = $button.text();
             
@@ -191,22 +177,8 @@
                         // Update button text and class
                         if (response.data.test_mode) {
                             $button.text('Disable Incremental Test Mode').removeClass('button-primary').addClass('button-secondary');
-                            
-                            // Update test mode badge
-                            $button.siblings('.test-mode-badge').removeClass('disabled').addClass('enabled').text('Enabled');
-                            
-                            // Update production sync badge to disabled
-                            $('.test-mode-section').each(function() {
-                                const $section = $(this);
-                                if ($section.find('h4').text().includes('Production Sync')) {
-                                    $section.find('.test-mode-badge').removeClass('enabled').addClass('disabled').text('Disabled');
-                                }
-                            });
                         } else {
                             $button.text('Enable Incremental Test Mode').removeClass('button-secondary').addClass('button-primary');
-                            
-                            // Update test mode badge
-                            $button.siblings('.test-mode-badge').removeClass('enabled').addClass('disabled').text('Disabled');
                         }
                         
                         // Reload page after 2 seconds to show updated status
@@ -231,9 +203,9 @@
         });
         
         /**
-         * Handle production sync enable (Action Scheduler)
+         * Handle production cron enable
          */
-        $('#enable_production_sync').on('click', function() {
+        $('#enable-production-cron').on('click', function() {
             const $button = $(this);
             const originalText = $button.text();
             
@@ -252,24 +224,6 @@
                             '<div class="notice notice-success"><p>' + response.data.message + '</p></div>'
                         );
                         $button.text('Enabled').prop('disabled', true);
-                        
-                        // Update production sync badge
-                        $button.siblings('.test-mode-badge').removeClass('disabled').addClass('enabled').text('Enabled');
-                        
-                        // Update test mode badges to disabled
-                        $('.test-mode-section').each(function() {
-                            const $section = $(this);
-                            const $h4 = $section.find('h4');
-                            if ($h4.text().includes('Full Sync Test Mode') || $h4.text().includes('Incremental Sync Test Mode')) {
-                                $section.find('.test-mode-badge').removeClass('enabled').addClass('disabled').text('Disabled');
-                                $section.find('button').removeClass('button-secondary').addClass('button-primary');
-                                if ($h4.text().includes('Full Sync Test Mode')) {
-                                    $section.find('button').text('Enable Full Test Mode');
-                                } else {
-                                    $section.find('button').text('Enable Incremental Test Mode');
-                                }
-                            }
-                        });
                     } else {
                         $('#production-cron-status').html(
                             '<div class="notice notice-error"><p>' + response.data.message + '</p></div>'
@@ -475,7 +429,7 @@
                 url: bytemashWooSync.ajax_url,
                 type: 'POST',
                 data: {
-                    action: 'bytemash_get_sync_status_progress',
+                    action: 'bytemash_get_scheduled_sync_status',
                     nonce: bytemashWooSync.nonce
                 },
                 success: function(response) {
@@ -491,8 +445,8 @@
         
         function updateScheduledStatus(data) {
             // Update sync times
-            $('#full_sync_status').text(data.full_sync_next || data.next_scheduled?.full_sync || 'Not scheduled');
-            $('#incremental_sync_status').text(data.incremental_sync_next || data.next_scheduled?.incremental_sync || 'Not scheduled');
+            $('#full_sync_status').text(data.full_sync_next || 'Not scheduled');
+            $('#incremental_sync_status').text(data.incremental_sync_next || 'Not scheduled');
             
             // Update test mode status
             let testModeText = '';
@@ -508,24 +462,21 @@
             $('#test_mode_status').html(testModeText);
             
             // Update running indicators
-            if (data.sync_running || data.progress?.running > 0) {
+            if (data.full_sync_running) {
                 $('#full_sync_running').show();
-                $('#incremental_sync_running').show();
             } else {
                 $('#full_sync_running').hide();
+            }
+            
+            if (data.incremental_sync_running) {
+                $('#incremental_sync_running').show();
+            } else {
                 $('#incremental_sync_running').hide();
             }
             
             // Update real-time logs
             if (data.recent_logs && data.recent_logs.length > 0) {
                 updateRealtimeLogs(data.recent_logs);
-            }
-            
-            // Update batch processing display
-            if (data.active_syncs && data.active_syncs.length > 0) {
-                updateScheduledActiveSyncs(data.active_syncs);
-            } else {
-                $('#scheduled_sync_progress').hide();
             }
             
             // Update progress if sync is running
@@ -570,21 +521,8 @@
             if (activeSyncs && activeSyncs.length > 0) {
                 $('#scheduled_sync_progress').show();
                 
-                // Group syncs by type for better display
-                const syncGroups = {};
                 activeSyncs.forEach(function(sync) {
-                    const syncType = sync.type || 'Unknown';
-                    if (!syncGroups[syncType]) {
-                        syncGroups[syncType] = [];
-                    }
-                    syncGroups[syncType].push(sync);
-                });
-                
-                // Display each sync group
-                Object.keys(syncGroups).forEach(function(syncType) {
-                    syncGroups[syncType].forEach(function(sync) {
-                        createScheduledSyncDisplay(sync);
-                    });
+                    createScheduledSyncDisplay(sync);
                 });
             } else {
                 $('#scheduled_sync_progress').hide();
@@ -599,30 +537,17 @@
             const batchCount = sync.batch_count || Math.ceil(sync.total / 50);
             const syncType = sync.type || 'Products';
             const percentage = sync.total > 0 ? Math.round((sync.processed / sync.total) * 100) : 0;
-            const statusClass = sync.status === 'completed' ? 'completed' : 
-                               sync.status === 'processing' ? 'processing' : 
-                               sync.status === 'scheduled' ? 'scheduled' : 'waiting';
             
-            let html = '<div class="scheduled-sync-item ' + statusClass + '">';
+            let html = '<div class="scheduled-sync-item">';
             html += '<div class="sync-header">';
-            html += '<h4>';
-            if (sync.status === 'processing') {
-                html += '<span class="dashicons dashicons-update-alt spinning"></span> ';
-            } else if (sync.status === 'completed') {
-                html += '<span class="dashicons dashicons-yes-alt"></span> ';
-            } else {
-                html += '<span class="dashicons dashicons-clock"></span> ';
-            }
-            html += syncType + ' Sync</h4>';
+            html += '<h4><span class="dashicons dashicons-update-alt spinning"></span> ' + syncType + ' Sync</h4>';
             html += '<span class="sync-percentage">' + percentage + '%</span>';
             html += '</div>';
-            
             html += '<div class="sync-progress-bar">';
             html += '<div class="progress-fill" style="width: ' + percentage + '%"></div>';
             html += '</div>';
-            
             html += '<div class="sync-stats">';
-            html += '<span class="processed">' + (sync.processed || 0).toLocaleString() + ' / ' + (sync.total || 0).toLocaleString() + ' processed</span>';
+            html += '<span class="processed">' + sync.processed.toLocaleString() + ' / ' + sync.total.toLocaleString() + ' processed</span>';
             if (sync.errors > 0) {
                 html += '<span class="errors">' + sync.errors + ' errors</span>';
             }
@@ -630,49 +555,34 @@
                 html += '<span class="skipped">' + sync.skipped + ' skipped</span>';
             }
             html += '</div>';
+            html += '<div class="batch-list">';
             
-            // Show batch progress
-            if (batchCount > 1) {
-                html += '<div class="batch-list">';
-                html += '<div class="batch-progress-header">';
-                html += '<span>Batch Progress: ' + (sync.current_batch || 0) + ' / ' + batchCount + ' batches</span>';
-                html += '</div>';
-                
-                // Show individual batches
-                for (let i = 0; i < Math.min(batchCount, 15); i++) {
-                    const batchStatus = getBatchStatus(i, sync.current_batch || 0, batchCount);
-                    html += '<div class="batch-item ' + batchStatus.class + '">';
-                    html += '<span class="batch-number">Batch ' + (i + 1) + '</span>';
-                    html += '<span class="batch-status">' + batchStatus.text + '</span>';
-                    html += '</div>';
-                }
-                
-                if (batchCount > 15) {
-                    html += '<div class="batch-item more">... and ' + (batchCount - 15) + ' more batches</div>';
-                }
-                
+            // Show individual batches
+            for (let i = 0; i < Math.min(batchCount, 15); i++) {
+                const batchStatus = getBatchStatus(i, sync.processed, sync.total, batchCount);
+                html += '<div class="batch-item ' + batchStatus.class + '">';
+                html += '<span class="batch-number">Batch ' + (i + 1) + '</span>';
+                html += '<span class="batch-status">' + batchStatus.text + '</span>';
                 html += '</div>';
             }
             
-            // Show timing info
-            if (sync.started) {
-                html += '<div class="sync-timing">';
-                html += '<span class="started">Started: ' + new Date(sync.started).toLocaleTimeString() + '</span>';
-                if (sync.completed) {
-                    html += '<span class="completed">Completed: ' + new Date(sync.completed).toLocaleTimeString() + '</span>';
-                }
-                html += '</div>';
+            if (batchCount > 15) {
+                html += '<div class="batch-item more">... and ' + (batchCount - 15) + ' more batches</div>';
             }
             
             html += '</div>';
+            html += '</div>';
             
-            $container.append(html);
+            $container.html(html);
         }
         
         /**
          * Get batch status based on progress
          */
-        function getBatchStatus(batchIndex, currentBatch, batchCount) {
+        function getBatchStatus(batchIndex, processed, total, batchCount) {
+            const itemsPerBatch = Math.ceil(total / batchCount);
+            const currentBatch = Math.floor(processed / itemsPerBatch);
+            
             if (batchIndex < currentBatch) {
                 return { class: 'completed', text: '✓ Completed' };
             } else if (batchIndex === currentBatch) {
@@ -943,7 +853,6 @@
          */
         function getConfirmMessage(actionName) {
             const messages = {
-                'sync_all': 'This will sync ALL data from Amrod (products, stock, prices, categories, brands). This may take several minutes. Continue?',
                 'manual_sync': 'This will sync ALL products from Amrod. This may take several minutes. Continue?',
                 'stock_sync': 'This will update stock levels for all products. Continue?',
                 'price_sync': 'This will update prices for all products. Continue?',
