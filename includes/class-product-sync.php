@@ -520,8 +520,18 @@ class ByteMash_Product_Sync {
         $product_id = wc_get_product_id_by_sku($sku);
         
         if ($product_id && !$force) {
-            // Update existing product
-            $product = wc_get_product($product_id);
+            // Check if product data has changed before updating
+            $existing_product = wc_get_product($product_id);
+            if ($this->is_product_data_unchanged($existing_product, $product_data)) {
+                $this->logger->log('info', "Product data unchanged, skipping: {$sku}", array(
+                    'sku' => $sku,
+                    'product_id' => $product_id,
+                ), 'product_sync');
+                return array('success' => true, 'product_id' => $product_id, 'skipped' => true, 'message' => 'Product data unchanged');
+            }
+            
+            // Update existing product (data has changed)
+            $product = $existing_product;
         } else {
             // Create new simple product
             $product = new WC_Product_Simple();
@@ -586,6 +596,118 @@ class ByteMash_Product_Sync {
             
             return array('success' => false, 'message' => $e->getMessage());
         }
+    }
+    
+    /**
+     * Check if product data has changed compared to existing product
+     * 
+     * @param WC_Product $existing_product Existing WooCommerce product
+     * @param array $api_data New data from API
+     * @return bool True if unchanged, false if changed
+     */
+    private function is_product_data_unchanged($existing_product, $api_data) {
+        // Compare basic product data
+        $existing_name = $existing_product->get_name();
+        $api_name = sanitize_text_field($api_data['productName'] ?? '');
+        
+        if ($existing_name !== $api_name) {
+            return false;
+        }
+        
+        $existing_description = $existing_product->get_description();
+        $api_description = wp_kses_post($api_data['description'] ?? '');
+        
+        if ($existing_description !== $api_description) {
+            return false;
+        }
+        
+        // Compare stock data if available
+        if (isset($api_data['stock']) && is_numeric($api_data['stock'])) {
+            $existing_stock = $existing_product->get_stock_quantity();
+            $api_stock = (int) $api_data['stock'];
+            
+            if ($existing_stock !== $api_stock) {
+                return false;
+            }
+        }
+        
+        // Compare categories
+        $existing_categories = $existing_product->get_category_ids();
+        $api_categories = array();
+        
+        if (!empty($api_data['categories']) && is_array($api_data['categories'])) {
+            $api_categories = $this->sync_product_categories($api_data['categories']);
+        }
+        
+        if (array_diff($existing_categories, $api_categories) || array_diff($api_categories, $existing_categories)) {
+            return false;
+        }
+        
+        // Compare brand
+        $existing_brand = get_post_meta($existing_product->get_id(), '_amrod_brand', true);
+        $api_brand = $api_data['brand']['brandName'] ?? '';
+        
+        if ($existing_brand !== $api_brand) {
+            return false;
+        }
+        
+        // Compare images (check if image URLs have changed)
+        $existing_images = $this->get_existing_product_images($existing_product->get_id());
+        $api_images = $api_data['images'] ?? array();
+        
+        if (!$this->are_images_unchanged($existing_images, $api_images)) {
+            return false;
+        }
+        
+        // If we get here, no significant changes detected
+        return true;
+    }
+    
+    /**
+     * Get existing product images for comparison
+     */
+    private function get_existing_product_images($product_id) {
+        $images = array();
+        
+        // Get featured image
+        $featured_id = get_post_thumbnail_id($product_id);
+        if ($featured_id) {
+            $featured_url = wp_get_attachment_url($featured_id);
+            if ($featured_url) {
+                $images[] = array('url' => $featured_url);
+            }
+        }
+        
+        // Get gallery images
+        $gallery_ids = get_post_meta($product_id, '_product_image_gallery', true);
+        if ($gallery_ids) {
+            $gallery_ids = explode(',', $gallery_ids);
+            foreach ($gallery_ids as $gallery_id) {
+                $gallery_url = wp_get_attachment_url($gallery_id);
+                if ($gallery_url) {
+                    $images[] = array('url' => $gallery_url);
+                }
+            }
+        }
+        
+        return $images;
+    }
+    
+    /**
+     * Compare existing images with API images
+     */
+    private function are_images_unchanged($existing_images, $api_images) {
+        if (count($existing_images) !== count($api_images)) {
+            return false;
+        }
+        
+        $existing_urls = array_column($existing_images, 'url');
+        $api_urls = array_column($api_images, 'url');
+        
+        sort($existing_urls);
+        sort($api_urls);
+        
+        return $existing_urls === $api_urls;
     }
     
     /**
@@ -730,12 +852,17 @@ class ByteMash_Product_Sync {
         }
         
         // Store image URLs as meta (not WordPress attachments)
-            if ($default_image_id) {
+        if ($default_image_id) {
             update_post_meta($product_id, '_thumbnail_external_url', $default_image_id);
             update_post_meta($product_id, '_amrod_featured_image', $default_image_id);
-            }
-            
-            if (!empty($image_ids)) {
+        } else if (!empty($image_ids)) {
+            // If no default image specified, use the first image as featured
+            $first_image = $image_ids[0];
+            update_post_meta($product_id, '_thumbnail_external_url', $first_image);
+            update_post_meta($product_id, '_amrod_featured_image', $first_image);
+        }
+        
+        if (!empty($image_ids)) {
             update_post_meta($product_id, '_amrod_gallery_images', $image_ids);
         }
         

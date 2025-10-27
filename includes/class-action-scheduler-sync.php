@@ -222,26 +222,8 @@ class ByteMash_Action_Scheduler_Sync {
         ), 'action_scheduler');
         
         // Store products temporarily for batch processing
-        // Start with a reasonable initial expiration time
         $sync_id = $sync_type . '_' . uniqid();
-        $initial_expiration = HOUR_IN_SECONDS; // Start with 1 hour
-        set_transient("bytemash_action_scheduler_{$sync_id}_products", $products, $initial_expiration);
-        
-        // Store batch progress tracking data
-        $progress_data = array(
-            'total_batches' => $batch_count,
-            'completed_batches' => 0,
-            'last_accessed' => time(),
-            'sync_type' => $sync_type,
-            'created_at' => time(),
-        );
-        set_transient("bytemash_action_scheduler_{$sync_id}_progress", $progress_data, $initial_expiration);
-        
-        $this->logger->log('info', "Products stored for batch processing", array(
-            'sync_id' => $sync_id,
-            'total_batches' => $batch_count,
-            'initial_expiration_hours' => round($initial_expiration / HOUR_IN_SECONDS, 2),
-        ), 'action_scheduler');
+        set_transient("bytemash_action_scheduler_{$sync_id}_products", $products, 12 * HOUR_IN_SECONDS);
         
         // Schedule each batch with a small delay to prevent overwhelming the system
         foreach ($batches as $batch_index => $batch) {
@@ -276,21 +258,28 @@ class ByteMash_Action_Scheduler_Sync {
         ), 'action_scheduler');
         
         try {
-            // Get the stored products with dynamic expiration extension
-            $products = $this->get_products_with_extension($sync_id);
+            // Get the stored products
+            $products = get_transient("bytemash_action_scheduler_{$sync_id}_products");
             if (!$products) {
-                // Check if this is a transient expiration issue
-                $transient_name = "bytemash_action_scheduler_{$sync_id}_products";
-                $this->logger->log('error', "Products not found for sync {$sync_id} - possible transient expiration", array(
+                $this->logger->log('warning', "Products not found for sync {$sync_id} - possible transient expiration, attempting fallback", array(
                     'sync_id' => $sync_id,
-                    'transient_name' => $transient_name,
-                    'batch_index' => $batch_index,
-                    'suggestion' => 'Transient may have expired before batch processing completed'
                 ), 'action_scheduler');
                 
-                // Clean up any remaining scheduled batches for this sync
-                $this->cleanup_sync_batches($sync_id);
-                return;
+                // FALLBACK: Try to re-fetch products from API
+                $products = $this->refetch_products_for_sync($sync_id);
+                if (!$products) {
+                    $this->logger->log('error', "Failed to refetch products for sync {$sync_id}", array(
+                        'sync_id' => $sync_id,
+                    ), 'action_scheduler');
+                    return;
+                }
+                
+                // Re-store the products with extended lifetime
+                set_transient("bytemash_action_scheduler_{$sync_id}_products", $products, 12 * HOUR_IN_SECONDS);
+                $this->logger->log('info', "Successfully refetched and restored products for sync {$sync_id}", array(
+                    'sync_id' => $sync_id,
+                    'product_count' => count($products),
+                ), 'action_scheduler');
             }
             
             $batch_size = (int) get_option('bytemash_amrod_batch_size', 10);
@@ -344,9 +333,6 @@ class ByteMash_Action_Scheduler_Sync {
                 'batch_size' => count($batch),
             ), 'action_scheduler');
             
-            // Update batch progress
-            $this->update_batch_progress($sync_id, $batch_index);
-            
         } catch (Exception $e) {
             $this->logger->log('error', "Batch {$batch_index} failed for sync {$sync_id}", array(
                 'error' => $e->getMessage(),
@@ -375,40 +361,8 @@ class ByteMash_Action_Scheduler_Sync {
                 delete_transient($option_name);
             }
             
-            // Also clean up progress transients
-            $progress_transients = $wpdb->get_results(
-                "SELECT option_name FROM {$wpdb->options} WHERE option_name LIKE '_transient_bytemash_action_scheduler_%_progress'"
-            );
-            
-            foreach ($progress_transients as $transient) {
-                $option_name = str_replace('_transient_', '', $transient->option_name);
-                delete_transient($option_name);
-            }
-            
-            // Clean up any orphaned batch actions
-            $orphaned_actions = as_get_scheduled_actions(array(
-                'hook' => 'bytemash_action_scheduler_batch_sync',
-                'status' => 'pending',
-                'group' => 'bytemash-sync',
-            ));
-            
-            $cleaned_actions = 0;
-            foreach ($orphaned_actions as $action) {
-                $args = $action->get_args();
-                $sync_id = $args[0] ?? '';
-                
-                // Check if the transient still exists
-                if ($sync_id && !get_transient("bytemash_action_scheduler_{$sync_id}_products")) {
-                    as_unschedule_action('bytemash_action_scheduler_batch_sync', $args, 'bytemash-sync');
-                    // Also clean up progress transient
-                    delete_transient("bytemash_action_scheduler_{$sync_id}_progress");
-                    $cleaned_actions++;
-                }
-            }
-            
-            $this->logger->log('info', "Cleaned up old sync data", array(
-                'deleted_transients' => count($transients),
-                'cleaned_orphaned_actions' => $cleaned_actions,
+            $this->logger->log('info', "Cleaned up old sync transients", array(
+                'count' => count($transients),
             ), 'action_scheduler');
         }
     }
@@ -797,6 +751,64 @@ class ByteMash_Action_Scheduler_Sync {
     }
     
     /**
+     * Fallback method to refetch products when transients expire
+     * 
+     * @param string $sync_id Sync identifier
+     * @return array|false Products array or false on failure
+     */
+    private function refetch_products_for_sync($sync_id) {
+        try {
+            // Determine sync type from sync_id
+            $sync_type = strpos($sync_id, 'full_') === 0 ? 'full' : 'incremental';
+            $with_branding = true; // Default to with branding
+            
+            $this->logger->log('info', "Attempting to refetch products for {$sync_type} sync", array(
+                'sync_id' => $sync_id,
+                'sync_type' => $sync_type,
+            ), 'action_scheduler');
+            
+            // Fetch products from Amrod API
+            $api_client = new ByteMash_Amrod_API_Client();
+            
+            if ($sync_type === 'full') {
+                $products = $api_client->get_products_with_branding();
+            } else {
+                $products = $api_client->get_products_with_branding_updated();
+            }
+            
+            if (is_wp_error($products)) {
+                $this->logger->log('error', 'Failed to refetch products from API', array(
+                    'error' => $products->get_error_message(),
+                    'sync_id' => $sync_id,
+                ), 'action_scheduler');
+                return false;
+            }
+            
+            if (!is_array($products) || empty($products)) {
+                $this->logger->log('warning', 'No products returned from API during refetch', array(
+                    'sync_id' => $sync_id,
+                ), 'action_scheduler');
+                return false;
+            }
+            
+            $this->logger->log('info', "Successfully refetched products from API", array(
+                'sync_id' => $sync_id,
+                'product_count' => count($products),
+            ), 'action_scheduler');
+            
+            return $products;
+            
+        } catch (Exception $e) {
+            $this->logger->log('error', 'Exception during product refetch', array(
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'sync_id' => $sync_id,
+            ), 'action_scheduler');
+            return false;
+        }
+    }
+    
+    /**
      * Get all scheduled times in a readable format
      */
     public function get_scheduled_times() {
@@ -860,111 +872,5 @@ class ByteMash_Action_Scheduler_Sync {
         });
         
         return $scheduled_times;
-    }
-    
-    /**
-     * Get products with dynamic expiration extension
-     */
-    private function get_products_with_extension($sync_id) {
-        // First, try to get the products
-        $products = get_transient("bytemash_action_scheduler_{$sync_id}_products");
-        
-        if (!$products) {
-            return false;
-        }
-        
-        // Get progress data
-        $progress = get_transient("bytemash_action_scheduler_{$sync_id}_progress");
-        
-        if (!$progress) {
-            // No progress data, return products as-is
-            return $products;
-        }
-        
-        // Check if there are still pending batches
-        $pending_batches = $this->get_pending_batch_count($sync_id);
-        
-        if ($pending_batches > 0) {
-            // Extend the transient expiration
-            $extension_time = HOUR_IN_SECONDS; // Extend by 1 hour
-            $new_expiration = time() + $extension_time;
-            
-            // Update both transients with extended expiration
-            set_transient("bytemash_action_scheduler_{$sync_id}_products", $products, $extension_time);
-            
-            // Update progress data
-            $progress['last_accessed'] = time();
-            set_transient("bytemash_action_scheduler_{$sync_id}_progress", $progress, $extension_time);
-            
-            $this->logger->log('info', "Extended transient expiration for sync {$sync_id}", array(
-                'sync_id' => $sync_id,
-                'pending_batches' => $pending_batches,
-                'extension_hours' => round($extension_time / HOUR_IN_SECONDS, 2),
-                'new_expiration' => date('Y-m-d H:i:s', $new_expiration),
-            ), 'action_scheduler');
-        }
-        
-        return $products;
-    }
-    
-    /**
-     * Get count of pending batches for a sync
-     */
-    private function get_pending_batch_count($sync_id) {
-        $pending_actions = as_get_scheduled_actions(array(
-            'hook' => 'bytemash_action_scheduler_batch_sync',
-            'status' => 'pending',
-            'group' => 'bytemash-sync',
-        ));
-        
-        $count = 0;
-        foreach ($pending_actions as $action) {
-            $args = $action->get_args();
-            if (isset($args[0]) && $args[0] === $sync_id) {
-                $count++;
-            }
-        }
-        
-        return $count;
-    }
-    
-    /**
-     * Update batch completion progress
-     */
-    private function update_batch_progress($sync_id, $batch_index) {
-        $progress = get_transient("bytemash_action_scheduler_{$sync_id}_progress");
-        
-        if ($progress) {
-            $progress['completed_batches'] = max($progress['completed_batches'], $batch_index + 1);
-            $progress['last_accessed'] = time();
-            
-            // Extend expiration when updating progress
-            $extension_time = HOUR_IN_SECONDS;
-            set_transient("bytemash_action_scheduler_{$sync_id}_progress", $progress, $extension_time);
-            
-            $this->logger->log('debug', "Updated batch progress for sync {$sync_id}", array(
-                'sync_id' => $sync_id,
-                'batch_index' => $batch_index,
-                'completed_batches' => $progress['completed_batches'],
-                'total_batches' => $progress['total_batches'],
-                'progress_percentage' => round(($progress['completed_batches'] / $progress['total_batches']) * 100, 2),
-            ), 'action_scheduler');
-        }
-    }
-    
-    /**
-     * Clean up scheduled batches for a specific sync
-     */
-    private function cleanup_sync_batches($sync_id) {
-        // Cancel all pending batch actions for this sync
-        as_unschedule_all_actions('bytemash_action_scheduler_batch_sync', array($sync_id), 'bytemash-sync');
-        
-        // Delete the products and progress transients
-        delete_transient("bytemash_action_scheduler_{$sync_id}_products");
-        delete_transient("bytemash_action_scheduler_{$sync_id}_progress");
-        
-        $this->logger->log('info', "Cleaned up scheduled batches for sync {$sync_id}", array(
-            'sync_id' => $sync_id,
-        ), 'action_scheduler');
     }
 }

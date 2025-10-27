@@ -315,6 +315,9 @@ class ByteMash_Woo_Sync {
         require_once ABSPATH . 'wp-admin/includes/upgrade.php';
         dbDelta($sql);
         
+        // CLEANUP: Clear all existing syncs and transients on fresh installation
+        $this->cleanup_existing_syncs();
+        
         // Set default options
         // Note: API URLs are now fixed in the code (identity.amrod.co.za for auth, vendorapi.amrod.co.za for data)
         add_option('bytemash_amrod_batch_size', 10); // Conservative batch size for products
@@ -328,12 +331,57 @@ class ByteMash_Woo_Sync {
         update_option('bytemash_cron_full_test_mode_enabled', false);
         update_option('bytemash_cron_incremental_test_mode_enabled', false);
         
-        // Initialize sync scheduler with default schedules
-        $scheduler = new ByteMash_Sync_Scheduler();
-        $scheduler->update_schedule('daily', 'every_5_hours');
+        // DO NOT automatically start syncing - require manual configuration
+        // The user must configure API credentials and manually start syncs
+        // This prevents immediate syncing on installation
         
-        // Initialize true cron manager
+        // Initialize true cron manager (but don't schedule anything yet)
         $cron_manager = new ByteMash_True_Cron_Manager();
+    }
+    
+    /**
+     * Clean up existing syncs and transients on installation
+     */
+    private function cleanup_existing_syncs() {
+        global $wpdb;
+        
+        // Clear all sync progress options
+        $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE 'bytemash_sync_progress_%'");
+        
+        // Clear all sync transients
+        $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_bytemash_sync_%'");
+        $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_timeout_bytemash_sync_%'");
+        
+        // Clear Action Scheduler transients
+        $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_bytemash_action_scheduler_%'");
+        $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE '_transient_timeout_bytemash_action_scheduler_%'");
+        
+        // Clear running sync flags
+        delete_transient('bytemash_full_sync_running');
+        delete_transient('bytemash_incremental_sync_running');
+        delete_transient('bytemash_sync_running');
+        
+        // Clear any scheduled WordPress cron events
+        wp_clear_scheduled_hook('bytemash_full_sync_cron');
+        wp_clear_scheduled_hook('bytemash_incremental_sync_cron');
+        wp_clear_scheduled_hook('bytemash_amrod_sync_cron');
+        wp_clear_scheduled_hook('bytemash_process_products_batch');
+        wp_clear_scheduled_hook('bytemash_process_products_chunk');
+        wp_clear_scheduled_hook('bytemash_process_stock_batch');
+        wp_clear_scheduled_hook('bytemash_process_prices_batch');
+        wp_clear_scheduled_hook('bytemash_process_categories_batch');
+        
+        // Clear Action Scheduler actions if available
+        if (function_exists('as_unschedule_all_actions')) {
+            as_unschedule_all_actions('bytemash_action_scheduler_full_sync', array(), 'bytemash-sync');
+            as_unschedule_all_actions('bytemash_action_scheduler_incremental_sync', array(), 'bytemash-sync');
+            as_unschedule_all_actions('bytemash_action_scheduler_batch_sync', array(), 'bytemash-sync');
+            as_unschedule_all_actions('bytemash_action_scheduler_cleanup', array(), 'bytemash-sync');
+        }
+        
+        // Log the cleanup
+        $logger = new ByteMash_Logger();
+        $logger->log('info', 'Cleaned up all existing syncs and transients on plugin activation', array(), 'plugin_activation');
     }
     
     /**

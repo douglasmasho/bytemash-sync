@@ -309,7 +309,7 @@ class ByteMash_True_Cron_Manager {
             return self::METHOD_HOSTED_PINGER;
         }
         
-        if (get_option(self::OPTION_PREFIX . 'self_ping_enabled', true)) {
+        if (get_option(self::OPTION_PREFIX . 'self_ping_enabled', false)) {
             return self::METHOD_SELF_PING;
         }
         
@@ -652,10 +652,20 @@ class ByteMash_True_Cron_Manager {
     public function maybe_trigger_self_ping() {
         $active_method = $this->get_active_cron_method();
         
-        // Only use self-ping if no other method is active
-        if ($active_method === self::METHOD_SELF_PING || $active_method === self::METHOD_NONE) {
+        // Only use self-ping if no other method is active AND syncs are actually scheduled
+        if (($active_method === self::METHOD_SELF_PING || $active_method === self::METHOD_NONE) && $this->has_scheduled_syncs()) {
             $this->trigger_self_ping();
         }
+    }
+    
+    /**
+     * Check if any syncs are scheduled
+     */
+    private function has_scheduled_syncs() {
+        $full_sync_scheduled = wp_next_scheduled('bytemash_full_sync_cron');
+        $incremental_sync_scheduled = wp_next_scheduled('bytemash_incremental_sync_cron');
+        
+        return $full_sync_scheduled || $incremental_sync_scheduled;
     }
     
     /**
@@ -761,13 +771,14 @@ class ByteMash_True_Cron_Manager {
      * Plugin activation
      */
     public function activate() {
-        // Schedule health check
+        // Schedule health check only
         wp_schedule_event(time(), 'hourly', 'bytemash_cron_health_check');
         
-        // Initialize default schedules
-        $this->scheduler->update_schedule('daily_at_0030', 'every_5_hours');
+        // DO NOT automatically schedule syncs on activation
+        // User must manually configure and start syncs
+        // This prevents immediate syncing on installation
         
-        $this->logger->log('info', 'Cron manager activated', array(), 'cron_manager');
+        $this->logger->log('info', 'Cron manager activated (no automatic sync scheduling)', array(), 'cron_manager');
     }
     
     /**

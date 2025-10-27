@@ -489,147 +489,20 @@
             const $logsContainer = $('#realtime_sync_logs');
             $logsContainer.empty();
             
-            if (!logs || logs.length === 0) {
-                $logsContainer.html('<div class="bytemash-log-entry"><span class="log-status info">No recent activity</span></div>');
-                return;
-            }
-            
-            // Group logs by sync type and extract progress information
-            const syncActivities = parseLogsForProgress(logs);
-            
-            if (syncActivities.length === 0) {
-                $logsContainer.html('<div class="bytemash-log-entry"><span class="log-status info">No sync activity detected</span></div>');
-                return;
-            }
-            
-            syncActivities.forEach(function(activity) {
-                const activityHtml = createActivityDisplay(activity);
-                $logsContainer.append(activityHtml);
-            });
-        }
-        
-        function parseLogsForProgress(logs) {
-            const activities = [];
-            const syncGroups = {};
-            
-            // Group logs by sync type and extract meaningful information
-            logs.forEach(function(log) {
-                const message = log.message || '';
-                const syncType = log.sync_type || 'unknown';
+            logs.slice(0, 5).forEach(function(log) {
                 const time = new Date(log.created_at).toLocaleTimeString();
+                const statusClass = log.status === 'success' ? 'success' : 
+                                   log.status === 'error' ? 'error' : 'info';
                 
-                // Parse different types of log messages
-                if (message.includes('Batch') && message.includes('completed')) {
-                    // Action Scheduler batch completion
-                    const batchMatch = message.match(/Batch (\d+) completed/);
-                    if (batchMatch) {
-                        if (!syncGroups[syncType]) {
-                            syncGroups[syncType] = {
-                                type: syncType,
-                                status: 'processing',
-                                batches: [],
-                                stats: { processed: 0, errors: 0, skipped: 0 },
-                                lastUpdate: time
-                            };
-                        }
-                        syncGroups[syncType].batches.push({
-                            number: parseInt(batchMatch[1]),
-                            status: 'completed',
-                            time: time
-                        });
-                    }
-                } else if (message.includes('Product synced successfully')) {
-                    // Product sync success
-                    if (!syncGroups[syncType]) {
-                        syncGroups[syncType] = {
-                            type: syncType,
-                            status: 'processing',
-                            batches: [],
-                            stats: { processed: 0, errors: 0, skipped: 0 },
-                            lastUpdate: time
-                        };
-                    }
-                    syncGroups[syncType].stats.processed++;
-                } else if (message.includes('Variable product synced') && message.includes('variations created')) {
-                    // Variable product with variations
-                    const variationMatch = message.match(/(\d+) variations created/);
-                    if (variationMatch) {
-                        if (!syncGroups[syncType]) {
-                            syncGroups[syncType] = {
-                                type: syncType,
-                                status: 'processing',
-                                batches: [],
-                                stats: { processed: 0, errors: 0, skipped: 0 },
-                                lastUpdate: time
-                            };
-                        }
-                        syncGroups[syncType].stats.processed += parseInt(variationMatch[1]);
-                    }
-                } else if (message.includes('Action Scheduler integration enabled')) {
-                    // System startup - show as info
-                    if (!syncGroups['system']) {
-                        syncGroups['system'] = {
-                            type: 'system',
-                            status: 'info',
-                            message: 'Sync system initialized',
-                            lastUpdate: time
-                        };
-                    }
-                }
-            });
-            
-            // Convert groups to activities array
-            Object.keys(syncGroups).forEach(function(key) {
-                activities.push(syncGroups[key]);
-            });
-            
-            return activities;
-        }
-        
-        function createActivityDisplay(activity) {
-            const time = activity.lastUpdate;
-            
-            if (activity.type === 'system') {
-                return `
-                    <div class="bytemash-log-entry system-info">
+                const logEntry = `
+                    <div class="bytemash-log-entry">
                         <span class="log-time">${time}</span>
-                        <span class="log-type">system</span>
-                        <span class="log-status info">${activity.message}</span>
+                        <span class="log-type">${log.sync_type}</span>
+                        <span class="log-status ${statusClass}">${log.message}</span>
                     </div>
                 `;
-            }
-            
-            // Calculate progress percentage based on batches
-            const totalBatches = activity.batches.length;
-            const completedBatches = activity.batches.filter(b => b.status === 'completed').length;
-            const percentage = totalBatches > 0 ? Math.round((completedBatches / totalBatches) * 100) : 0;
-            
-            const statusClass = activity.status === 'completed' ? 'success' : 
-                              activity.status === 'error' ? 'error' : 'processing';
-            
-            const statusText = activity.status === 'completed' ? 'Completed' :
-                             activity.status === 'error' ? 'Error' : 'Processing';
-            
-            return `
-                <div class="bytemash-log-entry sync-activity">
-                    <div class="activity-header">
-                        <span class="log-time">${time}</span>
-                        <span class="log-type">${activity.type}</span>
-                        <span class="log-status ${statusClass}">${statusText}</span>
-                    </div>
-                    <div class="activity-progress">
-                        <div class="mini-progress-bar">
-                            <div class="mini-progress-fill" style="width: ${percentage}%"></div>
-                        </div>
-                        <span class="progress-text">${percentage}%</span>
-                    </div>
-                    <div class="activity-stats">
-                        <span class="processed">${activity.stats.processed} processed</span>
-                        ${activity.stats.errors > 0 ? `<span class="errors">${activity.stats.errors} errors</span>` : ''}
-                        ${activity.stats.skipped > 0 ? `<span class="skipped">${activity.stats.skipped} skipped</span>` : ''}
-                    </div>
-                </div>
-            `;
+                $logsContainer.append(logEntry);
+            });
         }
         
         function updateSyncProgress(progress) {

@@ -257,9 +257,11 @@ class ByteMash_Batch_Processor {
      * @param int $chunk_index Current chunk index
      */
     public function process_products_chunk($sync_id, $chunk_index) {
-        // Increase memory limit for processing
-        $original_memory = ini_get('memory_limit');
-        @ini_set('memory_limit', '512M');
+        // Add error handling to prevent plugin deactivation
+        try {
+            // Increase memory limit for processing
+            $original_memory = ini_get('memory_limit');
+            @ini_set('memory_limit', '512M');
         
         $this->logger->log('info', "Processing products chunk {$chunk_index}", array(), 'batch_processor');
         
@@ -272,13 +274,51 @@ class ByteMash_Batch_Processor {
             return;
         }
         
+        // CHECK: Skip if this chunk was already processed
+        if (isset($progress['processed_chunks']) && in_array($chunk_index, $progress['processed_chunks'])) {
+            $this->logger->log('info', "Chunk {$chunk_index} already processed, skipping", array(
+                'sync_id' => $sync_id,
+                'chunk_index' => $chunk_index,
+                'processed_chunks' => $progress['processed_chunks'],
+            ), 'batch_processor');
+            
+            // Still schedule next chunk if needed
+            $next_chunk = $chunk_index + 1;
+            if ($next_chunk < $progress['chunk_count']) {
+                $progress['current_chunk'] = $next_chunk;
+                $this->save_sync_progress($sync_id, $progress);
+                $this->logger->log('info', "Skipping to next chunk: {$next_chunk}", array(), 'batch_processor');
+            }
+            
+            @ini_set('memory_limit', $original_memory);
+            return;
+        }
+        
         // Load ONLY this chunk from transient
         $chunk = get_transient("bytemash_sync_{$sync_id}_chunk_{$chunk_index}");
         
         if (!$chunk || !is_array($chunk)) {
-            $this->logger->log('error', 'Chunk data not found', array(), 'batch_processor');
-            @ini_set('memory_limit', $original_memory);
-            return;
+            $this->logger->log('warning', "Chunk data not found for chunk {$chunk_index} - possible transient expiration, attempting fallback", array(
+                'sync_id' => $sync_id,
+                'chunk_index' => $chunk_index,
+            ), 'batch_processor');
+            
+            // FALLBACK: Try to regenerate chunk from API
+            $chunk = $this->regenerate_chunk_from_api($sync_id, $chunk_index);
+            if (!$chunk) {
+                $this->logger->log('error', "Failed to regenerate chunk {$chunk_index} from API", array(
+                    'sync_id' => $sync_id,
+                    'chunk_index' => $chunk_index,
+                ), 'batch_processor');
+                @ini_set('memory_limit', $original_memory);
+                return;
+            }
+            
+            $this->logger->log('info', "Successfully regenerated chunk {$chunk_index} from API", array(
+                'sync_id' => $sync_id,
+                'chunk_index' => $chunk_index,
+                'chunk_size' => count($chunk),
+            ), 'batch_processor');
         }
         
         $chunk_size = count($chunk);
@@ -294,17 +334,26 @@ class ByteMash_Batch_Processor {
         $product_sync = new ByteMash_Product_Sync();
         $processed = 0;
         $errors = 0;
+        $skipped = 0;
         
         foreach ($chunk as $product_data) {
             try {
                 $result = $product_sync->sync_single_product($product_data);
                 
                 if ($result['success']) {
-                    $processed++;
-                    $this->logger->log('info', 'Product synced successfully', array(
-                        'sku' => $product_data['fullCode'] ?? 'unknown',
-                        'product_name' => $product_data['productName'] ?? 'unknown',
-                    ), 'batch_processor');
+                    if (isset($result['skipped']) && $result['skipped']) {
+                        $skipped++;
+                        $this->logger->log('info', 'Product skipped (unchanged)', array(
+                            'sku' => $product_data['fullCode'] ?? 'unknown',
+                            'product_name' => $product_data['productName'] ?? 'unknown',
+                        ), 'batch_processor');
+                    } else {
+                        $processed++;
+                        $this->logger->log('info', 'Product synced successfully', array(
+                            'sku' => $product_data['fullCode'] ?? 'unknown',
+                            'product_name' => $product_data['productName'] ?? 'unknown',
+                        ), 'batch_processor');
+                    }
                 } else {
                     $errors++;
                     $this->logger->log('error', 'Product sync failed', array(
@@ -349,6 +398,13 @@ class ByteMash_Batch_Processor {
         $progress['processed'] += $processed;
         $progress['current_chunk'] = $chunk_index + 1;
         $progress['errors'] = ($progress['errors'] ?? 0) + $errors;
+        $progress['skipped'] = ($progress['skipped'] ?? 0) + $skipped;
+        
+        // Track this chunk as processed
+        if (!isset($progress['processed_chunks'])) {
+            $progress['processed_chunks'] = array();
+        }
+        $progress['processed_chunks'][] = $chunk_index;
         
         $this->save_sync_progress($sync_id, $progress);
         
@@ -385,6 +441,29 @@ class ByteMash_Batch_Processor {
         
         // Restore original memory limit
         @ini_set('memory_limit', $original_memory);
+        
+        } catch (Exception $e) {
+            // Log the error but don't crash the plugin
+            $this->logger->log('error', 'Critical error in chunk processing - preventing plugin deactivation', array(
+                'sync_id' => $sync_id,
+                'chunk_index' => $chunk_index,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ), 'batch_processor');
+            
+            // Mark this chunk as failed but continue
+            $progress = $this->get_sync_progress($sync_id);
+            if ($progress) {
+                $progress['status'] = 'error';
+                $progress['error_message'] = 'Chunk processing failed: ' . $e->getMessage();
+                $this->save_sync_progress($sync_id, $progress);
+            }
+            
+            // Restore memory limit
+            if (isset($original_memory)) {
+                @ini_set('memory_limit', $original_memory);
+            }
+        }
     }
     
     /**
@@ -778,6 +857,158 @@ class ByteMash_Batch_Processor {
                 'trace' => $e->getTraceAsString(),
             ), 'batch_processor');
         }
+    }
+    
+    /**
+     * Fallback method to regenerate chunk from API when transients expire
+     * 
+     * @param string $sync_id Sync identifier
+     * @param int $chunk_index Chunk index to regenerate
+     * @return array|false Chunk array or false on failure
+     */
+    private function regenerate_chunk_from_api($sync_id, $chunk_index) {
+        try {
+            // Get sync progress to determine sync type
+            $progress = $this->get_sync_progress($sync_id);
+            if (!$progress) {
+                return false;
+            }
+            
+            $this->logger->log('info', "Regenerating chunk {$chunk_index} from API", array(
+                'sync_id' => $sync_id,
+                'chunk_index' => $chunk_index,
+            ), 'batch_processor');
+            
+            // Determine sync type and fetch products
+            $api_client = new ByteMash_Amrod_API_Client();
+            $products = null;
+            
+            if (strpos($sync_id, 'full_') === 0) {
+                $products = $api_client->get_products_with_branding();
+            } else {
+                $products = $api_client->get_products_with_branding_updated();
+            }
+            
+            if (is_wp_error($products)) {
+                $this->logger->log('error', 'Failed to fetch products from API for chunk regeneration', array(
+                    'error' => $products->get_error_message(),
+                    'sync_id' => $sync_id,
+                    'chunk_index' => $chunk_index,
+                ), 'batch_processor');
+                return false;
+            }
+            
+            if (!is_array($products) || empty($products)) {
+                $this->logger->log('warning', 'No products returned from API for chunk regeneration', array(
+                    'sync_id' => $sync_id,
+                    'chunk_index' => $chunk_index,
+                ), 'batch_processor');
+                return false;
+            }
+            
+            // Split into chunks and get the specific chunk
+            $batch_size = (int) get_option('bytemash_amrod_batch_size', 10);
+            $chunks = array_chunk($products, $batch_size);
+            
+            if (!isset($chunks[$chunk_index])) {
+                $this->logger->log('error', 'Chunk index out of range during regeneration', array(
+                    'sync_id' => $sync_id,
+                    'chunk_index' => $chunk_index,
+                    'total_chunks' => count($chunks),
+                ), 'batch_processor');
+                return false;
+            }
+            
+            $chunk = $chunks[$chunk_index];
+            
+            // Re-store the chunk with extended lifetime
+            set_transient("bytemash_sync_{$sync_id}_chunk_{$chunk_index}", $chunk, 12 * HOUR_IN_SECONDS);
+            
+            $this->logger->log('info', "Successfully regenerated and stored chunk {$chunk_index}", array(
+                'sync_id' => $sync_id,
+                'chunk_index' => $chunk_index,
+                'chunk_size' => count($chunk),
+            ), 'batch_processor');
+            
+            return $chunk;
+            
+        } catch (Exception $e) {
+            $this->logger->log('error', 'Exception during chunk regeneration', array(
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+                'sync_id' => $sync_id,
+                'chunk_index' => $chunk_index,
+            ), 'batch_processor');
+            return false;
+        }
+    }
+    
+    /**
+     * Resume a sync from where it left off
+     * 
+     * @param string $sync_id Sync identifier
+     * @return bool Success
+     */
+    public function resume_sync($sync_id) {
+        $progress = $this->get_sync_progress($sync_id);
+        
+        if (!$progress) {
+            $this->logger->log('error', 'Cannot resume sync - progress not found', array(
+                'sync_id' => $sync_id,
+            ), 'batch_processor');
+            return false;
+        }
+        
+        if ($progress['status'] === 'completed') {
+            $this->logger->log('info', 'Sync already completed, no need to resume', array(
+                'sync_id' => $sync_id,
+            ), 'batch_processor');
+            return true;
+        }
+        
+        // Find the next unprocessed chunk
+        $next_chunk = $this->find_next_unprocessed_chunk($progress);
+        
+        if ($next_chunk === false) {
+            $this->logger->log('info', 'All chunks processed, marking sync as completed', array(
+                'sync_id' => $sync_id,
+            ), 'batch_processor');
+            
+            $progress['status'] = 'completed';
+            $progress['completed'] = current_time('mysql');
+            $this->save_sync_progress($sync_id, $progress);
+            return true;
+        }
+        
+        $this->logger->log('info', "Resuming sync from chunk {$next_chunk}", array(
+            'sync_id' => $sync_id,
+            'next_chunk' => $next_chunk,
+            'total_chunks' => $progress['chunk_count'],
+        ), 'batch_processor');
+        
+        // Process the next chunk
+        $this->process_products_chunk($sync_id, $next_chunk);
+        
+        return true;
+    }
+    
+    /**
+     * Find the next unprocessed chunk
+     * 
+     * @param array $progress Sync progress data
+     * @return int|false Next chunk index or false if all processed
+     */
+    private function find_next_unprocessed_chunk($progress) {
+        $processed_chunks = $progress['processed_chunks'] ?? array();
+        $total_chunks = $progress['chunk_count'] ?? 0;
+        
+        for ($i = 0; $i < $total_chunks; $i++) {
+            if (!in_array($i, $processed_chunks)) {
+                return $i;
+            }
+        }
+        
+        return false;
     }
     
     /**
