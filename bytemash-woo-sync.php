@@ -96,6 +96,10 @@ class ByteMash_Woo_Sync {
         add_filter('wp_get_attachment_image_src', array($this, 'replace_with_external_url'), 10, 4);
         add_filter('woocommerce_product_get_gallery_image_ids', array($this, 'use_external_gallery_urls'), 10, 2);
         
+        // Frontend product page hooks
+        add_action('woocommerce_product_meta_end', array($this, 'display_branding_guides'), 10);
+        add_action('woocommerce_single_product_summary', array($this, 'display_brand_info'), 15);
+        
         // Admin hooks
         if (is_admin()) {
             add_action('admin_menu', array($this, 'register_admin_menu'));
@@ -2082,6 +2086,66 @@ class ByteMash_Woo_Sync {
             'recent_logs' => $recent_logs,
             'sync_progress' => $sync_progress,
         ));
+    }
+    
+    /**
+     * Display branding guide PDFs on product pages
+     */
+    public function display_branding_guides() {
+        global $product;
+        
+        if (!$product) {
+            return;
+        }
+        
+        $full_guide = get_post_meta($product->get_id(), '_amrod_full_branding_guide', true);
+        $logo24_guide = get_post_meta($product->get_id(), '_amrod_logo24_branding_guide', true);
+        
+        if (empty($full_guide) && empty($logo24_guide)) {
+            return;
+        }
+        
+        echo '<div class="amrod-branding-guides" style="margin-top: 20px; padding: 15px; background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 5px;">';
+        echo '<h4 style="margin: 0 0 15px 0; color: #333; font-size: 16px;">📋 Branding Guides</h4>';
+        
+        if (!empty($full_guide)) {
+            echo '<div style="margin-bottom: 10px;">';
+            echo '<a href="' . esc_url($full_guide) . '" target="_blank" class="button" style="display: inline-flex; align-items: center; text-decoration: none; background: #0073aa; color: white; padding: 8px 16px; border-radius: 3px; font-size: 14px;">';
+            echo '📄 Full Branding Guide';
+            echo '</a>';
+            echo '</div>';
+        }
+        
+        if (!empty($logo24_guide)) {
+            echo '<div>';
+            echo '<a href="' . esc_url($logo24_guide) . '" target="_blank" class="button" style="display: inline-flex; align-items: center; text-decoration: none; background: #28a745; color: white; padding: 8px 16px; border-radius: 3px; font-size: 14px;">';
+            echo '🎨 Logo24 Branding Guide';
+            echo '</a>';
+            echo '</div>';
+        }
+        
+        echo '</div>';
+    }
+    
+    /**
+     * Display brand information on product pages
+     */
+    public function display_brand_info() {
+        global $product;
+        
+        if (!$product) {
+            return;
+        }
+        
+        $brand = get_post_meta($product->get_id(), '_amrod_brand', true);
+        
+        if (empty($brand)) {
+            return;
+        }
+        
+        echo '<div class="amrod-brand-info" style="margin: 15px 0; padding: 10px; background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 5px;">';
+        echo '<strong style="color: #856404;">🏷️ Brand:</strong> <span style="color: #333; font-weight: 500;">' . esc_html($brand) . '</span>';
+        echo '</div>';
     }
 }
 
