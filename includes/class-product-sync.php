@@ -1498,43 +1498,14 @@ class ByteMash_Product_Sync {
             }
         }
         
-        // ALWAYS try pattern matching with simpleCode to catch all variants
-        // Example: Even if "ALT-1603" exists, also update "ALT-1603-Y", "ALT-1603-R", etc.
-        if (!empty($simpleCode)) {
-            global $wpdb;
-            $like_pattern = $wpdb->esc_like($simpleCode) . '%';
-            
-            $matching_products = $wpdb->get_results($wpdb->prepare(
-                "SELECT post_id, meta_value as sku FROM {$wpdb->postmeta} 
-                WHERE meta_key = '_sku' AND meta_value LIKE %s",
-                $like_pattern
-            ));
-            
-            if ($matching_products) {
-                $pattern_matched_count = 0;
-                foreach ($matching_products as $match) {
-                    // Avoid duplicates
-                    if (!in_array($match->post_id, $product_ids)) {
-                        $product_ids[] = $match->post_id;
-                        $pattern_matched_count++;
-                    }
-                }
-                
-                if ($pattern_matched_count > 0) {
-                    $matched_sku = $simpleCode . '*';
-                    $log_msg = $exact_match_found 
-                        ? "✅ Pattern matched {$pattern_matched_count} additional variant(s) with SKU starting with: {$simpleCode}"
-                        : "✅ Pattern matched {$pattern_matched_count} product(s) with SKU starting with: {$simpleCode}";
-                    
-                    $this->logger->log('success', $log_msg, array(), 'stock_sync');
-                }
-            }
-        }
+        // For stock updates, we should NOT use pattern matching as stock quantities
+        // are specific to individual variations. Only update exact matches.
+        // Pattern matching was causing stock to be incorrectly applied to multiple variations.
         
         if (empty($product_ids)) {
             $attempted = implode(', ', $skus_to_try);
             $this->logger->log('warning', "⚠️ No SKU match found", array(), 'stock_sync');
-            return array('success' => false, 'message' => "Product not found. Tried SKUs: {$attempted}, Pattern: {$simpleCode}%");
+            return array('success' => false, 'message' => "Product not found. Tried SKUs: {$attempted}");
         }
         
         // Update all matched products
