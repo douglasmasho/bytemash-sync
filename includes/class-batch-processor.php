@@ -274,25 +274,11 @@ class ByteMash_Batch_Processor {
             return;
         }
         
-        // CHECK: Skip if this chunk was already processed
-        if (isset($progress['processed_chunks']) && in_array($chunk_index, $progress['processed_chunks'])) {
-            $this->logger->log('info', "Chunk {$chunk_index} already processed, skipping", array(
-                'sync_id' => $sync_id,
-                'chunk_index' => $chunk_index,
-                'processed_chunks' => $progress['processed_chunks'],
-            ), 'batch_processor');
-            
-            // Still schedule next chunk if needed
-            $next_chunk = $chunk_index + 1;
-            if ($next_chunk < $progress['chunk_count']) {
-                $progress['current_chunk'] = $next_chunk;
-                $this->save_sync_progress($sync_id, $progress);
-                $this->logger->log('info', "Skipping to next chunk: {$next_chunk}", array(), 'batch_processor');
-            }
-            
-            @ini_set('memory_limit', $original_memory);
-            return;
-        }
+        // Process all chunks - no chunk-level skipping to ensure no products are missed
+        $this->logger->log('info', "Processing chunk {$chunk_index} (checking all products for changes)", array(
+            'sync_id' => $sync_id,
+            'chunk_index' => $chunk_index,
+        ), 'batch_processor');
         
         // Load ONLY this chunk from transient
         $chunk = get_transient("bytemash_sync_{$sync_id}_chunk_{$chunk_index}");
@@ -400,11 +386,7 @@ class ByteMash_Batch_Processor {
         $progress['errors'] = ($progress['errors'] ?? 0) + $errors;
         $progress['skipped'] = ($progress['skipped'] ?? 0) + $skipped;
         
-        // Track this chunk as processed
-        if (!isset($progress['processed_chunks'])) {
-            $progress['processed_chunks'] = array();
-        }
-        $progress['processed_chunks'][] = $chunk_index;
+        // No chunk tracking - we process all chunks every time to ensure no products are missed
         
         $this->save_sync_progress($sync_id, $progress);
         
@@ -966,10 +948,10 @@ class ByteMash_Batch_Processor {
             return true;
         }
         
-        // Find the next unprocessed chunk
-        $next_chunk = $this->find_next_unprocessed_chunk($progress);
+        // Find the next chunk to process (no skipping)
+        $next_chunk = $progress['current_chunk'] ?? 0;
         
-        if ($next_chunk === false) {
+        if ($next_chunk >= ($progress['chunk_count'] ?? 0)) {
             $this->logger->log('info', 'All chunks processed, marking sync as completed', array(
                 'sync_id' => $sync_id,
             ), 'batch_processor');
@@ -990,25 +972,6 @@ class ByteMash_Batch_Processor {
         $this->process_products_chunk($sync_id, $next_chunk);
         
         return true;
-    }
-    
-    /**
-     * Find the next unprocessed chunk
-     * 
-     * @param array $progress Sync progress data
-     * @return int|false Next chunk index or false if all processed
-     */
-    private function find_next_unprocessed_chunk($progress) {
-        $processed_chunks = $progress['processed_chunks'] ?? array();
-        $total_chunks = $progress['chunk_count'] ?? 0;
-        
-        for ($i = 0; $i < $total_chunks; $i++) {
-            if (!in_array($i, $processed_chunks)) {
-                return $i;
-            }
-        }
-        
-        return false;
     }
     
     /**

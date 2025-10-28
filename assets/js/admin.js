@@ -203,9 +203,9 @@
         });
         
         /**
-         * Handle production cron enable
+         * Handle production Action Scheduler enable
          */
-        $('#enable-production-cron').on('click', function() {
+        $('#enable-production-action-scheduler').on('click', function() {
             const $button = $(this);
             const originalText = $button.text();
             
@@ -215,24 +215,31 @@
                 url: bytemashWooSync.ajax_url,
                 type: 'POST',
                 data: {
-                    action: 'bytemash_enable_production_cron',
+                    action: 'bytemash_enable_production_action_scheduler',
                     nonce: bytemashWooSync.nonce
                 },
                 success: function(response) {
                     if (response.success) {
-                        $('#production-cron-status').html(
-                            '<div class="notice notice-success"><p>' + response.data.message + '</p></div>'
-                        );
+                        let statusHtml = '<div class="notice notice-success"><p>' + response.data.message + '</p>';
+                        if (response.data.next_full_sync) {
+                            statusHtml += '<p><strong>Next Full Sync:</strong> ' + response.data.next_full_sync + '</p>';
+                        }
+                        if (response.data.next_incremental_sync) {
+                            statusHtml += '<p><strong>Next Incremental Sync:</strong> ' + response.data.next_incremental_sync + '</p>';
+                        }
+                        statusHtml += '</div>';
+                        
+                        $('#production-action-scheduler-status').html(statusHtml);
                         $button.text('Enabled').prop('disabled', true);
                     } else {
-                        $('#production-cron-status').html(
+                        $('#production-action-scheduler-status').html(
                             '<div class="notice notice-error"><p>' + response.data.message + '</p></div>'
                         );
                         $button.text(originalText);
                     }
                 },
                 error: function() {
-                    $('#production-cron-status').html(
+                    $('#production-action-scheduler-status').html(
                         '<div class="notice notice-error"><p>Request failed. Please try again.</p></div>'
                     );
                     $button.text(originalText);

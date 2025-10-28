@@ -118,92 +118,368 @@ class ByteMash_Action_Scheduler_Sync {
     }
     
     /**
-     * Run full sync action
+     * Run full sync action using same strategies as test full sync
      */
     public function run_full_sync_action($with_branding = true) {
-        $this->logger->log('info', 'Action Scheduler full sync started', array(
+        $this->logger->log('info', '🚀 Starting Action Scheduler full sync', array(
             'with_branding' => $with_branding,
         ), 'action_scheduler');
         
+        // Check if sync is already running
+        if (get_transient('bytemash_action_scheduler_full_sync_running')) {
+            $this->logger->log('warning', 'Action Scheduler full sync already running, skipping', array(), 'action_scheduler');
+            return;
+        }
+        
+        // Set sync running flag
+        set_transient('bytemash_action_scheduler_full_sync_running', true, 7200); // 2 hours timeout
+        
+        // Initialize overall progress tracking
+        $overall_progress = array(
+            'status' => 'running',
+            'started' => current_time('mysql'),
+            'phases' => array(),
+            'current_phase' => 'initializing',
+            'total_phases' => 0,
+            'completed_phases' => 0
+        );
+        
         try {
-            // Fetch products from Amrod API
-            $api_client = new ByteMash_Amrod_API_Client();
-            if ($with_branding) {
-                $products = $api_client->get_products_with_branding();
-            } else {
-                $products = $api_client->get_products_without_branding();
-            }
+            // Get enabled sync attributes
+            $sync_products = get_option('bytemash_sync_products', true);
+            $sync_stock = get_option('bytemash_sync_stock', true);
+            $sync_prices = get_option('bytemash_sync_prices', true);
+            $sync_categories = get_option('bytemash_sync_categories', true);
+            $sync_brands = get_option('bytemash_sync_brands', true);
             
-            if (is_wp_error($products)) {
-                $this->logger->log('error', 'Failed to fetch products for Action Scheduler full sync', array(
-                    'error' => $products->get_error_message(),
+            // Count enabled phases
+            $enabled_phases = array_filter(array(
+                'products' => $sync_products,
+                'stock' => $sync_stock,
+                'prices' => $sync_prices,
+                'categories' => $sync_categories,
+                'brands' => $sync_brands
+            ));
+            
+            $overall_progress['total_phases'] = count($enabled_phases);
+            $overall_progress['enabled_phases'] = array_keys($enabled_phases);
+            
+            $this->logger->log('info', "📋 Action Scheduler full sync phases enabled: " . implode(', ', array_keys($enabled_phases)), array(
+                'enabled_phases' => array_keys($enabled_phases),
+                'total_phases' => count($enabled_phases)
+            ), 'action_scheduler');
+            
+            $results = array();
+            $phase_number = 1;
+            
+            // Run full sync for enabled endpoints in sequence (queue-like behavior)
+            if ($sync_products) {
+                $overall_progress['current_phase'] = 'products';
+                $this->update_overall_progress($overall_progress);
+                
+                $this->logger->log('info', "🛍️ Phase {$phase_number}/{$overall_progress['total_phases']}: Starting full product sync", array(), 'action_scheduler');
+                $results['products'] = $this->sync_products_for_action_scheduler(true, $with_branding);
+                
+                $overall_progress['phases']['products'] = array(
+                    'status' => 'completed',
+                    'completed_at' => current_time('mysql'),
+                    'result' => $results['products']
+                );
+                $overall_progress['completed_phases']++;
+                $this->update_overall_progress($overall_progress);
+                
+                $this->logger->log('success', "✅ Phase {$phase_number}/{$overall_progress['total_phases']}: Product sync completed", array(
+                    'result' => $results['products']
                 ), 'action_scheduler');
-                return;
+                $phase_number++;
             }
             
-            if (!is_array($products) || empty($products)) {
-                $this->logger->log('warning', 'No products found for Action Scheduler full sync', array(), 'action_scheduler');
-                return;
+            if ($sync_stock) {
+                $overall_progress['current_phase'] = 'stock';
+                $this->update_overall_progress($overall_progress);
+                
+                $this->logger->log('info', "📦 Phase {$phase_number}/{$overall_progress['total_phases']}: Starting full stock sync", array(), 'action_scheduler');
+                $results['stock'] = $this->sync_stock_for_action_scheduler(true);
+                
+                $overall_progress['phases']['stock'] = array(
+                    'status' => 'completed',
+                    'completed_at' => current_time('mysql'),
+                    'result' => $results['stock']
+                );
+                $overall_progress['completed_phases']++;
+                $this->update_overall_progress($overall_progress);
+                
+                $this->logger->log('success', "✅ Phase {$phase_number}/{$overall_progress['total_phases']}: Stock sync completed", array(
+                    'result' => $results['stock']
+                ), 'action_scheduler');
+                $phase_number++;
             }
             
-            $total = count($products);
-            $batch_size = (int) get_option('bytemash_amrod_batch_size', 10);
+            if ($sync_prices) {
+                $overall_progress['current_phase'] = 'prices';
+                $this->update_overall_progress($overall_progress);
+                
+                $this->logger->log('info', "💰 Phase {$phase_number}/{$overall_progress['total_phases']}: Starting full price sync", array(), 'action_scheduler');
+                $results['prices'] = $this->sync_prices_for_action_scheduler(true);
+                
+                $overall_progress['phases']['prices'] = array(
+                    'status' => 'completed',
+                    'completed_at' => current_time('mysql'),
+                    'result' => $results['prices']
+                );
+                $overall_progress['completed_phases']++;
+                $this->update_overall_progress($overall_progress);
+                
+                $this->logger->log('success', "✅ Phase {$phase_number}/{$overall_progress['total_phases']}: Price sync completed", array(
+                    'result' => $results['prices']
+                ), 'action_scheduler');
+                $phase_number++;
+            }
             
-            $this->logger->log('info', "Processing {$total} products in batches of {$batch_size}", array(), 'action_scheduler');
+            if ($sync_categories) {
+                $overall_progress['current_phase'] = 'categories';
+                $this->update_overall_progress($overall_progress);
+                
+                $this->logger->log('info', "📁 Phase {$phase_number}/{$overall_progress['total_phases']}: Starting full category sync", array(), 'action_scheduler');
+                $results['categories'] = $this->sync_categories_for_action_scheduler(true);
+                
+                $overall_progress['phases']['categories'] = array(
+                    'status' => 'completed',
+                    'completed_at' => current_time('mysql'),
+                    'result' => $results['categories']
+                );
+                $overall_progress['completed_phases']++;
+                $this->update_overall_progress($overall_progress);
+                
+                $this->logger->log('success', "✅ Phase {$phase_number}/{$overall_progress['total_phases']}: Category sync completed", array(
+                    'result' => $results['categories']
+                ), 'action_scheduler');
+                $phase_number++;
+            }
             
-            // Process products in batches using Action Scheduler
-            $this->schedule_batch_processing($products, 'full', $with_branding);
+            if ($sync_brands) {
+                $overall_progress['current_phase'] = 'brands';
+                $this->update_overall_progress($overall_progress);
+                
+                $this->logger->log('info', "🏷️ Phase {$phase_number}/{$overall_progress['total_phases']}: Starting full brand sync", array(), 'action_scheduler');
+                $results['brands'] = $this->sync_brands_for_action_scheduler(true);
+                
+                $overall_progress['phases']['brands'] = array(
+                    'status' => 'completed',
+                    'completed_at' => current_time('mysql'),
+                    'result' => $results['brands']
+                );
+                $overall_progress['completed_phases']++;
+                $this->update_overall_progress($overall_progress);
+                
+                $this->logger->log('success', "✅ Phase {$phase_number}/{$overall_progress['total_phases']}: Brand sync completed", array(
+                    'result' => $results['brands']
+                ), 'action_scheduler');
+                $phase_number++;
+            }
+            
+            // Mark overall sync as completed
+            $overall_progress['status'] = 'completed';
+            $overall_progress['completed'] = current_time('mysql');
+            $this->update_overall_progress($overall_progress);
+            
+            $this->logger->log('success', '🎉 Action Scheduler full sync completed successfully', array(
+                'results' => $results,
+                'total_phases' => $overall_progress['total_phases'],
+                'completed_phases' => $overall_progress['completed_phases']
+            ), 'action_scheduler');
             
         } catch (Exception $e) {
             $this->logger->log('error', 'Action Scheduler full sync failed', array(
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ), 'action_scheduler');
+        } finally {
+            // Clear sync running flag
+            delete_transient('bytemash_action_scheduler_full_sync_running');
         }
     }
     
     /**
-     * Run incremental sync action
+     * Run incremental sync action using same strategies as test full sync
      */
     public function run_incremental_sync_action($with_branding = true) {
-        $this->logger->log('info', 'Action Scheduler incremental sync started', array(
+        $this->logger->log('info', '🚀 Starting Action Scheduler incremental sync', array(
             'with_branding' => $with_branding,
         ), 'action_scheduler');
         
+        // Check if sync is already running
+        if (get_transient('bytemash_action_scheduler_incremental_sync_running')) {
+            $this->logger->log('warning', 'Action Scheduler incremental sync already running, skipping', array(), 'action_scheduler');
+            return;
+        }
+        
+        // Set sync running flag
+        set_transient('bytemash_action_scheduler_incremental_sync_running', true, 3600); // 1 hour timeout
+        
+        // Initialize overall progress tracking
+        $overall_progress = array(
+            'status' => 'running',
+            'started' => current_time('mysql'),
+            'phases' => array(),
+            'current_phase' => 'initializing',
+            'total_phases' => 0,
+            'completed_phases' => 0
+        );
+        
         try {
-            // Fetch updated products from Amrod API
-            $api_client = new ByteMash_Amrod_API_Client();
-            if ($with_branding) {
-                $products = $api_client->get_products_with_branding_updated();
-            } else {
-                $products = $api_client->get_products_without_branding_updated();
-            }
+            // Get enabled sync attributes
+            $sync_products = get_option('bytemash_sync_products', true);
+            $sync_stock = get_option('bytemash_sync_stock', true);
+            $sync_prices = get_option('bytemash_sync_prices', true);
+            $sync_categories = get_option('bytemash_sync_categories', true);
+            $sync_brands = get_option('bytemash_sync_brands', true);
             
-            if (is_wp_error($products)) {
-                $this->logger->log('error', 'Failed to fetch updated products for Action Scheduler incremental sync', array(
-                    'error' => $products->get_error_message(),
+            // Count enabled phases
+            $enabled_phases = array_filter(array(
+                'products' => $sync_products,
+                'stock' => $sync_stock,
+                'prices' => $sync_prices,
+                'categories' => $sync_categories,
+                'brands' => $sync_brands
+            ));
+            
+            $overall_progress['total_phases'] = count($enabled_phases);
+            $overall_progress['enabled_phases'] = array_keys($enabled_phases);
+            
+            $this->logger->log('info', "📋 Action Scheduler incremental sync phases enabled: " . implode(', ', array_keys($enabled_phases)), array(
+                'enabled_phases' => array_keys($enabled_phases),
+                'total_phases' => count($enabled_phases)
+            ), 'action_scheduler');
+            
+            $results = array();
+            $phase_number = 1;
+            
+            // Run incremental sync for enabled endpoints in sequence (queue-like behavior)
+            if ($sync_products) {
+                $overall_progress['current_phase'] = 'products';
+                $this->update_overall_progress($overall_progress);
+                
+                $this->logger->log('info', "🛍️ Phase {$phase_number}/{$overall_progress['total_phases']}: Starting incremental product sync", array(), 'action_scheduler');
+                $results['products'] = $this->sync_products_for_action_scheduler(false, $with_branding);
+                
+                $overall_progress['phases']['products'] = array(
+                    'status' => 'completed',
+                    'completed_at' => current_time('mysql'),
+                    'result' => $results['products']
+                );
+                $overall_progress['completed_phases']++;
+                $this->update_overall_progress($overall_progress);
+                
+                $this->logger->log('success', "✅ Phase {$phase_number}/{$overall_progress['total_phases']}: Product sync completed", array(
+                    'result' => $results['products']
                 ), 'action_scheduler');
-                return;
+                $phase_number++;
             }
             
-            if (!is_array($products) || empty($products)) {
-                $this->logger->log('info', 'No updated products found for Action Scheduler incremental sync', array(), 'action_scheduler');
-                return;
+            if ($sync_stock) {
+                $overall_progress['current_phase'] = 'stock';
+                $this->update_overall_progress($overall_progress);
+                
+                $this->logger->log('info', "📦 Phase {$phase_number}/{$overall_progress['total_phases']}: Starting incremental stock sync", array(), 'action_scheduler');
+                $results['stock'] = $this->sync_stock_for_action_scheduler(false);
+                
+                $overall_progress['phases']['stock'] = array(
+                    'status' => 'completed',
+                    'completed_at' => current_time('mysql'),
+                    'result' => $results['stock']
+                );
+                $overall_progress['completed_phases']++;
+                $this->update_overall_progress($overall_progress);
+                
+                $this->logger->log('success', "✅ Phase {$phase_number}/{$overall_progress['total_phases']}: Stock sync completed", array(
+                    'result' => $results['stock']
+                ), 'action_scheduler');
+                $phase_number++;
             }
             
-            $total = count($products);
-            $batch_size = (int) get_option('bytemash_amrod_batch_size', 10);
+            if ($sync_prices) {
+                $overall_progress['current_phase'] = 'prices';
+                $this->update_overall_progress($overall_progress);
+                
+                $this->logger->log('info', "💰 Phase {$phase_number}/{$overall_progress['total_phases']}: Starting incremental price sync", array(), 'action_scheduler');
+                $results['prices'] = $this->sync_prices_for_action_scheduler(false);
+                
+                $overall_progress['phases']['prices'] = array(
+                    'status' => 'completed',
+                    'completed_at' => current_time('mysql'),
+                    'result' => $results['prices']
+                );
+                $overall_progress['completed_phases']++;
+                $this->update_overall_progress($overall_progress);
+                
+                $this->logger->log('success', "✅ Phase {$phase_number}/{$overall_progress['total_phases']}: Price sync completed", array(
+                    'result' => $results['prices']
+                ), 'action_scheduler');
+                $phase_number++;
+            }
             
-            $this->logger->log('info', "Processing {$total} updated products in batches of {$batch_size}", array(), 'action_scheduler');
+            if ($sync_categories) {
+                $overall_progress['current_phase'] = 'categories';
+                $this->update_overall_progress($overall_progress);
+                
+                $this->logger->log('info', "📁 Phase {$phase_number}/{$overall_progress['total_phases']}: Starting incremental category sync", array(), 'action_scheduler');
+                $results['categories'] = $this->sync_categories_for_action_scheduler(false);
+                
+                $overall_progress['phases']['categories'] = array(
+                    'status' => 'completed',
+                    'completed_at' => current_time('mysql'),
+                    'result' => $results['categories']
+                );
+                $overall_progress['completed_phases']++;
+                $this->update_overall_progress($overall_progress);
+                
+                $this->logger->log('success', "✅ Phase {$phase_number}/{$overall_progress['total_phases']}: Category sync completed", array(
+                    'result' => $results['categories']
+                ), 'action_scheduler');
+                $phase_number++;
+            }
             
-            // Process products in batches using Action Scheduler
-            $this->schedule_batch_processing($products, 'incremental', $with_branding);
+            if ($sync_brands) {
+                $overall_progress['current_phase'] = 'brands';
+                $this->update_overall_progress($overall_progress);
+                
+                $this->logger->log('info', "🏷️ Phase {$phase_number}/{$overall_progress['total_phases']}: Starting incremental brand sync", array(), 'action_scheduler');
+                $results['brands'] = $this->sync_brands_for_action_scheduler(false);
+                
+                $overall_progress['phases']['brands'] = array(
+                    'status' => 'completed',
+                    'completed_at' => current_time('mysql'),
+                    'result' => $results['brands']
+                );
+                $overall_progress['completed_phases']++;
+                $this->update_overall_progress($overall_progress);
+                
+                $this->logger->log('success', "✅ Phase {$phase_number}/{$overall_progress['total_phases']}: Brand sync completed", array(
+                    'result' => $results['brands']
+                ), 'action_scheduler');
+                $phase_number++;
+            }
+            
+            // Mark overall sync as completed
+            $overall_progress['status'] = 'completed';
+            $overall_progress['completed'] = current_time('mysql');
+            $this->update_overall_progress($overall_progress);
+            
+            $this->logger->log('success', '🎉 Action Scheduler incremental sync completed successfully', array(
+                'results' => $results,
+                'total_phases' => $overall_progress['total_phases'],
+                'completed_phases' => $overall_progress['completed_phases']
+            ), 'action_scheduler');
             
         } catch (Exception $e) {
             $this->logger->log('error', 'Action Scheduler incremental sync failed', array(
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ), 'action_scheduler');
+        } finally {
+            // Clear sync running flag
+            delete_transient('bytemash_action_scheduler_incremental_sync_running');
         }
     }
     
@@ -269,9 +545,9 @@ class ByteMash_Action_Scheduler_Sync {
                 $products = $this->refetch_products_for_sync($sync_id);
                 if (!$products) {
                     $this->logger->log('error', "Failed to refetch products for sync {$sync_id}", array(
-                        'sync_id' => $sync_id,
-                    ), 'action_scheduler');
-                    return;
+                    'sync_id' => $sync_id,
+                ), 'action_scheduler');
+                return;
                 }
                 
                 // Re-store the products with extended lifetime
@@ -872,5 +1148,89 @@ class ByteMash_Action_Scheduler_Sync {
         });
         
         return $scheduled_times;
+    }
+    
+    /**
+     * Sync products for Action Scheduler using same strategies as test full sync
+     */
+    private function sync_products_for_action_scheduler($is_full_sync = true, $with_branding = true) {
+        $this->logger->log('info', 'Starting Action Scheduler product sync', array(
+            'is_full_sync' => $is_full_sync,
+            'with_branding' => $with_branding,
+        ), 'action_scheduler');
+        
+        // Use the same method as test full sync
+        if ($is_full_sync) {
+            return $this->product_sync->sync_all_products(false, $with_branding);
+        } else {
+            return $this->product_sync->sync_updated_products($with_branding);
+        }
+    }
+    
+    /**
+     * Sync stock for Action Scheduler using same strategies as test full sync
+     */
+    private function sync_stock_for_action_scheduler($is_full_sync = true) {
+        $this->logger->log('info', 'Starting Action Scheduler stock sync', array(
+            'is_full_sync' => $is_full_sync,
+        ), 'action_scheduler');
+        
+        if ($is_full_sync) {
+            return $this->product_sync->sync_stock_levels();
+        } else {
+            return $this->product_sync->sync_stock_updated();
+        }
+    }
+    
+    /**
+     * Sync prices for Action Scheduler using same strategies as test full sync
+     */
+    private function sync_prices_for_action_scheduler($is_full_sync = true) {
+        $this->logger->log('info', 'Starting Action Scheduler price sync', array(
+            'is_full_sync' => $is_full_sync,
+        ), 'action_scheduler');
+        
+        if ($is_full_sync) {
+            return $this->product_sync->sync_prices();
+        } else {
+            return $this->product_sync->sync_prices_updated();
+        }
+    }
+    
+    /**
+     * Sync categories for Action Scheduler using same strategies as test full sync
+     */
+    private function sync_categories_for_action_scheduler($is_full_sync = true) {
+        $this->logger->log('info', 'Starting Action Scheduler category sync', array(
+            'is_full_sync' => $is_full_sync,
+        ), 'action_scheduler');
+        
+        if ($is_full_sync) {
+            return $this->product_sync->sync_categories();
+        } else {
+            return $this->product_sync->sync_categories_updated();
+        }
+    }
+    
+    /**
+     * Sync brands for Action Scheduler using same strategies as test full sync
+     */
+    private function sync_brands_for_action_scheduler($is_full_sync = true) {
+        $this->logger->log('info', 'Starting Action Scheduler brand sync', array(
+            'is_full_sync' => $is_full_sync,
+        ), 'action_scheduler');
+        
+        if ($is_full_sync) {
+            return $this->product_sync->sync_brands();
+        } else {
+            return $this->product_sync->sync_brands_updated();
+        }
+    }
+    
+    /**
+     * Update overall progress for Action Scheduler
+     */
+    private function update_overall_progress($progress) {
+        update_option('bytemash_action_scheduler_overall_progress', $progress, false);
     }
 }

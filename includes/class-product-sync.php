@@ -1452,6 +1452,9 @@ class ByteMash_Product_Sync {
             return array('success' => false, 'message' => 'No SKU in stock data');
         }
         
+        // Get the stock quantity from API
+        $api_stock = (int) ($stock_item['stock'] ?? 0);
+        
         // Try multiple SKU variations (products might be stored with different formats)
         $skus_to_try = array_filter(array(
             $fullCode,                              // Try full code first (e.g., "AF-AM-7-D-0-0")
@@ -1531,6 +1534,17 @@ class ByteMash_Product_Sync {
                         'product_id' => $pid,
                         'sku' => $matched_sku,
                     ), 'product_sync');
+                    continue;
+                }
+                
+                // Check if stock has changed before updating
+                $existing_stock = $product->get_stock_quantity();
+                if ($existing_stock === $stock_qty) {
+                    $this->logger->log('info', 'Stock unchanged, skipping', array(
+                        'product_id' => $pid,
+                        'sku' => $product->get_sku(),
+                        'stock' => $stock_qty,
+                    ), 'stock_sync');
                     continue;
                 }
                 
@@ -1657,6 +1671,26 @@ class ByteMash_Product_Sync {
                         'product_id' => $pid,
                         'sku' => $matched_sku,
                     ), 'product_sync');
+                    continue;
+                }
+                
+                // Check if prices have changed before updating
+                $api_regular_price = isset($price_item['price']) ? (float) $price_item['price'] : null;
+                $api_sale_price = isset($price_item['salePrice']) ? (float) $price_item['salePrice'] : null;
+                
+                $existing_regular_price = (float) $product->get_regular_price();
+                $existing_sale_price = (float) $product->get_sale_price();
+                
+                $regular_price_changed = $api_regular_price !== null && $existing_regular_price !== $api_regular_price;
+                $sale_price_changed = $api_sale_price !== null && $existing_sale_price !== $api_sale_price;
+                
+                if (!$regular_price_changed && !$sale_price_changed) {
+                    $this->logger->log('info', 'Prices unchanged, skipping', array(
+                        'product_id' => $pid,
+                        'sku' => $product->get_sku(),
+                        'regular_price' => $api_regular_price,
+                        'sale_price' => $api_sale_price,
+                    ), 'price_sync');
                     continue;
                 }
                 
