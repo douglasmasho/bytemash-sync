@@ -583,6 +583,10 @@ class ByteMash_Product_Sync {
                 $product->set_stock_quantity($stock_qty);
                 $product->set_stock_status($stock_qty > 0 ? 'instock' : 'outofstock');
                 
+                // Clear any caches that might interfere with stock status display
+                wp_cache_delete($product_id, 'posts');
+                wc_delete_product_transients($product_id);
+                
                 // Store detailed stock data for modal display
                 $stock_item = array(
                     'fullCode' => $product_data['fullCode'] ?? '',
@@ -1567,6 +1571,11 @@ class ByteMash_Product_Sync {
                 $product->set_stock_quantity($stock_qty);
                 $product->set_stock_status($stock_qty > 0 ? 'instock' : 'outofstock');
                 $this->save_product_safely($product);
+                
+                // Clear any caches that might interfere with stock status display
+                wp_cache_delete($pid, 'posts');
+                wc_delete_product_transients($pid);
+                
                 $updated_count++;
                 
                 // Store detailed stock data for modal display

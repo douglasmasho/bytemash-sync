@@ -107,6 +107,9 @@ class ByteMash_Woo_Sync {
         // Stock modal display on single product page
         add_action('woocommerce_single_product_summary', array($this, 'render_stock_modal'), 26);
         
+        // Frontend assets
+        add_action('wp_enqueue_scripts', array($this, 'enqueue_frontend_assets'));
+        
         // Admin hooks
         if (is_admin()) {
             add_action('admin_menu', array($this, 'register_admin_menu'));
@@ -468,6 +471,63 @@ class ByteMash_Woo_Sync {
         // Add inline script to verify JavaScript is loading
         wp_add_inline_script('bytemash-woo-sync-admin', 
             'console.log("ByteMash WooSync Admin JS Loaded", bytemashWooSync);',
+            'after'
+        );
+    }
+    
+    /**
+     * Enqueue frontend assets for product pages
+     */
+    public function enqueue_frontend_assets() {
+        // Only load on single product pages
+        if (!is_product()) {
+            return;
+        }
+        
+        // Force enqueue jQuery first to ensure it's loaded
+        wp_enqueue_script('jquery');
+        
+        // Use filemtime for cache busting
+        $css_file = BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'assets/css/admin.css';
+        $js_file = BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'assets/js/admin.js';
+        
+        $css_version = BYTEMASH_WOO_SYNC_VERSION . '.' . (file_exists($css_file) ? filemtime($css_file) : time());
+        $js_version = BYTEMASH_WOO_SYNC_VERSION . '.' . (file_exists($js_file) ? filemtime($js_file) : time());
+        
+        wp_enqueue_style(
+            'bytemash-woo-sync-frontend',
+            BYTEMASH_WOO_SYNC_PLUGIN_URL . 'assets/css/admin.css',
+            array(),
+            $css_version
+        );
+        
+        wp_enqueue_script(
+            'bytemash-woo-sync-frontend',
+            BYTEMASH_WOO_SYNC_PLUGIN_URL . 'assets/js/admin.js',
+            array('jquery'),
+            $js_version,
+            true
+        );
+        
+        // Localize script for frontend
+        wp_localize_script('bytemash-woo-sync-frontend', 'bytemashWooSync', array(
+            'ajax_url' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('bytemash_woo_sync_nonce'),
+            'strings' => array(
+                'syncing' => __('Syncing...', 'bytemash-woo-sync'),
+                'success' => __('Sync completed successfully!', 'bytemash-woo-sync'),
+                'error' => __('Sync failed. Check logs for details.', 'bytemash-woo-sync'),
+            ),
+            'debug' => array(
+                'plugin_url' => BYTEMASH_WOO_SYNC_PLUGIN_URL,
+                'is_admin' => is_admin(),
+                'is_product' => is_product(),
+            ),
+        ));
+        
+        // Add inline script to verify JavaScript is loading on frontend
+        wp_add_inline_script('bytemash-woo-sync-frontend', 
+            'console.log("ByteMash WooSync Frontend JS Loaded", bytemashWooSync);',
             'after'
         );
     }

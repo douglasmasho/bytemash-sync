@@ -524,6 +524,11 @@ class ByteMash_Batch_Processor {
                 $product->set_stock_quantity((int) $stock_item['stock']);
                 $product->set_stock_status($stock_item['stock'] > 0 ? 'instock' : 'outofstock');
                 $product->save();
+                
+                // Clear any caches that might interfere with stock status display
+                wp_cache_delete($product_id, 'posts');
+                wc_delete_product_transients($product_id);
+                
                 $processed++;
             } else {
                 $errors++;
