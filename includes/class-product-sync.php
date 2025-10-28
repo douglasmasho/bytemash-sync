@@ -582,6 +582,20 @@ class ByteMash_Product_Sync {
                 $product->set_manage_stock(true);
                 $product->set_stock_quantity($stock_qty);
                 $product->set_stock_status($stock_qty > 0 ? 'instock' : 'outofstock');
+                
+                // Store detailed stock data for modal display
+                $stock_item = array(
+                    'fullCode' => $product_data['fullCode'] ?? '',
+                    'simpleCode' => $product_data['simpleCode'] ?? '',
+                    'stock' => $stock_qty,
+                    'color' => $product_data['color'] ?? '',
+                    'colorImage' => $product_data['colorImage'] ?? '',
+                    'reserved' => 0,
+                    'incoming' => 0,
+                    'incomingEta' => 'To Be Confirmed',
+                    'discontinued' => false
+                );
+                $this->store_detailed_stock_data($product_id, $stock_item);
             }
             
             $this->logger->log('success', "Product synced: {$sku}", array(), 'product_sync');
@@ -1555,6 +1569,9 @@ class ByteMash_Product_Sync {
                 $this->save_product_safely($product);
                 $updated_count++;
                 
+                // Store detailed stock data for modal display
+                $this->store_detailed_stock_data($pid, $stock_item);
+                
                 $this->logger->log('info', 'Stock updated successfully', array(
                     'product_id' => $pid,
                     'sku' => $product->get_sku(),
@@ -1578,6 +1595,48 @@ class ByteMash_Product_Sync {
         
         $message = $updated_count > 1 ? " ({$updated_count} variants)" : "";
         return array('success' => true, 'sku' => $matched_sku, 'stock' => $stock_qty, 'updated_count' => $updated_count, 'message' => $message);
+    }
+    
+    /**
+     * Store detailed stock data for modal display
+     */
+    private function store_detailed_stock_data($product_id, $stock_item) {
+        // Get existing stock data or create new array
+        $stock_data = get_post_meta($product_id, '_amrod_stock_data', true);
+        if (!is_array($stock_data)) {
+            $stock_data = array();
+        }
+        
+        // Create stock data entry
+        $stock_entry = array(
+            'code' => $stock_item['fullCode'] ?? $stock_item['simpleCode'] ?? $stock_item['simplecode'] ?? '',
+            'color' => $stock_item['color'] ?? '',
+            'color_image' => $stock_item['colorImage'] ?? $stock_item['color_image'] ?? '',
+            'stock_on_hand' => (int) ($stock_item['stock'] ?? 0),
+            'reserved' => (int) ($stock_item['reserved'] ?? 0),
+            'incoming' => (int) ($stock_item['incoming'] ?? 0),
+            'incoming_eta' => $stock_item['incomingEta'] ?? $stock_item['incoming_eta'] ?? 'To Be Confirmed',
+            'discontinued' => (bool) ($stock_item['discontinued'] ?? false),
+            'last_updated' => current_time('mysql')
+        );
+        
+        // Check if this variant already exists and update it
+        $found = false;
+        foreach ($stock_data as $key => $existing) {
+            if ($existing['code'] === $stock_entry['code']) {
+                $stock_data[$key] = $stock_entry;
+                $found = true;
+                break;
+            }
+        }
+        
+        // If not found, add new entry
+        if (!$found) {
+            $stock_data[] = $stock_entry;
+        }
+        
+        // Store updated stock data
+        update_post_meta($product_id, '_amrod_stock_data', $stock_data);
     }
     
     /**

@@ -1383,6 +1383,28 @@
         });
         
         /**
+         * Stock modal functionality
+         */
+        $(document).on('click', '.bytemash-check-stock-btn', function() {
+            const productId = $(this).data('product-id');
+            const modalId = '#bytemash-stock-modal-' + productId;
+            $(modalId).fadeIn();
+        });
+        
+        $(document).on('click', '.bytemash-stock-modal-close, .bytemash-stock-modal', function(e) {
+            if (e.target === this) {
+                $('.bytemash-stock-modal').fadeOut();
+            }
+        });
+        
+        // Close modal on escape key
+        $(document).on('keydown', function(e) {
+            if (e.key === 'Escape') {
+                $('.bytemash-stock-modal').fadeOut();
+            }
+        });
+        
+        /**
          * Show notification
          */
         function showNotice(type, message) {

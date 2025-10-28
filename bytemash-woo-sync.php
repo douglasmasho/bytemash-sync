@@ -100,6 +100,12 @@ class ByteMash_Woo_Sync {
         add_filter('woocommerce_product_get_image_id', array($this, 'use_external_image_url'), 10, 2);
         add_filter('wp_get_attachment_image_src', array($this, 'replace_with_external_url'), 10, 4);
         add_filter('woocommerce_product_get_gallery_image_ids', array($this, 'use_external_gallery_urls'), 10, 2);
+
+        // Branding guide downloads on single product page
+        add_action('woocommerce_single_product_summary', array($this, 'render_branding_guides'), 25);
+        
+        // Stock modal display on single product page
+        add_action('woocommerce_single_product_summary', array($this, 'render_stock_modal'), 26);
         
         // Admin hooks
         if (is_admin()) {
@@ -275,6 +281,137 @@ class ByteMash_Woo_Sync {
             'bytemash-amrod-tools',
             array('ByteMash_Admin_Tools', 'render')
         );
+    }
+
+    /**
+     * Render branding guide download links under product summary
+     */
+    public function render_branding_guides() {
+        global $product;
+        if (!$product instanceof WC_Product) {
+            return;
+        }
+        $product_id = $product->get_id();
+        $full = get_post_meta($product_id, '_amrod_full_branding_guide', true);
+        $logo24 = get_post_meta($product_id, '_amrod_logo24_branding_guide', true);
+        if (empty($full) && empty($logo24)) {
+            return;
+        }
+        echo '<div class="bytemash-branding-guides" style="margin-top:12px;">';
+        echo '<h4 style="margin:0 0 8px;">' . esc_html__('Branding Guides', 'bytemash-woo-sync') . '</h4>';
+        echo '<div class="bytemash-branding-links" style="display:flex;gap:8px;flex-wrap:wrap;">';
+        if (!empty($full)) {
+            echo '<a class="button" target="_blank" rel="noopener" href="' . esc_url($full) . '">' . esc_html__('Download Full Branding Guide (PDF)', 'bytemash-woo-sync') . '</a>';
+        }
+        if (!empty($logo24)) {
+            echo '<a class="button" target="_blank" rel="noopener" href="' . esc_url($logo24) . '">' . esc_html__('Download Logo24 Branding Guide (PDF)', 'bytemash-woo-sync') . '</a>';
+        }
+        echo '</div>';
+        echo '</div>';
+    }
+    
+    /**
+     * Render stock modal button and modal HTML
+     */
+    public function render_stock_modal() {
+        global $product;
+        if (!$product instanceof WC_Product) {
+            return;
+        }
+        
+        $product_id = $product->get_id();
+        $stock_data = get_post_meta($product_id, '_amrod_stock_data', true);
+        
+        // Only show if we have stock data
+        if (empty($stock_data) || !is_array($stock_data)) {
+            return;
+        }
+        
+        $product_name = $product->get_name();
+        $sku = $product->get_sku();
+        $total_stock = 0;
+        $total_incoming = 0;
+        
+        // Calculate totals
+        foreach ($stock_data as $item) {
+            $total_stock += (int) ($item['stock_on_hand'] ?? 0);
+            $total_incoming += (int) ($item['incoming'] ?? 0);
+        }
+        ?>
+        <div class="bytemash-stock-section" style="margin-top: 12px;">
+            <button type="button" class="button bytemash-check-stock-btn" data-product-id="<?php echo esc_attr($product_id); ?>">
+                <?php esc_html_e('Check Stock', 'bytemash-woo-sync'); ?>
+            </button>
+        </div>
+        
+        <!-- Stock Modal -->
+        <div id="bytemash-stock-modal-<?php echo esc_attr($product_id); ?>" class="bytemash-stock-modal" style="display: none;">
+            <div class="bytemash-stock-modal-content">
+                <div class="bytemash-stock-modal-header">
+                    <h2><?php echo esc_html($product_name); ?></h2>
+                    <p class="bytemash-stock-sku"><?php echo esc_html($sku); ?></p>
+                    <span class="bytemash-stock-modal-close">&times;</span>
+                </div>
+                
+                <div class="bytemash-stock-summary">
+                    <div class="bytemash-stock-summary-item">
+                        <strong><?php esc_html_e('Total Stock on Hand:', 'bytemash-woo-sync'); ?></strong>
+                        <span class="bytemash-stock-number"><?php echo number_format($total_stock); ?></span>
+                    </div>
+                    <div class="bytemash-stock-summary-item">
+                        <strong><?php esc_html_e('Total Incoming Stock:', 'bytemash-woo-sync'); ?></strong>
+                        <span class="bytemash-stock-number"><?php echo number_format($total_incoming); ?></span>
+                    </div>
+                </div>
+                
+                <div class="bytemash-stock-table-container">
+                    <table class="bytemash-stock-table">
+                        <thead>
+                            <tr>
+                                <th><?php esc_html_e('COLOUR', 'bytemash-woo-sync'); ?></th>
+                                <th><?php esc_html_e('CODE', 'bytemash-woo-sync'); ?></th>
+                                <th><?php esc_html_e('STOCK ON HAND', 'bytemash-woo-sync'); ?></th>
+                                <th><?php esc_html_e('RESERVED', 'bytemash-woo-sync'); ?></th>
+                                <th><?php esc_html_e('INCOMING', 'bytemash-woo-sync'); ?></th>
+                                <th><?php esc_html_e('INCOMING ETA', 'bytemash-woo-sync'); ?></th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                            <?php foreach ($stock_data as $item): ?>
+                            <tr>
+                                <td>
+                                    <?php if (!empty($item['color_image'])): ?>
+                                        <img src="<?php echo esc_url($item['color_image']); ?>" alt="<?php echo esc_attr($item['color'] ?? ''); ?>" class="bytemash-color-thumbnail">
+                                    <?php else: ?>
+                                        <span class="bytemash-color-placeholder"><?php echo esc_html($item['color'] ?? ''); ?></span>
+                                    <?php endif; ?>
+                                </td>
+                                <td><code><?php echo esc_html($item['code'] ?? ''); ?></code></td>
+                                <td class="bytemash-stock-on-hand"><?php echo number_format((int) ($item['stock_on_hand'] ?? 0)); ?></td>
+                                <td class="bytemash-stock-reserved"><?php echo number_format((int) ($item['reserved'] ?? 0)); ?></td>
+                                <td class="bytemash-stock-incoming"><?php echo number_format((int) ($item['incoming'] ?? 0)); ?></td>
+                                <td><?php echo esc_html($item['incoming_eta'] ?? __('To Be Confirmed', 'bytemash-woo-sync')); ?></td>
+                            </tr>
+                            <?php endforeach; ?>
+                        </tbody>
+                    </table>
+                </div>
+                
+                <div class="bytemash-stock-disclaimer">
+                    <p><strong><?php esc_html_e('Important Notes:', 'bytemash-woo-sync'); ?></strong></p>
+                    <ul>
+                        <li><?php esc_html_e('Products shown in RED are discontinued and will not be repeated once stock is sold out.', 'bytemash-woo-sync'); ?></li>
+                        <li><?php esc_html_e('Available Stock is taken directly off our accounting package. We expect this number to be correct but cannot verify this without a stock count.', 'bytemash-woo-sync'); ?></li>
+                        <li><?php esc_html_e('Should there be low quantities on hand, please ask your account manager to have the warehouse verify this number.', 'bytemash-woo-sync'); ?></li>
+                        <li><?php esc_html_e('Available Stock may be invoiced out at any time and thus quantities you see may change on a minute by minute basis.', 'bytemash-woo-sync'); ?></li>
+                        <li><?php esc_html_e('Expected Arrival Dates are updated regularly. Supplier delays, Shipping Delays and Customs Stops can push this date out.', 'bytemash-woo-sync'); ?></li>
+                        <li><?php esc_html_e('Reserved Stock is reserved for a maximum of 24 hours. Items on promotion cannot be reserved.', 'bytemash-woo-sync'); ?></li>
+                        <li><?php esc_html_e('E&OE', 'bytemash-woo-sync'); ?></li>
+                    </ul>
+                </div>
+            </div>
+        </div>
+        <?php
     }
     
     /**
@@ -1435,7 +1572,7 @@ class ByteMash_Woo_Sync {
                     if (isset($result['skipped']) && $result['skipped']) {
                         $skipped++;
                     } else {
-                        $processed++;
+                    $processed++;
                     }
                 } else {
                     $errors++;
@@ -1970,19 +2107,19 @@ class ByteMash_Woo_Sync {
             $result = $action_scheduler->enable_production_sync();
             
             if ($result['success']) {
-                // Disable test modes
-                update_option('bytemash_cron_full_test_mode_enabled', false);
-                update_option('bytemash_cron_incremental_test_mode_enabled', false);
-                
-                $logger = new ByteMash_Logger();
+        // Disable test modes
+        update_option('bytemash_cron_full_test_mode_enabled', false);
+        update_option('bytemash_cron_incremental_test_mode_enabled', false);
+            
+            $logger = new ByteMash_Logger();
                 $logger->log('info', 'Production Action Scheduler enabled', array(), 'action_scheduler');
-                
-                wp_send_json_success(array(
+            
+            wp_send_json_success(array(
                     'message' => __('Production Action Scheduler enabled successfully', 'bytemash-woo-sync'),
                     'next_full_sync' => $result['next_full_sync'],
                     'next_incremental_sync' => $result['next_incremental_sync'],
-                ));
-            } else {
+            ));
+        } else {
                 wp_send_json_error(array('message' => $result['message']));
             }
         } else {
