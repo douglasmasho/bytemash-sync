@@ -203,9 +203,9 @@
         });
         
         /**
-         * Handle production Action Scheduler enable
+         * Handle production cron enable
          */
-        $('#enable-production-action-scheduler').on('click', function() {
+        $('#enable-production-cron').on('click', function() {
             const $button = $(this);
             const originalText = $button.text();
             
@@ -215,31 +215,24 @@
                 url: bytemashWooSync.ajax_url,
                 type: 'POST',
                 data: {
-                    action: 'bytemash_enable_production_action_scheduler',
+                    action: 'bytemash_enable_production_cron',
                     nonce: bytemashWooSync.nonce
                 },
                 success: function(response) {
                     if (response.success) {
-                        let statusHtml = '<div class="notice notice-success"><p>' + response.data.message + '</p>';
-                        if (response.data.next_full_sync) {
-                            statusHtml += '<p><strong>Next Full Sync:</strong> ' + response.data.next_full_sync + '</p>';
-                        }
-                        if (response.data.next_incremental_sync) {
-                            statusHtml += '<p><strong>Next Incremental Sync:</strong> ' + response.data.next_incremental_sync + '</p>';
-                        }
-                        statusHtml += '</div>';
-                        
-                        $('#production-action-scheduler-status').html(statusHtml);
+                        $('#production-cron-status').html(
+                            '<div class="notice notice-success"><p>' + response.data.message + '</p></div>'
+                        );
                         $button.text('Enabled').prop('disabled', true);
                     } else {
-                        $('#production-action-scheduler-status').html(
+                        $('#production-cron-status').html(
                             '<div class="notice notice-error"><p>' + response.data.message + '</p></div>'
                         );
                         $button.text(originalText);
                     }
                 },
                 error: function() {
-                    $('#production-action-scheduler-status').html(
+                    $('#production-cron-status').html(
                         '<div class="notice notice-error"><p>Request failed. Please try again.</p></div>'
                     );
                     $button.text(originalText);
@@ -1379,28 +1372,6 @@
         $('.bytemash-modal-close, .bytemash-modal').on('click', function(e) {
             if (e.target === this) {
                 $('#bytemash_log_modal').fadeOut();
-            }
-        });
-        
-        /**
-         * Stock modal functionality
-         */
-        $(document).on('click', '.bytemash-check-stock-btn', function() {
-            const productId = $(this).data('product-id');
-            const modalId = '#bytemash-stock-modal-' + productId;
-            $(modalId).fadeIn();
-        });
-        
-        $(document).on('click', '.bytemash-stock-modal-close, .bytemash-stock-modal', function(e) {
-            if (e.target === this) {
-                $('.bytemash-stock-modal').fadeOut();
-            }
-        });
-        
-        // Close modal on escape key
-        $(document).on('keydown', function(e) {
-            if (e.key === 'Escape') {
-                $('.bytemash-stock-modal').fadeOut();
             }
         });
         

@@ -325,19 +325,19 @@ header('Content-Type: text/html; charset=utf-8');
             </tr>
         </table>
         
-        <h2> Recommendations</h2>
+        <h2>🔧 Recommendations</h2>
         
         <div class="actions">
             <?php if (!$plugin_active): ?>
-                <p><strong> Plugin is not active.</strong> Please activate the ByteMash WooSync plugin.</p>
+                <p><strong>⚠️ Plugin is not active.</strong> Please activate the ByteMash WooSync plugin.</p>
             <?php endif; ?>
             
             <?php if (!$css_readable || !$js_readable): ?>
-                <p><strong> Asset files have issues.</strong> Try reuploading the plugin files via FTP/SFTP.</p>
+                <p><strong>⚠️ Asset files have issues.</strong> Try reuploading the plugin files via FTP/SFTP.</p>
             <?php endif; ?>
             
             <?php if ($cron_disabled): ?>
-                <p><strong> WordPress Cron is disabled.</strong> You should set up system cron or use the cron manager in the plugin to enable production cron.</p>
+                <p><strong>⚠️ WordPress Cron is disabled.</strong> You should set up system cron or use the cron manager in the plugin to enable production cron.</p>
                 <div class="code">
                     # Add this to your crontab (run: crontab -e)
                     */5 * * * * wget -q -O - "<?php echo site_url('/wp-cron.php?doing_wp_cron'); ?>" >/dev/null 2>&1
@@ -345,7 +345,7 @@ header('Content-Type: text/html; charset=utf-8');
             <?php endif; ?>
             
             <?php if (!$is_authenticated): ?>
-                <p><strong> Not authenticated with Amrod API.</strong> Go to Settings and authenticate.</p>
+                <p><strong>⚠️ Not authenticated with Amrod API.</strong> Go to Settings and authenticate.</p>
             <?php endif; ?>
             
             <p><strong>Clear Cache:</strong> If buttons still don't work, clear your:</p>

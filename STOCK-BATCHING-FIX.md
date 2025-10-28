@@ -52,3 +52,4 @@ After the fix:
 - Each product variation will show its own specific stock quantity
 - No more batching of stock data across different variations
 - Stock modal will display accurate individual stock information for each color/size combination
+

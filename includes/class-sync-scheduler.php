@@ -54,21 +54,14 @@ class ByteMash_Sync_Scheduler {
             // Use Action Scheduler for scheduling if available
             $this->use_action_scheduler = $this->action_scheduler->is_action_scheduler_available();
             
-            // Only log once per session to avoid spam
-            if (!get_transient('bytemash_action_scheduler_logged')) {
-                if ($this->use_action_scheduler) {
-                    $this->logger->log('info', 'Action Scheduler integration enabled', array(), 'sync_scheduler');
-                } else {
-                    $this->logger->log('warning', 'Action Scheduler not available, falling back to WordPress cron', array(), 'sync_scheduler');
-                }
-                set_transient('bytemash_action_scheduler_logged', true, 300); // 5 minutes
+            if ($this->use_action_scheduler) {
+                $this->logger->log('info', 'Action Scheduler integration enabled', array(), 'sync_scheduler');
+            } else {
+                $this->logger->log('warning', 'Action Scheduler not available, falling back to WordPress cron', array(), 'sync_scheduler');
             }
         } else {
             $this->use_action_scheduler = false;
-            if (!get_transient('bytemash_action_scheduler_logged')) {
-                $this->logger->log('warning', 'Action Scheduler class not found, using WordPress cron', array(), 'sync_scheduler');
-                set_transient('bytemash_action_scheduler_logged', true, 300); // 5 minutes
-            }
+            $this->logger->log('warning', 'Action Scheduler class not found, using WordPress cron', array(), 'sync_scheduler');
         }
     }
     
@@ -168,7 +161,7 @@ class ByteMash_Sync_Scheduler {
      * According to API docs: Full stock list is cleared and repopulated at 00:30 GMT+2
      */
     public function run_full_sync() {
-        $this->logger->log('info', '🚀 Starting full sync (daily reset)', array(), 'full_sync');
+        $this->logger->log('info', 'Running full sync (daily reset)', array(), 'full_sync');
         
         // Check if sync is already running
         if (get_transient('bytemash_full_sync_running')) {
@@ -179,16 +172,6 @@ class ByteMash_Sync_Scheduler {
         // Set sync running flag
         set_transient('bytemash_full_sync_running', true, 7200); // 2 hours timeout
         
-        // Initialize overall progress tracking
-        $overall_progress = array(
-            'status' => 'running',
-            'started' => current_time('mysql'),
-            'phases' => array(),
-            'current_phase' => 'initializing',
-            'total_phases' => 0,
-            'completed_phases' => 0
-        );
-        
         try {
             // Get enabled sync attributes
             $sync_products = get_option('bytemash_sync_products', true);
@@ -197,140 +180,38 @@ class ByteMash_Sync_Scheduler {
             $sync_categories = get_option('bytemash_sync_categories', true);
             $sync_brands = get_option('bytemash_sync_brands', true);
             
-            // Count enabled phases
-            $enabled_phases = array_filter(array(
-                'products' => $sync_products,
-                'stock' => $sync_stock,
-                'prices' => $sync_prices,
-                'categories' => $sync_categories,
-                'brands' => $sync_brands
-            ));
-            
-            $overall_progress['total_phases'] = count($enabled_phases);
-            $overall_progress['enabled_phases'] = array_keys($enabled_phases);
-            
-            $this->logger->log('info', "📋 Full sync phases enabled: " . implode(', ', array_keys($enabled_phases)), array(
-                'enabled_phases' => array_keys($enabled_phases),
-                'total_phases' => count($enabled_phases)
-            ), 'full_sync');
-            
             $results = array();
-            $phase_number = 1;
             
             // Run full sync for enabled endpoints in sequence (queue-like behavior)
             if ($sync_products) {
-                $overall_progress['current_phase'] = 'products';
-                $this->update_overall_progress($overall_progress);
-                
-                $this->logger->log('info', "🛍️ Phase {$phase_number}/{$overall_progress['total_phases']}: Starting full product sync", array(), 'full_sync');
+                $this->logger->log('info', 'Starting full product sync', array(), 'full_sync');
                 $results['products'] = $this->sync_products_for_cron(true);
-                
-                $overall_progress['phases']['products'] = array(
-                    'status' => 'completed',
-                    'completed_at' => current_time('mysql'),
-                    'result' => $results['products']
-                );
-                $overall_progress['completed_phases']++;
-                $this->update_overall_progress($overall_progress);
-                
-                $this->logger->log('success', "✅ Phase {$phase_number}/{$overall_progress['total_phases']}: Product sync completed", array(
-                    'result' => $results['products']
-                ), 'full_sync');
-                $phase_number++;
             }
             
             if ($sync_stock) {
-                $overall_progress['current_phase'] = 'stock';
-                $this->update_overall_progress($overall_progress);
-                
-                $this->logger->log('info', "📦 Phase {$phase_number}/{$overall_progress['total_phases']}: Starting full stock sync", array(), 'full_sync');
+                $this->logger->log('info', 'Starting full stock sync', array(), 'full_sync');
                 $results['stock'] = $this->product_sync->sync_stock_levels();
-                
-                $overall_progress['phases']['stock'] = array(
-                    'status' => 'completed',
-                    'completed_at' => current_time('mysql'),
-                    'result' => $results['stock']
-                );
-                $overall_progress['completed_phases']++;
-                $this->update_overall_progress($overall_progress);
-                
-                $this->logger->log('success', "✅ Phase {$phase_number}/{$overall_progress['total_phases']}: Stock sync completed", array(
-                    'result' => $results['stock']
-                ), 'full_sync');
-                $phase_number++;
             }
             
             if ($sync_prices) {
-                $overall_progress['current_phase'] = 'prices';
-                $this->update_overall_progress($overall_progress);
-                
-                $this->logger->log('info', "💰 Phase {$phase_number}/{$overall_progress['total_phases']}: Starting full price sync", array(), 'full_sync');
+                $this->logger->log('info', 'Starting full price sync', array(), 'full_sync');
                 $results['prices'] = $this->product_sync->sync_prices();
-                
-                $overall_progress['phases']['prices'] = array(
-                    'status' => 'completed',
-                    'completed_at' => current_time('mysql'),
-                    'result' => $results['prices']
-                );
-                $overall_progress['completed_phases']++;
-                $this->update_overall_progress($overall_progress);
-                
-                $this->logger->log('success', "✅ Phase {$phase_number}/{$overall_progress['total_phases']}: Price sync completed", array(
-                    'result' => $results['prices']
-                ), 'full_sync');
-                $phase_number++;
             }
             
             if ($sync_categories) {
-                $overall_progress['current_phase'] = 'categories';
-                $this->update_overall_progress($overall_progress);
-                
-                $this->logger->log('info', "📂 Phase {$phase_number}/{$overall_progress['total_phases']}: Starting full category sync", array(), 'full_sync');
+                $this->logger->log('info', 'Starting full category sync', array(), 'full_sync');
                 $results['categories'] = $this->product_sync->sync_categories();
-                
-                $overall_progress['phases']['categories'] = array(
-                    'status' => 'completed',
-                    'completed_at' => current_time('mysql'),
-                    'result' => $results['categories']
-                );
-                $overall_progress['completed_phases']++;
-                $this->update_overall_progress($overall_progress);
-                
-                $this->logger->log('success', "✅ Phase {$phase_number}/{$overall_progress['total_phases']}: Category sync completed", array(
-                    'result' => $results['categories']
-                ), 'full_sync');
-                $phase_number++;
             }
             
             if ($sync_brands) {
-                $overall_progress['current_phase'] = 'brands';
-                $this->update_overall_progress($overall_progress);
-                
-                $this->logger->log('info', "🏷️ Phase {$phase_number}/{$overall_progress['total_phases']}: Starting full brand sync", array(), 'full_sync');
+                $this->logger->log('info', 'Starting full brand sync', array(), 'full_sync');
                 $results['brands'] = $this->product_sync->sync_brands();
-                
-                $overall_progress['phases']['brands'] = array(
-                    'status' => 'completed',
-                    'completed_at' => current_time('mysql'),
-                    'result' => $results['brands']
-                );
-                $overall_progress['completed_phases']++;
-                $this->update_overall_progress($overall_progress);
-                
-                $this->logger->log('success', "✅ Phase {$phase_number}/{$overall_progress['total_phases']}: Brand sync completed", array(
-                    'result' => $results['brands']
-                ), 'full_sync');
             }
-            
-            // Mark overall sync as completed
-            $overall_progress['status'] = 'completed';
-            $overall_progress['completed'] = current_time('mysql');
-            $this->update_overall_progress($overall_progress);
             
             // Store full sync completion timestamp
             update_option('bytemash_last_full_sync', current_time('mysql'));
             
-            $this->logger->log('success', '🎉 Full sync completed successfully!', array(
+            $this->logger->log('success', 'Full sync completed', array(
                 'results' => $results,
                 'enabled_attributes' => array(
                     'products' => $sync_products,
@@ -338,9 +219,7 @@ class ByteMash_Sync_Scheduler {
                     'prices' => $sync_prices,
                     'categories' => $sync_categories,
                     'brands' => $sync_brands,
-                ),
-                'total_phases' => $overall_progress['total_phases'],
-                'completed_phases' => $overall_progress['completed_phases']
+                )
             ), 'full_sync');
             
         } catch (Exception $e) {
@@ -354,20 +233,6 @@ class ByteMash_Sync_Scheduler {
         
         // Clean old logs
         $this->logger->clear_old_logs(30);
-    }
-    
-    /**
-     * Update overall sync progress
-     */
-    private function update_overall_progress($progress) {
-        update_option('bytemash_overall_sync_progress', $progress, false);
-    }
-    
-    /**
-     * Get overall sync progress
-     */
-    public function get_overall_progress() {
-        return get_option('bytemash_overall_sync_progress', array());
     }
     
     /**

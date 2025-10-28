@@ -520,18 +520,8 @@ class ByteMash_Product_Sync {
         $product_id = wc_get_product_id_by_sku($sku);
         
         if ($product_id && !$force) {
-            // Check if product data has changed before updating
-            $existing_product = wc_get_product($product_id);
-            if ($this->is_product_data_unchanged($existing_product, $product_data)) {
-                $this->logger->log('info', "Product data unchanged, skipping: {$sku}", array(
-                    'sku' => $sku,
-                    'product_id' => $product_id,
-                ), 'product_sync');
-                return array('success' => true, 'product_id' => $product_id, 'skipped' => true, 'message' => 'Product data unchanged');
-            }
-            
-            // Update existing product (data has changed)
-            $product = $existing_product;
+            // Update existing product
+            $product = wc_get_product($product_id);
         } else {
             // Create new simple product
             $product = new WC_Product_Simple();
@@ -582,24 +572,6 @@ class ByteMash_Product_Sync {
                 $product->set_manage_stock(true);
                 $product->set_stock_quantity($stock_qty);
                 $product->set_stock_status($stock_qty > 0 ? 'instock' : 'outofstock');
-                
-                // Clear any caches that might interfere with stock status display
-                wp_cache_delete($product_id, 'posts');
-                wc_delete_product_transients($product_id);
-                
-                // Store detailed stock data for modal display
-                $stock_item = array(
-                    'fullCode' => $product_data['fullCode'] ?? '',
-                    'simpleCode' => $product_data['simpleCode'] ?? '',
-                    'stock' => $stock_qty,
-                    'color' => $product_data['color'] ?? '',
-                    'colorImage' => $product_data['colorImage'] ?? '',
-                    'reserved' => 0,
-                    'incoming' => 0,
-                    'incomingEta' => 'To Be Confirmed',
-                    'discontinued' => false
-                );
-                $this->store_detailed_stock_data($product_id, $stock_item);
             }
             
             $this->logger->log('success', "Product synced: {$sku}", array(), 'product_sync');
@@ -614,118 +586,6 @@ class ByteMash_Product_Sync {
             
             return array('success' => false, 'message' => $e->getMessage());
         }
-    }
-    
-    /**
-     * Check if product data has changed compared to existing product
-     * 
-     * @param WC_Product $existing_product Existing WooCommerce product
-     * @param array $api_data New data from API
-     * @return bool True if unchanged, false if changed
-     */
-    private function is_product_data_unchanged($existing_product, $api_data) {
-        // Compare basic product data
-        $existing_name = $existing_product->get_name();
-        $api_name = sanitize_text_field($api_data['productName'] ?? '');
-        
-        if ($existing_name !== $api_name) {
-            return false;
-        }
-        
-        $existing_description = $existing_product->get_description();
-        $api_description = wp_kses_post($api_data['description'] ?? '');
-        
-        if ($existing_description !== $api_description) {
-            return false;
-        }
-        
-        // Compare stock data if available
-        if (isset($api_data['stock']) && is_numeric($api_data['stock'])) {
-            $existing_stock = $existing_product->get_stock_quantity();
-            $api_stock = (int) $api_data['stock'];
-            
-            if ($existing_stock !== $api_stock) {
-                return false;
-            }
-        }
-        
-        // Compare categories
-        $existing_categories = $existing_product->get_category_ids();
-        $api_categories = array();
-        
-        if (!empty($api_data['categories']) && is_array($api_data['categories'])) {
-            $api_categories = $this->sync_product_categories($api_data['categories']);
-        }
-        
-        if (array_diff($existing_categories, $api_categories) || array_diff($api_categories, $existing_categories)) {
-            return false;
-        }
-        
-        // Compare brand
-        $existing_brand = get_post_meta($existing_product->get_id(), '_amrod_brand', true);
-        $api_brand = $api_data['brand']['brandName'] ?? '';
-        
-        if ($existing_brand !== $api_brand) {
-            return false;
-        }
-        
-        // Compare images (check if image URLs have changed)
-        $existing_images = $this->get_existing_product_images($existing_product->get_id());
-        $api_images = $api_data['images'] ?? array();
-        
-        if (!$this->are_images_unchanged($existing_images, $api_images)) {
-            return false;
-        }
-        
-        // If we get here, no significant changes detected
-        return true;
-    }
-    
-    /**
-     * Get existing product images for comparison
-     */
-    private function get_existing_product_images($product_id) {
-        $images = array();
-        
-        // Get featured image
-        $featured_id = get_post_thumbnail_id($product_id);
-        if ($featured_id) {
-            $featured_url = wp_get_attachment_url($featured_id);
-            if ($featured_url) {
-                $images[] = array('url' => $featured_url);
-            }
-        }
-        
-        // Get gallery images
-        $gallery_ids = get_post_meta($product_id, '_product_image_gallery', true);
-        if ($gallery_ids) {
-            $gallery_ids = explode(',', $gallery_ids);
-            foreach ($gallery_ids as $gallery_id) {
-                $gallery_url = wp_get_attachment_url($gallery_id);
-                if ($gallery_url) {
-                    $images[] = array('url' => $gallery_url);
-                }
-            }
-        }
-        
-        return $images;
-    }
-    
-    /**
-     * Compare existing images with API images
-     */
-    private function are_images_unchanged($existing_images, $api_images) {
-        if (count($existing_images) !== count($api_images)) {
-            return false;
-        }
-        
-        $existing_urls = array_column($existing_images, 'url');
-        $api_urls = array_column($api_images, 'url');
-        
-        sort($existing_urls);
-        sort($api_urls);
-        
-        return $existing_urls === $api_urls;
     }
     
     /**
@@ -870,17 +730,12 @@ class ByteMash_Product_Sync {
         }
         
         // Store image URLs as meta (not WordPress attachments)
-        if ($default_image_id) {
+            if ($default_image_id) {
             update_post_meta($product_id, '_thumbnail_external_url', $default_image_id);
             update_post_meta($product_id, '_amrod_featured_image', $default_image_id);
-        } else if (!empty($image_ids)) {
-            // If no default image specified, use the first image as featured
-            $first_image = $image_ids[0];
-            update_post_meta($product_id, '_thumbnail_external_url', $first_image);
-            update_post_meta($product_id, '_amrod_featured_image', $first_image);
-        }
-        
-        if (!empty($image_ids)) {
+            }
+            
+            if (!empty($image_ids)) {
             update_post_meta($product_id, '_amrod_gallery_images', $image_ids);
         }
         
@@ -1470,9 +1325,6 @@ class ByteMash_Product_Sync {
             return array('success' => false, 'message' => 'No SKU in stock data');
         }
         
-        // Get the stock quantity from API
-        $api_stock = (int) ($stock_item['stock'] ?? 0);
-        
         // Try multiple SKU variations (products might be stored with different formats)
         $skus_to_try = array_filter(array(
             $fullCode,                              // Try full code first (e.g., "AF-AM-7-D-0-0")
@@ -1498,14 +1350,43 @@ class ByteMash_Product_Sync {
             }
         }
         
-        // For stock updates, we should NOT use pattern matching as stock quantities
-        // are specific to individual variations. Only update exact matches.
-        // Pattern matching was causing stock to be incorrectly applied to multiple variations.
+        // ALWAYS try pattern matching with simpleCode to catch all variants
+        // Example: Even if "ALT-1603" exists, also update "ALT-1603-Y", "ALT-1603-R", etc.
+        if (!empty($simpleCode)) {
+            global $wpdb;
+            $like_pattern = $wpdb->esc_like($simpleCode) . '%';
+            
+            $matching_products = $wpdb->get_results($wpdb->prepare(
+                "SELECT post_id, meta_value as sku FROM {$wpdb->postmeta} 
+                WHERE meta_key = '_sku' AND meta_value LIKE %s",
+                $like_pattern
+            ));
+            
+            if ($matching_products) {
+                $pattern_matched_count = 0;
+                foreach ($matching_products as $match) {
+                    // Avoid duplicates
+                    if (!in_array($match->post_id, $product_ids)) {
+                        $product_ids[] = $match->post_id;
+                        $pattern_matched_count++;
+                    }
+                }
+                
+                if ($pattern_matched_count > 0) {
+                    $matched_sku = $simpleCode . '*';
+                    $log_msg = $exact_match_found 
+                        ? "✅ Pattern matched {$pattern_matched_count} additional variant(s) with SKU starting with: {$simpleCode}"
+                        : "✅ Pattern matched {$pattern_matched_count} product(s) with SKU starting with: {$simpleCode}";
+                    
+                    $this->logger->log('success', $log_msg, array(), 'stock_sync');
+                }
+            }
+        }
         
         if (empty($product_ids)) {
             $attempted = implode(', ', $skus_to_try);
             $this->logger->log('warning', "⚠️ No SKU match found", array(), 'stock_sync');
-            return array('success' => false, 'message' => "Product not found. Tried SKUs: {$attempted}");
+            return array('success' => false, 'message' => "Product not found. Tried SKUs: {$attempted}, Pattern: {$simpleCode}%");
         }
         
         // Update all matched products
@@ -1526,31 +1407,12 @@ class ByteMash_Product_Sync {
                     continue;
                 }
                 
-                // Check if stock has changed before updating
-                $existing_stock = $product->get_stock_quantity();
-                if ($existing_stock === $stock_qty) {
-                    $this->logger->log('info', 'Stock unchanged, skipping', array(
-                        'product_id' => $pid,
-                        'sku' => $product->get_sku(),
-                        'stock' => $stock_qty,
-                    ), 'stock_sync');
-                    continue;
-                }
-                
                 // Update stock
                 $product->set_manage_stock(true);
                 $product->set_stock_quantity($stock_qty);
                 $product->set_stock_status($stock_qty > 0 ? 'instock' : 'outofstock');
                 $this->save_product_safely($product);
-                
-                // Clear any caches that might interfere with stock status display
-                wp_cache_delete($pid, 'posts');
-                wc_delete_product_transients($pid);
-                
                 $updated_count++;
-                
-                // Store detailed stock data for modal display
-                $this->store_detailed_stock_data($pid, $stock_item);
                 
                 $this->logger->log('info', 'Stock updated successfully', array(
                     'product_id' => $pid,
@@ -1575,48 +1437,6 @@ class ByteMash_Product_Sync {
         
         $message = $updated_count > 1 ? " ({$updated_count} variants)" : "";
         return array('success' => true, 'sku' => $matched_sku, 'stock' => $stock_qty, 'updated_count' => $updated_count, 'message' => $message);
-    }
-    
-    /**
-     * Store detailed stock data for modal display
-     */
-    private function store_detailed_stock_data($product_id, $stock_item) {
-        // Get existing stock data or create new array
-        $stock_data = get_post_meta($product_id, '_amrod_stock_data', true);
-        if (!is_array($stock_data)) {
-            $stock_data = array();
-        }
-        
-        // Create stock data entry
-        $stock_entry = array(
-            'code' => $stock_item['fullCode'] ?? $stock_item['simpleCode'] ?? $stock_item['simplecode'] ?? '',
-            'color' => $stock_item['color'] ?? '',
-            'color_image' => $stock_item['colorImage'] ?? $stock_item['color_image'] ?? '',
-            'stock_on_hand' => (int) ($stock_item['stock'] ?? 0),
-            'reserved' => (int) ($stock_item['reserved'] ?? 0),
-            'incoming' => (int) ($stock_item['incoming'] ?? 0),
-            'incoming_eta' => $stock_item['incomingEta'] ?? $stock_item['incoming_eta'] ?? 'To Be Confirmed',
-            'discontinued' => (bool) ($stock_item['discontinued'] ?? false),
-            'last_updated' => current_time('mysql')
-        );
-        
-        // Check if this variant already exists and update it
-        $found = false;
-        foreach ($stock_data as $key => $existing) {
-            if ($existing['code'] === $stock_entry['code']) {
-                $stock_data[$key] = $stock_entry;
-                $found = true;
-                break;
-            }
-        }
-        
-        // If not found, add new entry
-        if (!$found) {
-            $stock_data[] = $stock_entry;
-        }
-        
-        // Store updated stock data
-        update_post_meta($product_id, '_amrod_stock_data', $stock_data);
     }
     
     /**
@@ -1710,26 +1530,6 @@ class ByteMash_Product_Sync {
                         'product_id' => $pid,
                         'sku' => $matched_sku,
                     ), 'product_sync');
-                    continue;
-                }
-                
-                // Check if prices have changed before updating
-                $api_regular_price = isset($price_item['price']) ? (float) $price_item['price'] : null;
-                $api_sale_price = isset($price_item['salePrice']) ? (float) $price_item['salePrice'] : null;
-                
-                $existing_regular_price = (float) $product->get_regular_price();
-                $existing_sale_price = (float) $product->get_sale_price();
-                
-                $regular_price_changed = $api_regular_price !== null && $existing_regular_price !== $api_regular_price;
-                $sale_price_changed = $api_sale_price !== null && $existing_sale_price !== $api_sale_price;
-                
-                if (!$regular_price_changed && !$sale_price_changed) {
-                    $this->logger->log('info', 'Prices unchanged, skipping', array(
-                        'product_id' => $pid,
-                        'sku' => $product->get_sku(),
-                        'regular_price' => $api_regular_price,
-                        'sale_price' => $api_sale_price,
-                    ), 'price_sync');
                     continue;
                 }
                 

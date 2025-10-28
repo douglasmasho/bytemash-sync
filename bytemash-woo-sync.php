@@ -43,11 +43,6 @@ class ByteMash_Woo_Sync {
     private static $instance = null;
     
     /**
-     * Whether scheduler has been initialized
-     */
-    private $scheduler_initialized = false;
-    
-    /**
      * Get single instance
      */
     public static function get_instance() {
@@ -100,15 +95,6 @@ class ByteMash_Woo_Sync {
         add_filter('woocommerce_product_get_image_id', array($this, 'use_external_image_url'), 10, 2);
         add_filter('wp_get_attachment_image_src', array($this, 'replace_with_external_url'), 10, 4);
         add_filter('woocommerce_product_get_gallery_image_ids', array($this, 'use_external_gallery_urls'), 10, 2);
-
-        // Branding guide downloads on single product page
-        add_action('woocommerce_single_product_summary', array($this, 'render_branding_guides'), 25);
-        
-        // Stock modal display on single product page
-        add_action('woocommerce_single_product_summary', array($this, 'render_stock_modal'), 26);
-        
-        // Frontend assets
-        add_action('wp_enqueue_scripts', array($this, 'enqueue_frontend_assets'));
         
         // Admin hooks
         if (is_admin()) {
@@ -142,7 +128,8 @@ class ByteMash_Woo_Sync {
             add_action('wp_ajax_bytemash_toggle_test_mode', array($this, 'ajax_toggle_test_mode'));
             add_action('wp_ajax_bytemash_toggle_full_test_mode', array($this, 'ajax_toggle_full_test_mode'));
             add_action('wp_ajax_bytemash_toggle_incremental_test_mode', array($this, 'ajax_toggle_incremental_test_mode'));
-            add_action('wp_ajax_bytemash_enable_production_action_scheduler', array($this, 'ajax_enable_production_action_scheduler'));
+            add_action('wp_ajax_bytemash_enable_production_cron', array($this, 'ajax_enable_production_cron'));
+            add_action('wp_ajax_bytemash_enable_production_system_cron', array($this, 'ajax_enable_production_system_cron'));
             add_action('wp_ajax_bytemash_enable_system_cron', array($this, 'ajax_enable_system_cron'));
             add_action('wp_ajax_bytemash_emergency_stop_syncs', array($this, 'ajax_emergency_stop_syncs'));
             add_action('wp_ajax_bytemash_get_scheduled_sync_status', array($this, 'ajax_get_scheduled_sync_status'));
@@ -166,48 +153,8 @@ class ByteMash_Woo_Sync {
      * Initialize scheduler after all dependencies are loaded
      */
     public function init_scheduler() {
-        // Prevent multiple initializations
-        if (isset($this->scheduler_initialized)) {
-            return;
-        }
-        
-        // Ensure no test modes are enabled on initialization
-        $this->ensure_no_test_modes_enabled();
-        
         new ByteMash_Sync_Scheduler();
         new ByteMash_Action_Scheduler_Sync();
-        
-        $this->scheduler_initialized = true;
-    }
-    
-    /**
-     * Ensure no test modes are enabled
-     */
-    private function ensure_no_test_modes_enabled() {
-        // Check if any test modes are enabled and disable them
-        $test_modes = array(
-            'bytemash_cron_test_mode_enabled',
-            'bytemash_cron_full_test_mode_enabled',
-            'bytemash_cron_incremental_test_mode_enabled'
-        );
-        
-        $logger = new ByteMash_Logger();
-        foreach ($test_modes as $option) {
-            if (get_option($option, false)) {
-                update_option($option, false);
-                $logger->log('warning', "Disabled test mode on initialization: {$option}", array(), 'initialization');
-            }
-        }
-        
-        // Clear any scheduled test syncs
-        wp_clear_scheduled_hook('bytemash_full_sync_cron');
-        wp_clear_scheduled_hook('bytemash_incremental_sync_cron');
-        
-        // Clear Action Scheduler test schedules
-        if (function_exists('as_unschedule_all_actions')) {
-            as_unschedule_all_actions('bytemash_action_scheduler_full_sync', array('with_branding' => true), 'bytemash-sync');
-            as_unschedule_all_actions('bytemash_action_scheduler_incremental_sync', array('with_branding' => true), 'bytemash-sync');
-        }
     }
     
     /**
@@ -285,137 +232,6 @@ class ByteMash_Woo_Sync {
             array('ByteMash_Admin_Tools', 'render')
         );
     }
-
-    /**
-     * Render branding guide download links under product summary
-     */
-    public function render_branding_guides() {
-        global $product;
-        if (!$product instanceof WC_Product) {
-            return;
-        }
-        $product_id = $product->get_id();
-        $full = get_post_meta($product_id, '_amrod_full_branding_guide', true);
-        $logo24 = get_post_meta($product_id, '_amrod_logo24_branding_guide', true);
-        if (empty($full) && empty($logo24)) {
-            return;
-        }
-        echo '<div class="bytemash-branding-guides" style="margin-top:12px;">';
-        echo '<h4 style="margin:0 0 8px;">' . esc_html__('Branding Guides', 'bytemash-woo-sync') . '</h4>';
-        echo '<div class="bytemash-branding-links" style="display:flex;gap:8px;flex-wrap:wrap;">';
-        if (!empty($full)) {
-            echo '<a class="button" target="_blank" rel="noopener" href="' . esc_url($full) . '">' . esc_html__('Download Full Branding Guide (PDF)', 'bytemash-woo-sync') . '</a>';
-        }
-        if (!empty($logo24)) {
-            echo '<a class="button" target="_blank" rel="noopener" href="' . esc_url($logo24) . '">' . esc_html__('Download Logo24 Branding Guide (PDF)', 'bytemash-woo-sync') . '</a>';
-        }
-        echo '</div>';
-        echo '</div>';
-    }
-    
-    /**
-     * Render stock modal button and modal HTML
-     */
-    public function render_stock_modal() {
-        global $product;
-        if (!$product instanceof WC_Product) {
-            return;
-        }
-        
-        $product_id = $product->get_id();
-        $stock_data = get_post_meta($product_id, '_amrod_stock_data', true);
-        
-        // Only show if we have stock data
-        if (empty($stock_data) || !is_array($stock_data)) {
-            return;
-        }
-        
-        $product_name = $product->get_name();
-        $sku = $product->get_sku();
-        $total_stock = 0;
-        $total_incoming = 0;
-        
-        // Calculate totals
-        foreach ($stock_data as $item) {
-            $total_stock += (int) ($item['stock_on_hand'] ?? 0);
-            $total_incoming += (int) ($item['incoming'] ?? 0);
-        }
-        ?>
-        <div class="bytemash-stock-section" style="margin-top: 12px;">
-            <button type="button" class="button bytemash-check-stock-btn" data-product-id="<?php echo esc_attr($product_id); ?>">
-                <?php esc_html_e('Check Stock', 'bytemash-woo-sync'); ?>
-            </button>
-        </div>
-        
-        <!-- Stock Modal -->
-        <div id="bytemash-stock-modal-<?php echo esc_attr($product_id); ?>" class="bytemash-stock-modal" style="display: none;">
-            <div class="bytemash-stock-modal-content">
-                <div class="bytemash-stock-modal-header">
-                    <h2><?php echo esc_html($product_name); ?></h2>
-                    <p class="bytemash-stock-sku"><?php echo esc_html($sku); ?></p>
-                    <span class="bytemash-stock-modal-close">&times;</span>
-                </div>
-                
-                <div class="bytemash-stock-summary">
-                    <div class="bytemash-stock-summary-item">
-                        <strong><?php esc_html_e('Total Stock on Hand:', 'bytemash-woo-sync'); ?></strong>
-                        <span class="bytemash-stock-number"><?php echo number_format($total_stock); ?></span>
-                    </div>
-                    <div class="bytemash-stock-summary-item">
-                        <strong><?php esc_html_e('Total Incoming Stock:', 'bytemash-woo-sync'); ?></strong>
-                        <span class="bytemash-stock-number"><?php echo number_format($total_incoming); ?></span>
-                    </div>
-                </div>
-                
-                <div class="bytemash-stock-table-container">
-                    <table class="bytemash-stock-table">
-                        <thead>
-                            <tr>
-                                <th><?php esc_html_e('COLOUR', 'bytemash-woo-sync'); ?></th>
-                                <th><?php esc_html_e('CODE', 'bytemash-woo-sync'); ?></th>
-                                <th><?php esc_html_e('STOCK ON HAND', 'bytemash-woo-sync'); ?></th>
-                                <th><?php esc_html_e('RESERVED', 'bytemash-woo-sync'); ?></th>
-                                <th><?php esc_html_e('INCOMING', 'bytemash-woo-sync'); ?></th>
-                                <th><?php esc_html_e('INCOMING ETA', 'bytemash-woo-sync'); ?></th>
-                            </tr>
-                        </thead>
-                        <tbody>
-                            <?php foreach ($stock_data as $item): ?>
-                            <tr>
-                                <td>
-                                    <?php if (!empty($item['color_image'])): ?>
-                                        <img src="<?php echo esc_url($item['color_image']); ?>" alt="<?php echo esc_attr($item['color'] ?? ''); ?>" class="bytemash-color-thumbnail">
-                                    <?php else: ?>
-                                        <span class="bytemash-color-placeholder"><?php echo esc_html($item['color'] ?? ''); ?></span>
-                                    <?php endif; ?>
-                                </td>
-                                <td><code><?php echo esc_html($item['code'] ?? ''); ?></code></td>
-                                <td class="bytemash-stock-on-hand"><?php echo number_format((int) ($item['stock_on_hand'] ?? 0)); ?></td>
-                                <td class="bytemash-stock-reserved"><?php echo number_format((int) ($item['reserved'] ?? 0)); ?></td>
-                                <td class="bytemash-stock-incoming"><?php echo number_format((int) ($item['incoming'] ?? 0)); ?></td>
-                                <td><?php echo esc_html($item['incoming_eta'] ?? __('To Be Confirmed', 'bytemash-woo-sync')); ?></td>
-                            </tr>
-                            <?php endforeach; ?>
-                        </tbody>
-                    </table>
-                </div>
-                
-                <div class="bytemash-stock-disclaimer">
-                    <p><strong><?php esc_html_e('Important Notes:', 'bytemash-woo-sync'); ?></strong></p>
-                    <ul>
-                        <li><?php esc_html_e('Products shown in RED are discontinued and will not be repeated once stock is sold out.', 'bytemash-woo-sync'); ?></li>
-                        <li><?php esc_html_e('Available Stock is taken directly off our accounting package. We expect this number to be correct but cannot verify this without a stock count.', 'bytemash-woo-sync'); ?></li>
-                        <li><?php esc_html_e('Should there be low quantities on hand, please ask your account manager to have the warehouse verify this number.', 'bytemash-woo-sync'); ?></li>
-                        <li><?php esc_html_e('Available Stock may be invoiced out at any time and thus quantities you see may change on a minute by minute basis.', 'bytemash-woo-sync'); ?></li>
-                        <li><?php esc_html_e('Expected Arrival Dates are updated regularly. Supplier delays, Shipping Delays and Customs Stops can push this date out.', 'bytemash-woo-sync'); ?></li>
-                        <li><?php esc_html_e('Reserved Stock is reserved for a maximum of 24 hours. Items on promotion cannot be reserved.', 'bytemash-woo-sync'); ?></li>
-                        <li><?php esc_html_e('E&OE', 'bytemash-woo-sync'); ?></li>
-                    </ul>
-                </div>
-            </div>
-        </div>
-        <?php
-    }
     
     /**
      * Enqueue admin assets
@@ -476,63 +292,6 @@ class ByteMash_Woo_Sync {
     }
     
     /**
-     * Enqueue frontend assets for product pages
-     */
-    public function enqueue_frontend_assets() {
-        // Only load on single product pages
-        if (!is_product()) {
-            return;
-        }
-        
-        // Force enqueue jQuery first to ensure it's loaded
-        wp_enqueue_script('jquery');
-        
-        // Use filemtime for cache busting
-        $css_file = BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'assets/css/admin.css';
-        $js_file = BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'assets/js/admin.js';
-        
-        $css_version = BYTEMASH_WOO_SYNC_VERSION . '.' . (file_exists($css_file) ? filemtime($css_file) : time());
-        $js_version = BYTEMASH_WOO_SYNC_VERSION . '.' . (file_exists($js_file) ? filemtime($js_file) : time());
-        
-        wp_enqueue_style(
-            'bytemash-woo-sync-frontend',
-            BYTEMASH_WOO_SYNC_PLUGIN_URL . 'assets/css/admin.css',
-            array(),
-            $css_version
-        );
-        
-        wp_enqueue_script(
-            'bytemash-woo-sync-frontend',
-            BYTEMASH_WOO_SYNC_PLUGIN_URL . 'assets/js/admin.js',
-            array('jquery'),
-            $js_version,
-            true
-        );
-        
-        // Localize script for frontend
-        wp_localize_script('bytemash-woo-sync-frontend', 'bytemashWooSync', array(
-            'ajax_url' => admin_url('admin-ajax.php'),
-            'nonce' => wp_create_nonce('bytemash_woo_sync_nonce'),
-            'strings' => array(
-                'syncing' => __('Syncing...', 'bytemash-woo-sync'),
-                'success' => __('Sync completed successfully!', 'bytemash-woo-sync'),
-                'error' => __('Sync failed. Check logs for details.', 'bytemash-woo-sync'),
-            ),
-            'debug' => array(
-                'plugin_url' => BYTEMASH_WOO_SYNC_PLUGIN_URL,
-                'is_admin' => is_admin(),
-                'is_product' => is_product(),
-            ),
-        ));
-        
-        // Add inline script to verify JavaScript is loading on frontend
-        wp_add_inline_script('bytemash-woo-sync-frontend', 
-            'console.log("ByteMash WooSync Frontend JS Loaded", bytemashWooSync);',
-            'after'
-        );
-    }
-    
-    /**
      * Plugin activation
      */
     public function activate() {
@@ -586,9 +345,6 @@ class ByteMash_Woo_Sync {
     private function cleanup_existing_syncs() {
         global $wpdb;
         
-        $logger = new ByteMash_Logger();
-        $logger->log('info', 'Starting cleanup of existing syncs on activation', array(), 'activation');
-        
         // Clear all sync progress options
         $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE 'bytemash_sync_progress_%'");
         
@@ -604,8 +360,6 @@ class ByteMash_Woo_Sync {
         delete_transient('bytemash_full_sync_running');
         delete_transient('bytemash_incremental_sync_running');
         delete_transient('bytemash_sync_running');
-        delete_transient('bytemash_action_scheduler_full_sync_running');
-        delete_transient('bytemash_action_scheduler_incremental_sync_running');
         
         // Clear any scheduled WordPress cron events
         wp_clear_scheduled_hook('bytemash_full_sync_cron');
@@ -616,7 +370,6 @@ class ByteMash_Woo_Sync {
         wp_clear_scheduled_hook('bytemash_process_stock_batch');
         wp_clear_scheduled_hook('bytemash_process_prices_batch');
         wp_clear_scheduled_hook('bytemash_process_categories_batch');
-        wp_clear_scheduled_hook('bytemash_cron_health_check');
         
         // Clear Action Scheduler actions if available
         if (function_exists('as_unschedule_all_actions')) {
@@ -626,35 +379,9 @@ class ByteMash_Woo_Sync {
             as_unschedule_all_actions('bytemash_action_scheduler_cleanup', array(), 'bytemash-sync');
         }
         
-        // Clear batch processor active syncs
-        $batch_processor = new ByteMash_Batch_Processor();
-        $active_syncs = $batch_processor->get_active_syncs();
-        
-        foreach ($active_syncs as $sync) {
-            $batch_processor->stop_sync($sync['sync_id']);
-        }
-        
-        // Clear all sync-related options (but preserve essential ones)
-        $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE 'bytemash_sync_%' AND option_name NOT IN ('bytemash_sync_products', 'bytemash_sync_stock', 'bytemash_sync_prices', 'bytemash_sync_categories', 'bytemash_sync_brands')");
-        $wpdb->query("DELETE FROM {$wpdb->options} WHERE option_name LIKE 'bytemash_cron_%'");
-        
-        // Force disable all test modes and cron methods
-        update_option('bytemash_cron_test_mode_enabled', false);
-        update_option('bytemash_cron_full_test_mode_enabled', false);
-        update_option('bytemash_cron_incremental_test_mode_enabled', false);
-        update_option('bytemash_cron_system_cron_enabled', false);
-        update_option('bytemash_cron_hosted_pinger_enabled', false);
-        update_option('bytemash_cron_self_ping_enabled', false);
-        
-        // Clear any existing Action Scheduler schedules
-        if (function_exists('as_unschedule_all_actions')) {
-            as_unschedule_all_actions('bytemash_action_scheduler_full_sync', array('with_branding' => true), 'bytemash-sync');
-            as_unschedule_all_actions('bytemash_action_scheduler_incremental_sync', array('with_branding' => true), 'bytemash-sync');
-            as_unschedule_all_actions('bytemash_action_scheduler_batch_sync', array(), 'bytemash-sync');
-            as_unschedule_all_actions('bytemash_action_scheduler_cleanup', array(), 'bytemash-sync');
-        }
-        
-        $logger->log('info', 'All existing syncs and transients cleared on activation', array(), 'activation');
+        // Log the cleanup
+        $logger = new ByteMash_Logger();
+        $logger->log('info', 'Cleaned up all existing syncs and transients on plugin activation', array(), 'plugin_activation');
     }
     
     /**
@@ -1599,7 +1326,6 @@ class ByteMash_Woo_Sync {
         $product_sync = new ByteMash_Product_Sync();
         $processed = 0;
         $errors = 0;
-        $skipped = 0;
         
         $sync_type = $sync_info['type'] ?? 'products';
         
@@ -1629,11 +1355,7 @@ class ByteMash_Woo_Sync {
                 }
                 
                 if ($result['success']) {
-                    if (isset($result['skipped']) && $result['skipped']) {
-                        $skipped++;
-                    } else {
                     $processed++;
-                    }
                 } else {
                     $errors++;
             }
@@ -1649,7 +1371,6 @@ class ByteMash_Woo_Sync {
         $sync_info['current_batch'] = $batch_index + 1;
         $sync_info['processed'] += $processed;
         $sync_info['errors'] += $errors;
-        $sync_info['skipped'] = ($sync_info['skipped'] ?? 0) + $skipped;
         $sync_info['status'] = 'processing';
         
         update_option("bytemash_sync_{$sync_id}", $sync_info, false);
@@ -1661,10 +1382,10 @@ class ByteMash_Woo_Sync {
             'batch' => $batch_index,
             'processed' => $processed,
             'errors' => $errors,
-            'skipped' => $skipped,
+            'skipped' => 0, // Not tracking skipped in current version
             'total_processed' => $sync_info['processed'],
             'total_errors' => $sync_info['errors'],
-            'total_skipped' => $sync_info['skipped'] ?? 0,
+            'total_skipped' => 0, // Not tracking skipped in current version
             'total_products' => $sync_info['total'],
             'woo_product_count' => $product_counts->publish,
             'done' => false
@@ -2142,51 +1863,109 @@ class ByteMash_Woo_Sync {
     }
     
     /**
-     * AJAX: Enable production Action Scheduler
+     * AJAX: Enable production cron
      */
-    public function ajax_enable_production_action_scheduler() {
+    public function ajax_enable_production_cron() {
         check_ajax_referer('bytemash_woo_sync_nonce', 'nonce');
         
         if (!current_user_can('manage_options')) {
             wp_send_json_error(array('message' => __('Insufficient permissions', 'bytemash-woo-sync')));
         }
         
-        // Clear any existing schedules
+        // Clear any test mode schedules
         wp_clear_scheduled_hook('bytemash_full_sync_cron');
         wp_clear_scheduled_hook('bytemash_incremental_sync_cron');
         
-        // Clear any Action Scheduler schedules
-        if (class_exists('ByteMash_Action_Scheduler_Sync')) {
-            $action_scheduler = new ByteMash_Action_Scheduler_Sync();
-            $action_scheduler->clear_schedules();
-        }
+        // Enable production schedules
+        $scheduler = new ByteMash_Sync_Scheduler();
+        $scheduler->update_schedule('daily_at_0030', 'every_5_hours');
         
-        // Enable production Action Scheduler schedules
-        if (class_exists('ByteMash_Action_Scheduler_Sync')) {
-            $action_scheduler = new ByteMash_Action_Scheduler_Sync();
-            $result = $action_scheduler->enable_production_sync();
-            
-            if ($result['success']) {
         // Disable test modes
         update_option('bytemash_cron_full_test_mode_enabled', false);
         update_option('bytemash_cron_incremental_test_mode_enabled', false);
-            
-            $logger = new ByteMash_Logger();
-                $logger->log('info', 'Production Action Scheduler enabled', array(), 'action_scheduler');
-            
-            wp_send_json_success(array(
-                    'message' => __('Production Action Scheduler enabled successfully', 'bytemash-woo-sync'),
-                    'next_full_sync' => $result['next_full_sync'],
-                    'next_incremental_sync' => $result['next_incremental_sync'],
-            ));
-        } else {
-                wp_send_json_error(array('message' => $result['message']));
-            }
-        } else {
-            wp_send_json_error(array('message' => __('Action Scheduler not available', 'bytemash-woo-sync')));
-        }
+        
+        $logger = new ByteMash_Logger();
+        $logger->log('info', 'Production cron enabled', array(), 'cron_manager');
+        
+        wp_send_json_success(array(
+            'message' => __('Production cron schedules enabled successfully', 'bytemash-woo-sync'),
+        ));
     }
     
+    /**
+     * AJAX: Enable production system cron (combined)
+     */
+    public function ajax_enable_production_system_cron() {
+        check_ajax_referer('bytemash_woo_sync_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => __('Insufficient permissions', 'bytemash-woo-sync')));
+        }
+        
+        // First enable production schedules
+        wp_clear_scheduled_hook('bytemash_full_sync_cron');
+        wp_clear_scheduled_hook('bytemash_incremental_sync_cron');
+        
+        $scheduler = new ByteMash_Sync_Scheduler();
+        $scheduler->update_schedule('daily_at_0030', 'every_5_hours');
+        
+        // Disable test modes
+        update_option('bytemash_cron_full_test_mode_enabled', false);
+        update_option('bytemash_cron_incremental_test_mode_enabled', false);
+        
+        // Then enable system cron
+        $system_cron_result = $this->install_system_cron();
+        
+        if ($system_cron_result['success']) {
+            update_option('bytemash_cron_system_cron_enabled', true);
+            
+            $logger = new ByteMash_Logger();
+            $logger->log('info', 'Production system cron enabled (combined)', array(), 'cron_manager');
+            
+            wp_send_json_success(array(
+                'message' => __('Production schedules and system cron enabled successfully. ' . $system_cron_result['message'], 'bytemash-woo-sync'),
+            ));
+        } else {
+            // Production schedules are enabled, but system cron failed
+            $logger = new ByteMash_Logger();
+            $logger->log('warning', 'Production schedules enabled but system cron failed', array(
+                'error' => $system_cron_result['message']
+            ), 'cron_manager');
+            
+            // Build detailed message with instructions
+            $site_url = site_url();
+            $cron_url = site_url('/wp-cron.php?doing_wp_cron');
+            
+            $instructions = '<div style="text-align: left; padding: 10px; background: #fff3cd; border-left: 4px solid #ffc107; margin-top: 10px;">';
+            $instructions .= '<h4 style="margin-top: 0;">✅ Production Schedules Enabled!</h4>';
+            $instructions .= '<p><strong>However, automatic system cron installation failed because exec() is disabled on your server.</strong></p>';
+            $instructions .= '<h4>📋 Setup Instructions (Choose One):</h4>';
+            $instructions .= '<h5>Option 1: Manual cPanel Cron (Recommended)</h5>';
+            $instructions .= '<ol>';
+            $instructions .= '<li>Login to your <strong>cPanel</strong> or hosting control panel</li>';
+            $instructions .= '<li>Find <strong>"Cron Jobs"</strong> section</li>';
+            $instructions .= '<li>Add new cron job with these settings:<br>';
+            $instructions .= '<code style="background: #f0f0f0; padding: 5px; display: block; margin: 5px 0;">*/5 * * * * wget -q -O - "' . esc_url($cron_url) . '" >/dev/null 2>&1</code>';
+            $instructions .= '</li>';
+            $instructions .= '</ol>';
+            $instructions .= '<h5>Option 2: External Cron Service (Free)</h5>';
+            $instructions .= '<ul>';
+            $instructions .= '<li><strong>EasyCron.com</strong> - Free tier available</li>';
+            $instructions .= '<li><strong>cron-job.org</strong> - Completely free</li>';
+            $instructions .= '<li><strong>UptimeRobot.com</strong> - Free monitoring + cron</li>';
+            $instructions .= '</ul>';
+            $instructions .= '<p>Configure to ping: <code style="background: #f0f0f0; padding: 2px 5px;">' . esc_url($cron_url) . '</code> every 5 minutes</p>';
+            $instructions .= '<p><a href="' . esc_url(BYTEMASH_WOO_SYNC_PLUGIN_URL . 'documentation/TROUBLESHOOTING-LIVE-SERVER.md') . '" target="_blank" class="button">View Full Documentation</a></p>';
+            $instructions .= '</div>';
+            
+            wp_send_json_success(array(
+                'message' => __('Production schedules enabled successfully!', 'bytemash-woo-sync'),
+                'warning' => $system_cron_result['message'],
+                'instructions' => $instructions,
+                'show_instructions' => true,
+            ));
+        }
+    }
     
     /**
      * AJAX: Emergency stop all syncs
