@@ -1551,10 +1551,10 @@ class ByteMash_Product_Sync {
                     $this->update_variable_product_stock($product, $stock_item, $stock_qty, $reserved_qty, $incoming, $modified, $stock_type);
                 } else {
                     // Simple product - update directly
-                    $product->set_manage_stock(true);
-                    $product->set_stock_quantity($stock_qty);
-                    $product->set_stock_status($stock_qty > 0 ? 'instock' : 'outofstock');
-                    $this->save_product_safely($product);
+                $product->set_manage_stock(true);
+                $product->set_stock_quantity($stock_qty);
+                $product->set_stock_status($stock_qty > 0 ? 'instock' : 'outofstock');
+                $this->save_product_safely($product);
                     
                     // Store detailed stock breakdown
                     $detail = array(
