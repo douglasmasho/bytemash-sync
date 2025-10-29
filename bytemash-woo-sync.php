@@ -356,20 +356,37 @@ class ByteMash_Woo_Sync {
         $rows = array();
         $totals = array('stock' => 0, 'reserved' => 0, 'incoming' => 0);
 
-        // Helper to compute earliest ETA and incoming total
+        // Helper to compute incoming stock details
         $compute_incoming = function($incoming) {
             $total = 0;
-            $eta = null;
+            $eta_entries = array();
+            
             if (is_array($incoming)) {
                 foreach ($incoming as $inc) {
-                    $total += isset($inc['total']) ? intval($inc['total']) : 0;
-                    $d = isset($inc['date']) ? strtotime($inc['date']) : 0;
-                    if ($d && ($eta === null || $d < $eta)) {
-                        $eta = $d;
+                    $qty = isset($inc['total']) ? intval($inc['total']) : 0;
+                    $date = isset($inc['date']) ? $inc['date'] : '';
+                    
+                    if ($qty > 0) {
+                        $total += $qty;
+                        
+                        if ($date) {
+                            $formatted_date = date_i18n(get_option('date_format'), strtotime($date));
+                            $eta_entries[] = $qty . ' on ' . $formatted_date;
+                        } else {
+                            $eta_entries[] = $qty . ' (TBC)';
+                        }
                     }
                 }
             }
-            return array($total, $eta ? date_i18n(get_option('date_format'), $eta) : __('To Be Confirmed', 'bytemash-woo-sync'));
+            
+            // If no incoming stock, return empty string for ETA
+            if ($total == 0) {
+                return array(0, '');
+            }
+            
+            // Return total and formatted ETA entries
+            $eta_text = implode(', ', $eta_entries);
+            return array($total, $eta_text);
         };
 
         if ($product->is_type('variable')) {

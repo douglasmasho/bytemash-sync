@@ -10,13 +10,19 @@
                 '<th>Colour / Size</th><th>Code</th><th>Stock on Hand</th><th>Reserved</th><th>Incoming</th><th>Incoming ETA</th>'+
                 '</tr></thead><tbody>';
         data.rows.forEach(function(r){
+            // Format ETA display - show empty if no incoming stock
+            var etaDisplay = '';
+            if (r.incoming && r.incoming > 0 && r.eta) {
+                etaDisplay = r.eta;
+            }
+            
             html += '<tr>'+
                 '<td>'+ (r.label||'') +'</td>'+
                 '<td>'+ (r.sku||'') +'</td>'+
                 '<td>'+ (r.stock||0) +'</td>'+
                 '<td>'+ (r.reserved||0) +'</td>'+
                 '<td>'+ (r.incoming||0) +'</td>'+
-                '<td>'+ (r.eta||'') +'</td>'+
+                '<td>'+ etaDisplay +'</td>'+
             '</tr>';
         });
         html += '</tbody></table>';

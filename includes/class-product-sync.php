@@ -1531,6 +1531,7 @@ class ByteMash_Product_Sync {
             }
         }
         $modified = isset($stock_item['modifiedDate']) ? sanitize_text_field($stock_item['modifiedDate']) : '';
+        $stock_type = isset($stock_item['stockType']) ? (int) $stock_item['stockType'] : 0;
         
         foreach ($product_ids as $pid) {
             try {
@@ -1545,27 +1546,35 @@ class ByteMash_Product_Sync {
                     continue;
                 }
                 
-                // Update stock
-                $product->set_manage_stock(true);
-                $product->set_stock_quantity($stock_qty);
-                $product->set_stock_status($stock_qty > 0 ? 'instock' : 'outofstock');
-                $this->save_product_safely($product);
+                // For variable products, handle stock differently based on stockType
+                if ($product->is_type('variable')) {
+                    $this->update_variable_product_stock($product, $stock_item, $stock_qty, $reserved_qty, $incoming, $modified, $stock_type);
+                } else {
+                    // Simple product - update directly
+                    $product->set_manage_stock(true);
+                    $product->set_stock_quantity($stock_qty);
+                    $product->set_stock_status($stock_qty > 0 ? 'instock' : 'outofstock');
+                    $this->save_product_safely($product);
+                    
+                    // Store detailed stock breakdown
+                    $detail = array(
+                        'stock' => $stock_qty,
+                        'reserved' => $reserved_qty,
+                        'incoming' => $incoming,
+                        'modified' => $modified,
+                    );
+                    update_post_meta($pid, '_amrod_stock_detail', $detail);
+                }
+                
                 $updated_count++;
                 
                 $this->logger->log('info', 'Stock updated successfully', array(
                     'product_id' => $pid,
                     'sku' => $product->get_sku(),
                     'stock_qty' => $stock_qty,
+                    'product_type' => $product->get_type(),
                 ), 'product_sync');
-
-                // Persist detailed stock breakdown for modal/table UI
-                $detail = array(
-                    'stock' => $stock_qty,
-                    'reserved' => $reserved_qty,
-                    'incoming' => $incoming,
-                    'modified' => $modified,
-                );
-                update_post_meta($pid, '_amrod_stock_detail', $detail);
+                
             } catch (Exception $e) {
                 $failed_count++;
                 $this->logger->log('error', 'Stock update failed', array(
@@ -2404,6 +2413,105 @@ class ByteMash_Product_Sync {
             ), 'category_sync');
             return array('success' => false, 'message' => 'Exception: ' . $e->getMessage());
         }
+    }
+
+    /**
+     * Update stock for variable products based on stock type
+     */
+    private function update_variable_product_stock($product, $stock_item, $stock_qty, $reserved_qty, $incoming, $modified, $stock_type) {
+        $product_id = $product->get_id();
+        $full_code = $stock_item['fullCode'];
+        $simple_code = $stock_item['simpleCode'];
+        $colour_code = isset($stock_item['colourCode']) ? $stock_item['colourCode'] : null;
+        
+        // Store detailed stock breakdown for this specific variation
+        $detail = array(
+            'stock' => $stock_qty,
+            'reserved' => $reserved_qty,
+            'incoming' => $incoming,
+            'modified' => $modified,
+            'fullCode' => $full_code,
+            'simpleCode' => $simple_code,
+            'colourCode' => $colour_code,
+            'stockType' => $stock_type,
+        );
+        
+        if ($stock_type === 0) {
+            // Base product stock (stockType: 0) - update parent variable product
+            $product->set_manage_stock(true);
+            $product->set_stock_quantity($stock_qty);
+            $product->set_stock_status($stock_qty > 0 ? 'instock' : 'outofstock');
+            $this->save_product_safely($product);
+            
+            // Store base stock detail on parent
+            update_post_meta($product_id, '_amrod_stock_detail', $detail);
+            
+            $this->logger->log('info', 'Updated base variable product stock', array(
+                'product_id' => $product_id,
+                'sku' => $product->get_sku(),
+                'stock_qty' => $stock_qty,
+            ), 'product_sync');
+            
+        } else {
+            // Variation stock (stockType: 1 or 2) - find and update matching variation
+            $variation_id = $this->find_matching_variation($product, $full_code, $simple_code, $colour_code);
+            
+            if ($variation_id) {
+                $variation = wc_get_product($variation_id);
+                if ($variation) {
+                    $variation->set_manage_stock(true);
+                    $variation->set_stock_quantity($stock_qty);
+                    $variation->set_stock_status($stock_qty > 0 ? 'instock' : 'outofstock');
+                    $this->save_product_safely($variation);
+                    
+                    // Store variation stock detail
+                    update_post_meta($variation_id, '_amrod_stock_detail', $detail);
+                    
+                    $this->logger->log('info', 'Updated variation stock', array(
+                        'variation_id' => $variation_id,
+                        'parent_id' => $product_id,
+                        'full_code' => $full_code,
+                        'stock_qty' => $stock_qty,
+                    ), 'product_sync');
+                }
+            } else {
+                $this->logger->log('warning', 'Could not find matching variation for stock update', array(
+                    'parent_id' => $product_id,
+                    'full_code' => $full_code,
+                    'simple_code' => $simple_code,
+                    'colour_code' => $colour_code,
+                ), 'product_sync');
+            }
+        }
+    }
+
+    /**
+     * Find matching variation based on full code, simple code, and colour code
+     */
+    private function find_matching_variation($variable_product, $full_code, $simple_code, $colour_code) {
+        $variations = $variable_product->get_children();
+        
+        foreach ($variations as $variation_id) {
+            $variation = wc_get_product($variation_id);
+            if (!$variation) continue;
+            
+            $variation_sku = $variation->get_sku();
+            
+            // Direct SKU match
+            if ($variation_sku === $full_code) {
+                return $variation_id;
+            }
+            
+            // Try to match by simple code + colour code pattern
+            if ($colour_code && strpos($variation_sku, $simple_code) === 0) {
+                // Check if the variation SKU contains the colour code
+                if (strpos($variation_sku, $colour_code) !== false) {
+                    return $variation_id;
+                }
+            }
+        }
+        
+        return null;
     }
 }
 

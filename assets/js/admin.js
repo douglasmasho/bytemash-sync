@@ -766,10 +766,17 @@
             
             const originalText = $button.html();
             $button.prop('disabled', true)
+                   .data('original-text', originalText)
                    .html('<span class="bytemash-spinner"></span> Starting...');
             
-            // Disable all other sync buttons
-            $('[data-ajax-action]').prop('disabled', true);
+            // Disable all other sync buttons and store their original text
+            $('[data-ajax-action]').each(function() {
+                const $btn = $(this);
+                if (!$btn.data('original-text')) {
+                    $btn.data('original-text', $btn.html());
+                }
+                $btn.prop('disabled', true);
+            });
             
             $.ajax({
                 url: bytemashWooSync.ajax_url,
@@ -822,8 +829,11 @@
                             // No batches to process (e.g., no updates available, or simple sync complete)
                             console.log('ℹ️ Sync completed without batches:', response.data);
                             showSyncMessage('success', response.data.message || 'Sync completed successfully');
-                                $('[data-ajax-action]').prop('disabled', false);
-                                $button.html(originalText);
+                            $('[data-ajax-action]').prop('disabled', false).each(function() {
+                                const $btn = $(this);
+                                const originalText = $btn.data('original-text') || $btn.text();
+                                $btn.html(originalText);
+                            });
                             
                             // Show stats if available
                             if (response.data.total !== undefined) {
@@ -836,14 +846,20 @@
                     } else {
                         console.log('❌ Sync failed:', response.data.message);
                         showSyncMessage('error', response.data.message);
-                        $('[data-ajax-action]').prop('disabled', false);
-                        $button.html(originalText);
+                        $('[data-ajax-action]').prop('disabled', false).each(function() {
+                            const $btn = $(this);
+                            const originalText = $btn.data('original-text') || $btn.text();
+                            $btn.html(originalText);
+                        });
                     }
                 },
                 error: function(xhr) {
                     showSyncMessage('error', 'Sync failed. Please try again. Error: ' + xhr.statusText);
-                    $('[data-ajax-action]').prop('disabled', false);
-                    $button.html(originalText);
+                    $('[data-ajax-action]').prop('disabled', false).each(function() {
+                        const $btn = $(this);
+                        const originalText = $btn.data('original-text') || $btn.text();
+                        $btn.html(originalText);
+                    });
                 }
             });
         });
@@ -1261,8 +1277,12 @@
                         $('#active_syncs').html('<div class="success" style="padding: 20px; text-align: center;">🛑 Sync stopped. ' + response.data.message + '</div>');
                         $('#stop_sync_container').hide();
                         
-                        // Re-enable sync buttons
-                        $('[data-ajax-action]').prop('disabled', false);
+                        // Re-enable sync buttons and reset their text
+                        $('[data-ajax-action]').prop('disabled', false).each(function() {
+                            const $btn = $(this);
+                            const originalText = $btn.data('original-text') || $btn.text();
+                            $btn.html(originalText);
+                        });
                         
                         showSyncMessage('success', '🛑 ' + response.data.message + ' You can start a new sync now.');
                     },
@@ -1270,7 +1290,11 @@
                         // Even if AJAX fails, clear UI
                         $('#active_syncs').html('<div class="success" style="padding: 20px; text-align: center;">🛑 Sync stopped.</div>');
                         $('#stop_sync_container').hide();
-                        $('[data-ajax-action]').prop('disabled', false);
+                        $('[data-ajax-action]').prop('disabled', false).each(function() {
+                            const $btn = $(this);
+                            const originalText = $btn.data('original-text') || $btn.text();
+                            $btn.html(originalText);
+                        });
                         showSyncMessage('success', '🛑 Sync stopped. You can start a new sync now.');
                     }
                 });
@@ -1278,7 +1302,11 @@
                 // No sync ID, just clear UI
                 $('#active_syncs').empty();
                 $('#stop_sync_container').hide();
-                $('[data-ajax-action]').prop('disabled', false);
+                $('[data-ajax-action]').prop('disabled', false).each(function() {
+                    const $btn = $(this);
+                    const originalText = $btn.data('original-text') || $btn.text();
+                    $btn.html(originalText);
+                });
             }
         });
         
