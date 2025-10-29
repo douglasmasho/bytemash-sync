@@ -533,15 +533,15 @@ class ByteMash_Action_Scheduler_Sync {
     public function enable_production_sync() {
         $this->clear_schedules();
         
-        // Schedule full sync daily at 00:30 (South Africa time)
+        // Schedule full sync daily at 01:30 (South Africa time) - avoiding API downtime 00:00-01:00
         $timezone = new DateTimeZone('Africa/Johannesburg');
         $now = new DateTime('now', $timezone);
         
-        // Set to 00:30 today
+        // Set to 01:30 today
         $next_sync = clone $now;
-        $next_sync->setTime(0, 30, 0);
+        $next_sync->setTime(1, 30, 0);
         
-        // If it's already past 00:30 today, schedule for tomorrow
+        // If it's already past 01:30 today, schedule for tomorrow
         if ($next_sync <= $now) {
             $next_sync->add(new DateInterval('P1D'));
         }
@@ -567,11 +567,11 @@ class ByteMash_Action_Scheduler_Sync {
             'bytemash-sync'
         );
         
-        $this->logger->log('info', "Production sync enabled - Full sync daily at 00:30, Incremental every 5 hours", array(), 'action_scheduler');
+        $this->logger->log('info', "Production sync enabled - Full sync daily at 01:30, Incremental every 5 hours", array(), 'action_scheduler');
         
         return array(
             'success' => true,
-            'message' => 'Production sync enabled - Full sync daily at 00:30, Incremental every 5 hours',
+            'message' => 'Production sync enabled - Full sync daily at 01:30, Incremental every 5 hours',
             'next_full_sync' => $next_sync->format('Y-m-d H:i:s'),
             'next_incremental_sync' => date('Y-m-d H:i:s', $wp_timestamp + (5 * HOUR_IN_SECONDS)),
         );

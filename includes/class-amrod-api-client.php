@@ -136,6 +136,18 @@ class ByteMash_Amrod_API_Client {
             }
         }
         
+        // Handle HTTP 204 No Content - this is success with no data
+        if ($status_code === 204 || (empty($response_body) && $status_code < 300)) {
+            $this->logger->log('info', 'API returned empty response (204 No Content or empty body)', array(
+                'url' => $url,
+                'status_code' => $status_code,
+            ), 'api_request');
+            // Clean up memory
+            unset($response_body, $response);
+            @ini_set('memory_limit', $original_memory_limit);
+            return array(); // Return empty array - no data to process
+        }
+        
         if ($status_code >= 400) {
             $this->logger->log('error', 'API Error Response', array(
                 'url' => $url,

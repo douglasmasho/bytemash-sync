@@ -28,7 +28,7 @@ class ByteMash_Admin_Settings {
         $api_url = get_option('bytemash_amrod_api_url', 'https://identity.amrod.co.za');
         $api_token = get_option('bytemash_amrod_api_token', '');
         $batch_size = get_option('bytemash_amrod_batch_size', 50);
-        $full_sync_frequency = get_option('bytemash_full_sync_frequency', 'daily_at_0030');
+        $full_sync_frequency = get_option('bytemash_full_sync_frequency', 'daily_at_0130');
         $incremental_frequency = get_option('bytemash_incremental_sync_frequency', 'every_5_hours');
         
         // Get sync status
@@ -248,8 +248,8 @@ class ByteMash_Admin_Settings {
                                 </th>
                                 <td>
                                     <select id="full_sync_frequency" name="full_sync_frequency" class="regular-text">
-                                        <option value="daily_at_0030" <?php selected($full_sync_frequency, 'daily_at_0030'); ?>>
-                                            <?php esc_html_e('Daily at 00:30 GMT+2 (Recommended)', 'bytemash-woo-sync'); ?>
+                                        <option value="daily_at_0130" <?php selected($full_sync_frequency, 'daily_at_0130'); ?>>
+                                            <?php esc_html_e('Daily at 01:30 GMT+2 (Recommended)', 'bytemash-woo-sync'); ?>
                                         </option>
                                         <option value="daily" <?php selected($full_sync_frequency, 'daily'); ?>>
                                             <?php esc_html_e('Daily', 'bytemash-woo-sync'); ?>
@@ -265,7 +265,7 @@ class ByteMash_Admin_Settings {
                                         </option>
                                     </select>
                                     <p class="description">
-                                        <?php esc_html_e('Full sync clears and repopulates all data. Recommended: Daily at 00:30 GMT+2 as per Amrod API documentation.', 'bytemash-woo-sync'); ?>
+                                        <?php esc_html_e('Full sync clears and repopulates all data. Recommended: Daily at 01:30 GMT+2 (avoids API downtime 00:00-01:00 GMT+2).', 'bytemash-woo-sync'); ?>
                                     </p>
                                 </td>
                             </tr>
@@ -681,7 +681,7 @@ class ByteMash_Admin_Settings {
         }
         
         // Save new sync schedule settings
-        $full_sync_frequency = 'daily_at_0030';
+        $full_sync_frequency = 'daily_at_0130';
         $incremental_frequency = 'every_5_hours';
         
         if (isset($_POST['full_sync_frequency'])) {

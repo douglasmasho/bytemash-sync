@@ -1296,6 +1296,11 @@
                             $btn.html(originalText);
                         });
                         showSyncMessage('success', '🛑 Sync stopped. You can start a new sync now.');
+                    },
+                    complete: function() {
+                        // Always reset the stop button state
+                        $button.prop('disabled', false);
+                        $button.html('<span class="dashicons dashicons-no"></span> Stop Sync');
                     }
                 });
             } else {

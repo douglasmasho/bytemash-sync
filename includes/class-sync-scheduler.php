@@ -150,9 +150,9 @@ class ByteMash_Sync_Scheduler {
             'display' => __('Every 12 Hours', 'bytemash-woo-sync'),
         );
         
-        $schedules['daily_at_0030'] = array(
+        $schedules['daily_at_0130'] = array(
             'interval' => DAY_IN_SECONDS,
-            'display' => __('Daily at 00:30 GMT+2', 'bytemash-woo-sync'),
+            'display' => __('Daily at 01:30 GMT+2', 'bytemash-woo-sync'),
         );
         
         $schedules['every_5_minutes'] = array(
@@ -164,8 +164,8 @@ class ByteMash_Sync_Scheduler {
     }
     
     /**
-     * Run full sync (daily at 00:30 GMT+2)
-     * According to API docs: Full stock list is cleared and repopulated at 00:30 GMT+2
+     * Run full sync (daily at 01:30 GMT+2)
+     * API maintenance window: 00:00-01:00 GMT+2 daily
      */
     public function run_full_sync() {
         $this->logger->log('info', '🚀 Starting full sync (daily reset)', array(), 'full_sync');
@@ -625,11 +625,11 @@ class ByteMash_Sync_Scheduler {
     /**
      * Update sync schedules
      */
-    public function update_schedule($full_sync_frequency = 'daily_at_0030', $incremental_frequency = 'every_5_hours') {
+    public function update_schedule($full_sync_frequency = 'daily_at_0130', $incremental_frequency = 'every_5_hours') {
         // Clear existing schedules
         $this->clear_all_schedules();
         
-        // Schedule full sync (daily at 00:30 GMT+2)
+        // Schedule full sync (daily at 01:30 GMT+2, avoiding API downtime 00:00-01:00)
         if ($full_sync_frequency && $full_sync_frequency !== 'manual') {
             $this->schedule_full_sync();
             $this->logger->log('info', "Full sync schedule updated to: {$full_sync_frequency}", array(), 'scheduler');
@@ -652,7 +652,7 @@ class ByteMash_Sync_Scheduler {
     /**
      * Restore only the full sync schedule (don't touch incremental)
      */
-    public function restore_full_sync_schedule($full_sync_frequency = 'daily_at_0030') {
+    public function restore_full_sync_schedule($full_sync_frequency = 'daily_at_0130') {
         // Clear only the full sync schedule
         $timestamp = wp_next_scheduled('bytemash_full_sync_cron');
         if ($timestamp) {
@@ -676,15 +676,15 @@ class ByteMash_Sync_Scheduler {
             $this->logger->log('info', "Full sync scheduled with Action Scheduler", array(), 'sync_scheduler');
             return;
         }
-        // Calculate next 00:30 GMT+2 (South Africa time)
+        // Calculate next 01:30 GMT+2 (South Africa time) - avoiding API downtime 00:00-01:00
         $timezone = new DateTimeZone('Africa/Johannesburg');
         $now = new DateTime('now', $timezone);
         
-        // Set to 00:30 today
+        // Set to 01:30 today
         $next_sync = clone $now;
-        $next_sync->setTime(0, 30, 0);
+        $next_sync->setTime(1, 30, 0);
         
-        // If it's already past 00:30 today, schedule for tomorrow
+        // If it's already past 01:30 today, schedule for tomorrow
         if ($next_sync <= $now) {
             $next_sync->add(new DateInterval('P1D'));
         }
@@ -692,7 +692,7 @@ class ByteMash_Sync_Scheduler {
         // Convert to WordPress timezone
         $wp_timestamp = $next_sync->getTimestamp() - (get_option('gmt_offset') * HOUR_IN_SECONDS);
         
-        wp_schedule_event($wp_timestamp, 'daily_at_0030', 'bytemash_full_sync_cron');
+        wp_schedule_event($wp_timestamp, 'daily_at_0130', 'bytemash_full_sync_cron');
     }
     
     /**

@@ -108,6 +108,13 @@ class ByteMash_Woo_Sync {
         add_action('woocommerce_product_meta_end', array($this, 'display_branding_guides'), 10);
         add_action('woocommerce_single_product_summary', array($this, 'display_brand_info'), 15);
         
+        // Allow products to be purchasable even without prices
+        add_filter('woocommerce_is_purchasable', array($this, 'make_products_purchasable_without_price'), 10, 2);
+        add_filter('woocommerce_product_is_in_stock', array($this, 'force_in_stock_when_has_stock'), 10, 2);
+        add_filter('woocommerce_product_get_price', array($this, 'set_default_price_for_amrod_products'), 10, 2);
+        add_action('woocommerce_before_add_to_cart_button', array($this, 'maybe_set_product_price'));
+        add_filter('woocommerce_get_price_html', array($this, 'hide_zero_price_display'), 10, 2);
+        
         // Admin hooks
         if (is_admin()) {
             add_action('admin_menu', array($this, 'register_admin_menu'));
@@ -1728,7 +1735,7 @@ class ByteMash_Woo_Sync {
      */
     private function enable_full_test_mode() {
         // Store original full sync schedule
-        $original_full_sync = get_option('bytemash_full_sync_frequency', 'daily_at_0030');
+        $original_full_sync = get_option('bytemash_full_sync_frequency', 'daily_at_0130');
         update_option('bytemash_cron_original_full_sync', $original_full_sync);
         
         // Clear existing full sync schedule
@@ -2026,7 +2033,7 @@ class ByteMash_Woo_Sync {
         
         // Enable production schedules
         $scheduler = new ByteMash_Sync_Scheduler();
-        $scheduler->update_schedule('daily_at_0030', 'every_5_hours');
+            $scheduler->update_schedule('daily_at_0130', 'every_5_hours');
         
         // Disable test modes
         update_option('bytemash_cron_full_test_mode_enabled', false);
@@ -2055,7 +2062,7 @@ class ByteMash_Woo_Sync {
         wp_clear_scheduled_hook('bytemash_incremental_sync_cron');
         
         $scheduler = new ByteMash_Sync_Scheduler();
-        $scheduler->update_schedule('daily_at_0030', 'every_5_hours');
+            $scheduler->update_schedule('daily_at_0130', 'every_5_hours');
         
         // Disable test modes
         update_option('bytemash_cron_full_test_mode_enabled', false);
@@ -2273,7 +2280,7 @@ class ByteMash_Woo_Sync {
         if (!empty($logo24_guide)) {
             echo '<div>';
             echo '<a href="' . esc_url($logo24_guide) . '" target="_blank" class="button" style="display: inline-flex; align-items: center; text-decoration: none; background: #28a745; color: white; padding: 8px 16px; border-radius: 3px; font-size: 14px;">';
-            echo '🎨 Logo24 Branding Guide';
+            echo 'Logo24 Branding Guide';
             echo '</a>';
             echo '</div>';
         }
@@ -2300,6 +2307,136 @@ class ByteMash_Woo_Sync {
         echo '<div class="amrod-brand-info" style="margin: 15px 0; padding: 10px; background: #fff3cd; border: 1px solid #ffeaa7; border-radius: 5px;">';
         echo '<strong style="color: #856404;">🏷️ Brand:</strong> <span style="color: #333; font-weight: 500;">' . esc_html($brand) . '</span>';
         echo '</div>';
+    }
+    
+    /**
+     * Make products purchasable even without prices
+     * This allows products to be orderable even if price sync is disabled or hasn't run yet
+     * 
+     * @param bool $purchasable Whether product is purchasable
+     * @param WC_Product $product Product object
+     * @return bool Modified purchasable status
+     */
+    public function make_products_purchasable_without_price($purchasable, $product) {
+        // Check if this is an Amrod-synced product (has Amrod metadata)
+        $amrod_sku = get_post_meta($product->get_id(), '_amrod_simple_code', true);
+        $amrod_full_code = get_post_meta($product->get_id(), '_amrod_full_code', true);
+        
+        if (!empty($amrod_sku) || !empty($amrod_full_code)) {
+            // This is an Amrod product - allow purchase even without price
+            // Set a placeholder price of 0 to allow adding to cart
+            if ($product->get_price() === '' || $product->get_price() === null) {
+                $product->set_price('0');
+                $product->set_regular_price('0');
+            }
+            return true;
+        }
+        
+        return $purchasable;
+    }
+    
+    /**
+     * Force in stock status when product has stock quantity
+     * WooCommerce by default sets products as out of stock if they don't have a price
+     * This fixes that behavior for Amrod products
+     * 
+     * @param bool $is_in_stock Whether product is in stock
+     * @param WC_Product $product Product object
+     * @return bool Modified stock status
+     */
+    public function force_in_stock_when_has_stock($is_in_stock, $product) {
+        // If already in stock, use default behavior
+        if ($is_in_stock) {
+            return $is_in_stock;
+        }
+        
+        // Check if this is an Amrod-synced product (has Amrod metadata)
+        $amrod_sku = get_post_meta($product->get_id(), '_amrod_simple_code', true);
+        $amrod_full_code = get_post_meta($product->get_id(), '_amrod_full_code', true);
+        
+        if (!empty($amrod_sku) || !empty($amrod_full_code)) {
+            // This is an Amrod product - check if it has stock
+            $stock_quantity = $product->get_stock_quantity();
+            
+            if ($stock_quantity !== null && $stock_quantity > 0) {
+                // Has stock but WooCommerce marked as out of stock (probably due to no price)
+                // Force it to be in stock
+                return true;
+            }
+        }
+        
+        return $is_in_stock;
+    }
+    
+    /**
+     * Set default price for Amrod products that don't have prices
+     * This filter intercepts the price getter and returns 0 if price is empty
+     * 
+     * @param mixed $price Product price
+     * @param WC_Product $product Product object
+     * @return mixed Modified price
+     */
+    public function set_default_price_for_amrod_products($price, $product) {
+        // Only apply to Amrod products
+        $amrod_sku = get_post_meta($product->get_id(), '_amrod_simple_code', true);
+        $amrod_full_code = get_post_meta($product->get_id(), '_amrod_full_code', true);
+        
+        if (!empty($amrod_sku) || !empty($amrod_full_code)) {
+            // If price is empty or null, set to 0
+            if (empty($price) || $price === null) {
+                return '0';
+            }
+        }
+        
+        return $price;
+    }
+    
+    /**
+     * Maybe set product price before displaying add to cart button
+     * This ensures the price is saved in the database
+     */
+    public function maybe_set_product_price() {
+        global $product;
+        
+        if (!$product) {
+            return;
+        }
+        
+        // Check if this is an Amrod product
+        $amrod_sku = get_post_meta($product->get_id(), '_amrod_simple_code', true);
+        $amrod_full_code = get_post_meta($product->get_id(), '_amrod_full_code', true);
+        
+        if (!empty($amrod_sku) || !empty($amrod_full_code)) {
+            // If product doesn't have a price, set it to 0
+            if (empty($product->get_price()) || $product->get_price() === null) {
+                $product->set_price('0');
+                $product->set_regular_price('0');
+                $product->save();
+            }
+        }
+    }
+    
+    /**
+     * Hide price display when it's 0 (for Amrod products without prices)
+     * 
+     * @param string $price_html Price HTML
+     * @param WC_Product $product Product object
+     * @return string Modified price HTML
+     */
+    public function hide_zero_price_display($price_html, $product) {
+        // Check if this is an Amrod product
+        $amrod_sku = get_post_meta($product->get_id(), '_amrod_simple_code', true);
+        $amrod_full_code = get_post_meta($product->get_id(), '_amrod_full_code', true);
+        
+        if (!empty($amrod_sku) || !empty($amrod_full_code)) {
+            // If price is 0, show custom message instead
+            $price = $product->get_price();
+            if (empty($price) || $price === '0' || $price === 0) {
+                return '<span class="price">Price on request</span>';
+            }
+        }
+        
+        return $price_html;
     }
 }
 
