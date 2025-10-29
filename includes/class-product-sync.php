@@ -1520,6 +1520,17 @@ class ByteMash_Product_Sync {
         $updated_count = 0;
         $failed_count = 0;
         $stock_qty = isset($stock_item['stock']) ? (int) $stock_item['stock'] : 0;
+        $reserved_qty = isset($stock_item['reservedStock']) ? (int) $stock_item['reservedStock'] : 0;
+        $incoming = array();
+        if (!empty($stock_item['incomingStock']) && is_array($stock_item['incomingStock'])) {
+            foreach ($stock_item['incomingStock'] as $inc) {
+                $incoming[] = array(
+                    'total' => isset($inc['total']) ? (int) $inc['total'] : 0,
+                    'date' => isset($inc['date']) ? sanitize_text_field($inc['date']) : '',
+                );
+            }
+        }
+        $modified = isset($stock_item['modifiedDate']) ? sanitize_text_field($stock_item['modifiedDate']) : '';
         
         foreach ($product_ids as $pid) {
             try {
@@ -1546,6 +1557,15 @@ class ByteMash_Product_Sync {
                     'sku' => $product->get_sku(),
                     'stock_qty' => $stock_qty,
                 ), 'product_sync');
+
+                // Persist detailed stock breakdown for modal/table UI
+                $detail = array(
+                    'stock' => $stock_qty,
+                    'reserved' => $reserved_qty,
+                    'incoming' => $incoming,
+                    'modified' => $modified,
+                );
+                update_post_meta($pid, '_amrod_stock_detail', $detail);
             } catch (Exception $e) {
                 $failed_count++;
                 $this->logger->log('error', 'Stock update failed', array(

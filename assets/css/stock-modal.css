@@ -1,0 +1,13 @@
+.bytemash-stock-trigger { margin-top: 12px; }
+.bytemash-stock-modal { position: fixed; inset: 0; background: rgba(0,0,0,.45); z-index: 9999; }
+.bytemash-stock-modal__dialog { background: #fff; width: 90%; max-width: 900px; margin: 5% auto; padding: 16px 20px; border-radius: 6px; position: relative; }
+.bytemash-stock-modal__close { position: absolute; top: 8px; right: 10px; background: transparent; border: 0; font-size: 20px; cursor: pointer; }
+.bytemash-stock-table { width: 100%; border-collapse: collapse; margin-top: 12px; }
+.bytemash-stock-table th, .bytemash-stock-table td { border: 1px solid #e2e2e2; padding: 8px; text-align: left; }
+.bytemash-stock-table thead { background: #f6f7f7; }
+.bytemash-spinner { width: 24px; height: 24px; border: 3px solid #ddd; border-top-color: #2271b1; border-radius: 50%; animation: bmspin 1s linear infinite; margin: 20px auto; }
+@keyframes bmspin { to { transform: rotate(360deg);} }
+.bytemash-stock-summary { margin: 6px 0; }
+.bytemash-stock-disclaimer { color: #646970; font-size: 12px; margin-top: 10px; }
+
+

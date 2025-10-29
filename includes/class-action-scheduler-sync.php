@@ -125,6 +125,13 @@ class ByteMash_Action_Scheduler_Sync {
             'with_branding' => $with_branding,
         ), 'action_scheduler');
         
+		// Respect product sync disable option
+		$products_sync_enabled = get_option('bytemash_sync_products', true);
+		if (!$products_sync_enabled) {
+			$this->logger->log('warning', 'Products sync is disabled. Skipping Action Scheduler full sync.', array(), 'action_scheduler');
+			return;
+		}
+		
         try {
             // Fetch products from Amrod API
             $api_client = new ByteMash_Amrod_API_Client();
@@ -170,6 +177,13 @@ class ByteMash_Action_Scheduler_Sync {
             'with_branding' => $with_branding,
         ), 'action_scheduler');
         
+		// Respect product sync disable option
+		$products_sync_enabled = get_option('bytemash_sync_products', true);
+		if (!$products_sync_enabled) {
+			$this->logger->log('warning', 'Products sync is disabled. Skipping Action Scheduler incremental sync.', array(), 'action_scheduler');
+			return;
+		}
+		
         try {
             // Fetch updated products from Amrod API
             $api_client = new ByteMash_Amrod_API_Client();
@@ -257,6 +271,16 @@ class ByteMash_Action_Scheduler_Sync {
             'with_branding' => $with_branding,
         ), 'action_scheduler');
         
+		// Allow mid-run stop by honoring disabled option
+		$products_sync_enabled = get_option('bytemash_sync_products', true);
+		if (!$products_sync_enabled) {
+			$this->logger->log('warning', 'Products sync is disabled. Aborting Action Scheduler batch.', array(
+				'sync_id' => $sync_id,
+				'batch_index' => $batch_index,
+			), 'action_scheduler');
+			return;
+		}
+		
         try {
             // Get the stored products
             $products = get_transient("bytemash_action_scheduler_{$sync_id}_products");
@@ -298,7 +322,15 @@ class ByteMash_Action_Scheduler_Sync {
             $errors = 0;
             
             // Process each product in the batch
-            foreach ($batch as $product_data) {
+			foreach ($batch as $product_data) {
+				// Re-check flag to stop mid-batch if disabled
+				if (!get_option('bytemash_sync_products', true)) {
+					$this->logger->log('warning', 'Products sync disabled during batch. Stopping further processing.', array(
+						'sync_id' => $sync_id,
+						'batch_index' => $batch_index,
+					), 'action_scheduler');
+					break;
+				}
                 try {
                     $result = $this->product_sync->sync_single_product($product_data, false);
                     

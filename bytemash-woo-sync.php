@@ -80,6 +80,14 @@ class ByteMash_Woo_Sync {
             require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'admin/class-admin-dashboard.php';
             require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'admin/class-admin-tools.php';
         }
+
+        // Frontend hooks for stock modal
+        add_action('wp_enqueue_scripts', array($this, 'enqueue_frontend_assets'));
+        add_action('woocommerce_single_product_summary', array($this, 'render_stock_modal_trigger'), 25);
+
+        // Public AJAX for stock modal data
+        add_action('wp_ajax_bytemash_get_product_stock_table', array($this, 'ajax_get_product_stock_table'));
+        add_action('wp_ajax_nopriv_bytemash_get_product_stock_table', array($this, 'ajax_get_product_stock_table'));
     }
     
     /**
@@ -293,6 +301,125 @@ class ByteMash_Woo_Sync {
             'console.log("ByteMash WooSync Admin JS Loaded", bytemashWooSync);',
             'after'
         );
+    }
+
+    /**
+     * Enqueue frontend assets for stock modal
+     */
+    public function enqueue_frontend_assets() {
+        if (!is_product()) {
+            return;
+        }
+        wp_enqueue_style('bytemash-stock-modal', plugins_url('assets/css/stock-modal.css', __FILE__), array(), BYTEMASH_WOO_SYNC_VERSION);
+        wp_enqueue_script('bytemash-stock-modal', plugins_url('assets/js/stock-modal.js', __FILE__), array('jquery'), BYTEMASH_WOO_SYNC_VERSION, true);
+        wp_localize_script('bytemash-stock-modal', 'bytemashStockModal', array(
+            'ajax_url' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('bytemash_woo_sync_nonce'),
+            'product_id' => get_the_ID(),
+        ));
+    }
+
+    /**
+     * Render button and modal container on product page
+     */
+    public function render_stock_modal_trigger() {
+        global $product;
+        if (!$product) {
+            return;
+        }
+        echo '<div id="bytemash-stock-modal-trigger" class="bytemash-stock-trigger"><button type="button" class="button">View Stock Availability</button></div>';
+        echo '<div id="bytemash-stock-modal" class="bytemash-stock-modal" style="display:none">'
+            . '<div class="bytemash-stock-modal__dialog">'
+            . '<button type="button" class="bytemash-stock-modal__close" aria-label="Close">×</button>'
+            . '<h3>Stock Availability</h3>'
+            . '<div id="bytemash-stock-modal__content"><div class="bytemash-spinner"></div></div>'
+            . '</div>'
+            . '</div>';
+    }
+
+    /**
+     * AJAX: Build stock table data for modal
+     */
+    public function ajax_get_product_stock_table() {
+        check_ajax_referer('bytemash_woo_sync_nonce', 'nonce');
+
+        $product_id = isset($_POST['product_id']) ? intval($_POST['product_id']) : 0;
+        if (!$product_id) {
+            wp_send_json_error(array('message' => __('Invalid product.', 'bytemash-woo-sync')));
+        }
+
+        $product = wc_get_product($product_id);
+        if (!$product) {
+            wp_send_json_error(array('message' => __('Product not found.', 'bytemash-woo-sync')));
+        }
+
+        $rows = array();
+        $totals = array('stock' => 0, 'reserved' => 0, 'incoming' => 0);
+
+        // Helper to compute earliest ETA and incoming total
+        $compute_incoming = function($incoming) {
+            $total = 0;
+            $eta = null;
+            if (is_array($incoming)) {
+                foreach ($incoming as $inc) {
+                    $total += isset($inc['total']) ? intval($inc['total']) : 0;
+                    $d = isset($inc['date']) ? strtotime($inc['date']) : 0;
+                    if ($d && ($eta === null || $d < $eta)) {
+                        $eta = $d;
+                    }
+                }
+            }
+            return array($total, $eta ? date_i18n(get_option('date_format'), $eta) : __('To Be Confirmed', 'bytemash-woo-sync'));
+        };
+
+        if ($product->is_type('variable')) {
+            foreach ($product->get_children() as $vid) {
+                $v = wc_get_product($vid);
+                if (!$v) { continue; }
+                $detail = get_post_meta($vid, '_amrod_stock_detail', true);
+                $stock = isset($detail['stock']) ? intval($detail['stock']) : intval($v->get_stock_quantity());
+                $reserved = isset($detail['reserved']) ? intval($detail['reserved']) : 0;
+                list($incoming_total, $eta_text) = $compute_incoming($detail['incoming'] ?? array());
+
+                $attrs = wc_get_formatted_variation($v, true, false, false);
+
+                $rows[] = array(
+                    'label' => $attrs,
+                    'sku' => $v->get_sku(),
+                    'stock' => $stock,
+                    'reserved' => $reserved,
+                    'incoming' => $incoming_total,
+                    'eta' => $eta_text,
+                );
+
+                $totals['stock'] += max(0, $stock);
+                $totals['reserved'] += max(0, $reserved);
+                $totals['incoming'] += max(0, $incoming_total);
+            }
+        } else {
+            $detail = get_post_meta($product_id, '_amrod_stock_detail', true);
+            $stock = isset($detail['stock']) ? intval($detail['stock']) : intval($product->get_stock_quantity());
+            $reserved = isset($detail['reserved']) ? intval($detail['reserved']) : 0;
+            list($incoming_total, $eta_text) = $compute_incoming($detail['incoming'] ?? array());
+
+            $rows[] = array(
+                'label' => $product->get_name(),
+                'sku' => $product->get_sku(),
+                'stock' => $stock,
+                'reserved' => $reserved,
+                'incoming' => $incoming_total,
+                'eta' => $eta_text,
+            );
+
+            $totals['stock'] = max(0, $stock);
+            $totals['reserved'] = max(0, $reserved);
+            $totals['incoming'] = max(0, $incoming_total);
+        }
+
+        wp_send_json_success(array(
+            'rows' => $rows,
+            'totals' => $totals,
+        ));
     }
     
     /**
@@ -1985,6 +2112,16 @@ class ByteMash_Woo_Sync {
         wp_clear_scheduled_hook('bytemash_full_sync_cron');
         wp_clear_scheduled_hook('bytemash_incremental_sync_cron');
         wp_clear_scheduled_hook('bytemash_cron_health_check');
+		
+		// Also clear Action Scheduler jobs related to our syncs
+		if (function_exists('as_unschedule_all_actions')) {
+			// Cancel all pending recurring and single actions for our hooks
+			as_unschedule_all_actions('bytemash_action_scheduler_full_sync', array('with_branding' => true), 'bytemash-sync');
+			as_unschedule_all_actions('bytemash_action_scheduler_incremental_sync', array('with_branding' => true), 'bytemash-sync');
+			// Batch and cleanup actions may have varying args; cancel without args to catch all
+			as_unschedule_all_actions('bytemash_action_scheduler_batch_sync', null, 'bytemash-sync');
+			as_unschedule_all_actions('bytemash_action_scheduler_cleanup', null, 'bytemash-sync');
+		}
         
         // Clear running transients
         delete_transient('bytemash_full_sync_running');
