@@ -29,7 +29,7 @@ class ByteMash_Admin_Tools {
             <h1><?php esc_html_e('Admin Tools', 'bytemash-woo-sync'); ?></h1>
             
             <div class="bytemash-card" style="margin-top: 20px; max-width: 800px;">
-                <h2>🗑️ <?php esc_html_e('Delete All Products', 'bytemash-woo-sync'); ?></h2>
+                <h2><?php esc_html_e('Delete All Products', 'bytemash-woo-sync'); ?></h2>
                 
                 <p>
                     <strong><?php esc_html_e('Current Products:', 'bytemash-woo-sync'); ?></strong> 

@@ -562,6 +562,229 @@
 }
 
 /* ===== AUTHENTICATION SECTION ===== */
+.bytemash-auth-section {
+    max-width: 700px;
+    margin: 40px auto;
+}
+
+.bytemash-auth-card {
+    background: var(--bytemash-card-bg);
+    border: 1px solid var(--bytemash-border);
+    border-radius: var(--bytemash-radius-lg);
+    box-shadow: var(--bytemash-shadow-lg);
+    padding: 48px 40px;
+    text-align: center;
+}
+
+.bytemash-auth-icon {
+    width: 80px;
+    height: 80px;
+    margin: 0 auto 24px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: linear-gradient(135deg, var(--bytemash-primary), var(--bytemash-primary-dark));
+    border-radius: 50%;
+    box-shadow: 0 8px 24px rgba(37, 99, 235, 0.3);
+}
+
+.bytemash-auth-icon .dashicons {
+    font-size: 40px;
+    width: 40px;
+    height: 40px;
+    color: white;
+}
+
+.bytemash-auth-card h2 {
+    font-size: 28px;
+    font-weight: 700;
+    margin: 0 0 16px;
+    color: var(--bytemash-text);
+    display: block;
+    border: none;
+    padding: 0;
+    text-align: center;
+}
+
+.bytemash-auth-card > p {
+    font-size: 16px;
+    color: var(--bytemash-text-light);
+    margin-bottom: 32px;
+    line-height: 1.6;
+}
+
+.bytemash-auth-form {
+    max-width: 500px;
+    margin: 0 auto 32px;
+}
+
+.bytemash-auth-form .form-field {
+    margin-bottom: 24px;
+    text-align: left;
+}
+
+.bytemash-auth-form .form-field label {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-weight: 600;
+    font-size: 14px;
+    color: var(--bytemash-text);
+    margin-bottom: 8px;
+}
+
+.bytemash-auth-form .form-field .dashicons {
+    color: var(--bytemash-primary);
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+}
+
+.bytemash-auth-form input[type="text"],
+.bytemash-auth-form input[type="password"],
+.bytemash-auth-form input[type="url"] {
+    width: 100%;
+    padding: 14px 16px;
+    font-size: 15px;
+    border: 2px solid var(--bytemash-border);
+    border-radius: var(--bytemash-radius-sm);
+    background: white;
+    color: #1d2327;
+    transition: all 0.3s ease;
+}
+
+.bytemash-auth-form input[type="text"]:focus,
+.bytemash-auth-form input[type="password"]:focus,
+.bytemash-auth-form input[type="url"]:focus {
+    outline: none;
+    border-color: var(--bytemash-primary);
+    box-shadow: 0 0 0 3px rgba(37, 99, 235, 0.1);
+}
+
+.bytemash-auth-form .description {
+    margin-top: 8px;
+    font-size: 13px;
+    color: var(--bytemash-text-light);
+    line-height: 1.5;
+}
+
+.bytemash-auth-form .submit {
+    margin-top: 32px;
+}
+
+.bytemash-auth-form .button-primary {
+    background: linear-gradient(135deg, var(--bytemash-primary), var(--bytemash-primary-dark));
+    color: white;
+    border: none;
+    padding: 16px 40px;
+    font-size: 16px;
+    font-weight: 600;
+    border-radius: var(--bytemash-radius-sm);
+    box-shadow: 0 4px 12px rgba(37, 99, 235, 0.3);
+    transition: all 0.3s ease;
+    cursor: pointer;
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.bytemash-auth-form .button-primary:hover {
+    background: linear-gradient(135deg, var(--bytemash-primary-dark), #1e40af);
+    transform: translateY(-2px);
+    box-shadow: 0 6px 20px rgba(37, 99, 235, 0.4);
+}
+
+.bytemash-auth-form .button-primary .dashicons {
+    font-size: 18px;
+    width: 18px;
+    height: 18px;
+}
+
+.bytemash-help-text {
+    border-top: 1px solid var(--bytemash-border);
+    padding-top: 24px;
+    margin-top: 32px;
+}
+
+.bytemash-help-text p {
+    margin: 8px 0;
+    font-size: 14px;
+    color: var(--bytemash-text-light);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+}
+
+.bytemash-help-text .dashicons {
+    color: var(--bytemash-primary);
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+}
+
+.bytemash-help-text a {
+    color: var(--bytemash-primary);
+    text-decoration: none;
+    font-weight: 600;
+    transition: color 0.3s ease;
+}
+
+.bytemash-help-text a:hover {
+    color: var(--bytemash-primary-dark);
+    text-decoration: underline;
+}
+
+.auth-status {
+    margin-top: 16px;
+    padding: 12px 16px;
+    border-radius: var(--bytemash-radius-sm);
+    font-size: 14px;
+    min-height: 40px;
+}
+
+.auth-status.success {
+    background: #f0fdf4;
+    border: 1px solid var(--bytemash-success);
+    color: #166534;
+}
+
+.auth-status.error {
+    background: #fef2f2;
+    border: 1px solid var(--bytemash-error);
+    color: #991b1b;
+}
+
+.bytemash-authenticated-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 32px;
+    padding: 20px;
+    background: linear-gradient(135deg, #f0fdf4, #ecfdf5);
+    border: 1px solid var(--bytemash-success);
+    border-radius: var(--bytemash-radius);
+    box-shadow: var(--bytemash-shadow);
+}
+
+.auth-success-badge {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    background: linear-gradient(135deg, var(--bytemash-success), #059669);
+    color: white;
+    padding: 12px 20px;
+    border-radius: var(--bytemash-radius-sm);
+    font-weight: 600;
+    box-shadow: 0 4px 12px rgba(16, 185, 129, 0.3);
+}
+
+.auth-success-badge .dashicons {
+    font-size: 20px;
+    width: 20px;
+    height: 20px;
+}
+
 .bytemash-auth-required {
     max-width: 600px;
     margin: 60px auto;

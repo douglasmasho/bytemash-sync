@@ -2260,12 +2260,12 @@ class ByteMash_Woo_Sync {
         }
         
         echo '<div class="amrod-branding-guides" style="margin-top: 20px; padding: 15px; background: #f8f9fa; border: 1px solid #e9ecef; border-radius: 5px;">';
-        echo '<h4 style="margin: 0 0 15px 0; color: #333; font-size: 16px;">📋 Branding Guides</h4>';
+        echo '<h4 style="margin: 0 0 15px 0; color: #333; font-size: 16px;">Branding Guides</h4>';
         
         if (!empty($full_guide)) {
             echo '<div style="margin-bottom: 10px;">';
             echo '<a href="' . esc_url($full_guide) . '" target="_blank" class="button" style="display: inline-flex; align-items: center; text-decoration: none; background: #0073aa; color: white; padding: 8px 16px; border-radius: 3px; font-size: 14px;">';
-            echo '📄 Full Branding Guide';
+            echo ' Full Branding Guide';
             echo '</a>';
             echo '</div>';
         }

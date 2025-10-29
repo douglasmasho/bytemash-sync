@@ -32,7 +32,7 @@ if (!isset($_GET['confirm']) || $_GET['confirm'] !== 'yes') {
         </style>
     </head>
     <body>
-        <h1>⚠️ Clear All Products</h1>
+        <h1> Clear All Products</h1>
         <div class="warning">
             <h2>WARNING!</h2>
             <p>This will permanently delete ALL products and variations from your WooCommerce store.</p>
