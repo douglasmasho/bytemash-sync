@@ -103,10 +103,18 @@ class ByteMash_Woo_Sync {
         add_filter('woocommerce_product_get_image_id', array($this, 'use_external_image_url'), 10, 2);
         add_filter('wp_get_attachment_image_src', array($this, 'replace_with_external_url'), 10, 4);
         add_filter('woocommerce_product_get_gallery_image_ids', array($this, 'use_external_gallery_urls'), 10, 2);
+		// Shop/archive thumbnails (broad theme coverage)
+		add_filter('woocommerce_get_product_thumbnail', array($this, 'archive_product_thumbnail_html'), 10, 3);
+		add_filter('post_thumbnail_html', array($this, 'archive_post_thumbnail_html'), 10, 5);
         
         // Frontend product page hooks
         add_action('woocommerce_product_meta_end', array($this, 'display_branding_guides'), 10);
+        // Fallback: some themes don't call woocommerce_product_meta_end; also render in summary
+        add_action('woocommerce_single_product_summary', array($this, 'display_branding_guides'), 35);
         add_action('woocommerce_single_product_summary', array($this, 'display_brand_info'), 15);
+
+        // Force-inject buttons regardless of theme (optional via settings)
+        add_action('wp_footer', array($this, 'maybe_force_product_buttons'), 5);
         
         // Allow products to be purchasable even without prices
         add_filter('woocommerce_is_purchasable', array($this, 'make_products_purchasable_without_price'), 10, 2);
@@ -331,6 +339,10 @@ class ByteMash_Woo_Sync {
      */
     public function render_stock_modal_trigger() {
         global $product;
+        static $bytemash_stock_modal_rendered = false;
+        if ($bytemash_stock_modal_rendered) {
+            return;
+        }
         if (!$product) {
             return;
         }
@@ -342,6 +354,7 @@ class ByteMash_Woo_Sync {
             . '<div id="bytemash-stock-modal__content"><div class="bytemash-spinner"></div></div>'
             . '</div>'
             . '</div>';
+        $bytemash_stock_modal_rendered = true;
     }
 
     /**
@@ -532,6 +545,39 @@ class ByteMash_Woo_Sync {
             as_unschedule_all_actions('bytemash_action_scheduler_incremental_sync', array(), 'bytemash-sync');
             as_unschedule_all_actions('bytemash_action_scheduler_batch_sync', array(), 'bytemash-sync');
             as_unschedule_all_actions('bytemash_action_scheduler_cleanup', array(), 'bytemash-sync');
+
+            // Also clear any actions with these hooks regardless of group (defensive cleanup)
+            as_unschedule_all_actions('bytemash_action_scheduler_full_sync');
+            as_unschedule_all_actions('bytemash_action_scheduler_incremental_sync');
+            as_unschedule_all_actions('bytemash_action_scheduler_batch_sync');
+            as_unschedule_all_actions('bytemash_action_scheduler_cleanup');
+
+            // Deep cleanup via Action Scheduler store (older/persisted jobs)
+            if (class_exists('ActionScheduler_Store')) {
+                try {
+                    $store = ActionScheduler_Store::instance();
+                    if (method_exists($store, 'query_actions') && method_exists($store, 'cancel_action')) {
+                        $action_ids = $store->query_actions(array(
+                            'group' => 'bytemash-sync',
+                            'status' => array('pending', 'in-progress', 'running', 'failed', 'queued'),
+                            'per_page' => 1000,
+                        ));
+                        if (is_array($action_ids)) {
+                            foreach ($action_ids as $action_id) {
+                                // Cancel if possible, otherwise delete
+                                if (method_exists($store, 'cancel_action')) {
+                                    $store->cancel_action($action_id);
+                                }
+                                if (method_exists($store, 'delete_action')) {
+                                    $store->delete_action($action_id);
+                                }
+                            }
+                        }
+                    }
+                } catch (Exception $e) {
+                    // Best-effort: ignore errors during cleanup
+                }
+            }
         }
         
         // Log the cleanup
@@ -628,6 +674,46 @@ class ByteMash_Woo_Sync {
         
         return $gallery_ids;
     }
+
+	/**
+	 * Build consistent <img> HTML for archive/shop thumbnails using external URL if set
+	 */
+	public function archive_product_thumbnail_html($html, $size, $attr) {
+		global $product;
+		if (!$product || !is_a($product, 'WC_Product')) {
+			return $html;
+		}
+		$external_url = get_post_meta($product->get_id(), '_thumbnail_external_url', true);
+		if (empty($external_url)) {
+			return $html;
+		}
+		$classes = 'attachment-woocommerce_thumbnail size-woocommerce_thumbnail';
+		$alt = esc_attr(get_the_title($product->get_id()));
+		$src = esc_url($external_url);
+		return '<img class="' . $classes . '" src="' . $src . '" alt="' . $alt . '" loading="lazy" />';
+	}
+
+	/**
+	 * Fallback for themes using the_post_thumbnail() directly in product loops
+	 */
+	public function archive_post_thumbnail_html($html, $post_id, $post_thumbnail_id, $size, $attr) {
+		// Only affect product archives/shop contexts
+		if (!(is_shop() || is_product_taxonomy() || is_post_type_archive('product'))) {
+			return $html;
+		}
+		$product = function_exists('wc_get_product') ? wc_get_product($post_id) : null;
+		if (!$product) {
+			return $html;
+		}
+		$external_url = get_post_meta($post_id, '_thumbnail_external_url', true);
+		if (empty($external_url)) {
+			return $html;
+		}
+		$classes = 'attachment-woocommerce_thumbnail size-woocommerce_thumbnail';
+		$alt = esc_attr(get_the_title($post_id));
+		$src = esc_url($external_url);
+		return '<img class="' . $classes . '" src="' . $src . '" alt="' . $alt . '" loading="lazy" />';
+	}
     
     /**
      * AJAX: Authenticate with Amrod
@@ -2254,6 +2340,12 @@ class ByteMash_Woo_Sync {
      */
     public function display_branding_guides() {
         global $product;
+        static $amrod_branding_guides_rendered = false;
+
+        // Prevent duplicate rendering if hooked in multiple places
+        if ($amrod_branding_guides_rendered) {
+            return;
+        }
         
         if (!$product) {
             return;
@@ -2286,6 +2378,61 @@ class ByteMash_Woo_Sync {
         }
         
         echo '</div>';
+        $amrod_branding_guides_rendered = true;
+    }
+
+    /**
+     * Force-inject product buttons (branding guides + stock modal) when setting is enabled
+     */
+    public function maybe_force_product_buttons() {
+        if (!function_exists('is_product') || !is_product()) {
+            return;
+        }
+        $force = get_option('bytemash_force_product_buttons', false);
+        if (!$force) {
+            return;
+        }
+        // Render both elements; internal guards prevent duplication if already printed via hooks
+        $this->display_branding_guides();
+        $this->render_stock_modal_trigger();
+
+        // Relocate buttons near product title within the summary area for better visibility
+        echo '<script>(function(){
+            var moved = false;
+            function move(el, after){
+                if(!el || !after || !after.parentNode) return false;
+                if(after.nextSibling){ after.parentNode.insertBefore(el, after.nextSibling); }
+                else { after.parentNode.appendChild(el); }
+                return true;
+            }
+            function tryMove(){
+                var summary = document.querySelector(".single-product .summary, .product .summary");
+                if(!summary) return false;
+                var title = summary.querySelector(".product_title, h1.product_title, h1");
+                var branding = document.querySelector(".amrod-branding-guides");
+                var stockBtn = document.getElementById("bytemash-stock-modal-trigger");
+                var anchor = title || summary.firstChild;
+                var did = false;
+                if(branding && !summary.contains(branding)) did = move(branding, anchor) || did;
+                if(stockBtn && !summary.contains(stockBtn)) did = move(stockBtn, (branding && summary.contains(branding)) ? branding : anchor) || did;
+                if(did) moved = true;
+                return did;
+            }
+            function ready(fn){ if(document.readyState!=="loading"){ fn(); } else { document.addEventListener("DOMContentLoaded", fn); } }
+            ready(function(){
+                // Initial attempt
+                if(!tryMove()){
+                    // Observe late-rendered templates/builders
+                    var obs = new MutationObserver(function(){
+                        if(moved) { try{ obs.disconnect(); }catch(e){} return; }
+                        if(tryMove()) { try{ obs.disconnect(); }catch(e){} }
+                    });
+                    obs.observe(document.body, { childList: true, subtree: true });
+                    // Safety timeout to stop observing after 8s
+                    setTimeout(function(){ try{ obs.disconnect(); }catch(e){} }, 8000);
+                }
+            });
+        })();</script>';
     }
     
     /**
@@ -2450,3 +2597,283 @@ function bytemash_woo_sync_init() {
 // Start the plugin
 bytemash_woo_sync_init();
 
+
+// External image display fix
+// Ensures WooCommerce and Bricks Builder render external product images stored in
+// custom meta `_external_image_url` by providing a complete <img> HTML when present.
+// This runs for both shop grids and single product contexts.
+add_filter('woocommerce_product_get_image', 'bytemash_external_image_display_fix', 10, 6);
+/**
+ * Filter WooCommerce product image HTML to use an external image when available.
+ *
+ * @param string     $image         The existing image HTML generated by WooCommerce.
+ * @param WC_Product $product       The product object.
+ * @param string|array $size        Requested image size (unused here; we emit a simple <img>).
+ * @param array      $attr          Attributes array (ignored, we generate our own minimal set).
+ * @param bool       $placeholder   Whether a placeholder was used by Woo (informational).
+ * @param string     $image_class   CSS class string Woo would apply (we'll include it if present).
+ * @return string                   The final image HTML.
+ */
+function bytemash_external_image_display_fix($image, $product, $size, $attr, $placeholder, $image_class) {
+    // Validate product object
+    if (!is_object($product) || !method_exists($product, 'get_id')) {
+        return $image;
+    }
+
+    // Look for custom external image meta
+    $external_url = get_post_meta($product->get_id(), '_external_image_url', true);
+    if (empty($external_url)) {
+        return $image; // Fallback to default when no external URL is set
+    }
+
+    // Build safe, minimal <img> with proper escaping and alt text
+    $alt   = esc_attr($product->get_name());
+    $src   = esc_url($external_url);
+    $class = trim('woocommerce-product-image' . (is_string($image_class) && $image_class !== '' ? ' ' . $image_class : ''));
+
+    // Keep HTML minimal to play nicely with Bricks/various themes and lazyloaders
+    $html = '<img class="' . esc_attr($class) . '" src="' . $src . '" alt="' . $alt . '" loading="lazy" />';
+
+    return $html;
+}
+
+// External URL image support for Bricks `{woo_product_images}` and theme overrides (no sideloading)
+// 1) Neutralize fake/non-numeric thumbnail IDs so builders don’t try to load them as attachments
+add_filter('get_post_metadata', function ($value, $object_id, $meta_key, $single) {
+	if ($meta_key !== '_thumbnail_id') return $value;
+	if (get_post_type($object_id) !== 'product') return $value;
+	$external = get_post_meta($object_id, '_external_image_url', true);
+	if (empty($external)) return $value;
+	// If stored thumb is a non-numeric marker (e.g., "external_123"), force 0 so templates fall back
+	$raw = is_array($value) ? ($value[0] ?? null) : $value;
+	if (is_string($raw) && !ctype_digit($raw)) {
+		return $single ? 0 : array(0);
+	}
+	return $value;
+}, 20, 4);
+
+// 2) Safety net: if an <img> ends up with src="external_*", swap to the real external URL
+add_filter('wp_get_attachment_image_attributes', function ($attr, $attachment, $size) {
+	$id = is_string($attachment)
+		? $attachment
+		: (is_object($attachment) ? ($attachment->ID ?? '') : $attachment);
+	if (!is_string($id) || strpos($id, 'external_') !== 0) return $attr;
+	// Resolve current product context
+	$product_id = 0;
+	if (!empty($GLOBALS['product']) && is_object($GLOBALS['product']) && method_exists($GLOBALS['product'], 'get_id')) {
+		$product_id = (int) $GLOBALS['product']->get_id();
+	} elseif (!empty($GLOBALS['post']) && $GLOBALS['post']->post_type === 'product') {
+		$product_id = (int) $GLOBALS['post']->ID;
+	}
+	if (!$product_id) return $attr;
+	$external = get_post_meta($product_id, '_external_image_url', true);
+	if (empty($external)) return $attr;
+	$attr['src'] = esc_url($external);
+	if (isset($attr['srcset'])) unset($attr['srcset']);
+	return $attr;
+}, 20, 3);
+
+// 3) Fallback renderer for Bricks `{woo_product_images}` when no attachment is available
+add_action('woo_product_images', function () {
+	global $product;
+	static $bytemash_external_images_rendered = false;
+	if ($bytemash_external_images_rendered) return;
+	if (!$product || !method_exists($product, 'get_id')) return;
+	$external = get_post_meta($product->get_id(), '_external_image_url', true);
+	if (empty($external)) return;
+	// If there is no valid numeric thumbnail id, render external image
+	$thumb = get_post_meta($product->get_id(), '_thumbnail_id', true);
+	if (!ctype_digit((string) $thumb)) {
+		echo '<img class="wp-post-image" src="' . esc_url($external) . '" alt="' . esc_attr($product->get_name()) . '" loading="lazy" />';
+		$bytemash_external_images_rendered = true;
+	}
+}, 5);
+
+// Bricks dynamic tag: Woo Product Thumbnail URL (returns plain URL for Image elements)
+add_filter('bricks/dynamic_data/register', function($tags){
+	$tags['woo_product_thumbnail_url'] = [
+		'label'   => 'Woo Product Thumbnail URL',
+		'context' => ['post','product'],
+	];
+	return $tags;
+});
+
+add_filter('bricks/dynamic_data/render', function($value, $tag, $context){
+	if ($tag !== 'woo_product_thumbnail_url') return $value;
+
+	$post_id = (is_object($context) && isset($context->post_id)) ? (int) $context->post_id : get_the_ID();
+
+	// Prefer external URLs saved by sync
+	$url = get_post_meta($post_id, '_thumbnail_external_url', true);
+	if (!$url) $url = get_post_meta($post_id, '_external_image_url', true);
+
+	// Fallback to real attachment URL if available
+	if (!$url) {
+		$thumb_id = get_post_thumbnail_id($post_id);
+		if ($thumb_id) $url = wp_get_attachment_image_url($thumb_id, 'full');
+	}
+
+	return $url ? esc_url($url) : '';
+}, 10, 3);
+
+// Older Bricks API (pre-1.9): register & render the same tag
+add_filter('bricks/dynamic_tags', function($tags){
+	$tags['woo_product_thumbnail_url'] = [
+		'label' => esc_html__('Woo Product Thumbnail URL', 'bytemash-woo-sync'),
+		'type'  => 'text',
+	];
+	return $tags;
+});
+
+add_filter('bricks/dynamic_tag_render', function($value, $name){
+	if ($name !== 'woo_product_thumbnail_url') return $value;
+
+	$post_id = get_the_ID();
+	$url = get_post_meta($post_id, '_thumbnail_external_url', true);
+	if (!$url) $url = get_post_meta($post_id, '_external_image_url', true);
+	if (!$url) {
+		$thumb_id = get_post_thumbnail_id($post_id);
+		if ($thumb_id) $url = wp_get_attachment_image_url($thumb_id, 'full');
+	}
+	return $url ? esc_url($url) : '';
+}, 10, 2);
+
+// Bricks dynamic data hook integration
+// Expose a WooCommerce action hook as a Bricks dynamic data tag so it can be used inside Bricks fields.
+// Configure the tag name and target Woo action here for reuse.
+$bytemash_bricks_hook_tag_name = 'amrod_before_title'; // Use in Bricks as {amrod_before_title}
+$bytemash_bricks_target_action = 'woocommerce_before_shop_loop_item_title'; // The WooCommerce hook to output
+
+// Register the tag label so it appears in the Dynamic Data picker (newer API)
+add_filter('bricks/dynamic_data/register', function($tags) use ($bytemash_bricks_hook_tag_name) {
+	$tags[$bytemash_bricks_hook_tag_name] = [
+		'label'   => 'Amrod: Before Product Title (Woo Hook)',
+		'context' => ['post','product'],
+	];
+	return $tags;
+});
+
+// Register for older Bricks versions (pre-1.9)
+add_filter('bricks/dynamic_tags', function($tags) use ($bytemash_bricks_hook_tag_name) {
+	$tags[$bytemash_bricks_hook_tag_name] = [
+		'label' => esc_html__('Amrod: Before Product Title (Woo Hook)', 'bytemash-woo-sync'),
+		'type'  => 'text',
+	];
+	return $tags;
+});
+
+// Render the tag by executing the WooCommerce action and returning its captured HTML (newer API helper)
+add_filter('bricks/dynamic_data/render_tag', function($value, $name, $context) use ($bytemash_bricks_hook_tag_name, $bytemash_bricks_target_action) {
+	if ($name !== $bytemash_bricks_hook_tag_name) return $value;
+	ob_start();
+	// Execute the target WooCommerce action; any callbacks attached to this hook can print HTML
+	do_action($bytemash_bricks_target_action);
+	return ob_get_clean();
+}, 10, 3);
+
+// Also render via the older API for compatibility
+add_filter('bricks/dynamic_tag_render', function($value, $name) use ($bytemash_bricks_hook_tag_name, $bytemash_bricks_target_action) {
+	if ($name !== $bytemash_bricks_hook_tag_name) return $value;
+	ob_start();
+	do_action($bytemash_bricks_target_action);
+	return ob_get_clean();
+}, 10, 2);
+
+// === Regenerate Bricks CSS Tool ===
+// Adds a quick admin bar button for administrators to clear & regenerate Bricks compiled CSS
+// (/wp-content/uploads/bricks/css). Includes nonce verification and success notice.
+
+// 1) Admin bar button for admins
+add_action('admin_bar_menu', function($wp_admin_bar) {
+	if (!is_user_logged_in() || !current_user_can('manage_options') || !is_admin_bar_showing()) {
+		return;
+	}
+	$nonce = wp_create_nonce('bytemash_regen_bricks_css');
+	$url = add_query_arg(array(
+		'action' => 'bytemash_regenerate_bricks_css',
+		'_wpnonce' => $nonce,
+	), admin_url('admin-post.php'));
+
+	$wp_admin_bar->add_node(array(
+		'id' => 'bytemash-regen-bricks-css',
+		'parent' => false,
+		'title' => 'Regenerate Bricks CSS',
+		'href' => $url,
+		'meta' => array('title' => 'Delete Bricks CSS cache & clear Bricks assets cache')
+	));
+}, 100);
+
+// 2) Handler to delete CSS files & clear Bricks cache
+add_action('admin_post_bytemash_regenerate_bricks_css', function() {
+	if (!current_user_can('manage_options')) {
+		wp_die(esc_html__('Insufficient permissions', 'bytemash-woo-sync'));
+	}
+	check_admin_referer('bytemash_regen_bricks_css');
+
+	$ok = true;
+	$msg = '';
+
+	// Delete files in /uploads/bricks/css
+	$uploads = wp_upload_dir();
+	$css_dir = trailingslashit($uploads['basedir']) . 'bricks/css';
+	if (is_dir($css_dir) && is_readable($css_dir)) {
+		$files = @glob($css_dir . '/*');
+		if (is_array($files)) {
+			foreach ($files as $f) {
+				if (is_file($f)) {
+					@unlink($f);
+				}
+			}
+		}
+	} else {
+		$ok = false;
+		$msg = esc_html__('Bricks CSS directory not found or not readable.', 'bytemash-woo-sync');
+	}
+
+	// Call Bricks cache clear if available (version-safe)
+	if (class_exists('\\Bricks\\Assets')) {
+		try {
+			if (method_exists('Bricks\\Assets', 'clear_cache')) {
+				\Bricks\Assets::clear_cache();
+			} elseif (method_exists('Bricks\\Assets', 'clearCache')) {
+				\Bricks\Assets::clearCache();
+			}
+		} catch (Exception $e) {
+			$ok = false;
+			$msg = $msg ?: $e->getMessage();
+		}
+	}
+
+	$redirect = wp_get_referer();
+	if (!$redirect) {
+		$redirect = admin_url();
+	}
+	$redirect = add_query_arg(array(
+		'bytemash_bricks_css' => $ok ? '1' : '0',
+		'bytemash_bricks_msg' => $msg ? rawurlencode($msg) : '',
+	), $redirect);
+	wp_safe_redirect($redirect);
+	exit;
+});
+
+// 3) Admin notice after regeneration
+add_action('admin_notices', function() {
+	if (!isset($_GET['bytemash_bricks_css'])) return;
+	$ok = ($_GET['bytemash_bricks_css'] === '1');
+	$msg = isset($_GET['bytemash_bricks_msg']) ? sanitize_text_field(wp_unslash($_GET['bytemash_bricks_msg'])) : '';
+	if ($ok) {
+		echo '<div class="notice notice-success is-dismissible"><p>✅ ' . esc_html__('Bricks CSS regenerated successfully!', 'bytemash-woo-sync') . '</p></div>';
+	} else {
+		$extra = $msg ? ' ' . esc_html($msg) : '';
+		echo '<div class="notice notice-error is-dismissible"><p>❌ ' . esc_html__('Failed to regenerate Bricks CSS.', 'bytemash-woo-sync') . $extra . '</p></div>';
+	}
+});
+
+// Shortcode: [amrod_before_title] — outputs WooCommerce hook content for use in Bricks or classic editors
+// Usage in Bricks: Shortcode element → [amrod_before_title]
+add_shortcode('amrod_before_title', function() {
+	// Capture any HTML printed by callbacks hooked to this action
+	ob_start();
+	do_action('woocommerce_before_shop_loop_item_title');
+	return ob_get_clean();
+});

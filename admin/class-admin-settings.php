@@ -28,6 +28,7 @@ class ByteMash_Admin_Settings {
         $api_url = get_option('bytemash_amrod_api_url', 'https://identity.amrod.co.za');
         $api_token = get_option('bytemash_amrod_api_token', '');
         $batch_size = get_option('bytemash_amrod_batch_size', 50);
+        $force_buttons = get_option('bytemash_force_product_buttons', false);
         $full_sync_frequency = get_option('bytemash_full_sync_frequency', 'daily_at_0130');
         $incremental_frequency = get_option('bytemash_incremental_sync_frequency', 'every_5_hours');
         
@@ -172,6 +173,20 @@ class ByteMash_Admin_Settings {
                     
                     <table class="form-table" role="presentation">
                         <tbody>
+                            <tr>
+                                <th scope="row">
+                                    <label for="force_buttons"><?php esc_html_e('Force Product Buttons', 'bytemash-woo-sync'); ?></label>
+                                </th>
+                                <td>
+                                    <label>
+                                        <input type="checkbox" name="force_buttons" id="force_buttons" <?php checked($force_buttons, true); ?> />
+                                        <?php esc_html_e('Always add Branding Guides and Stock buttons on product pages (bypass theme templates).', 'bytemash-woo-sync'); ?>
+                                    </label>
+                                    <p class="description">
+                                        <?php esc_html_e('If your theme/page builder does not render standard WooCommerce hooks, enable this to append the buttons regardless of theme.', 'bytemash-woo-sync'); ?>
+                                    </p>
+                                </td>
+                            </tr>
                             <tr>
                                 <th scope="row">
                                     <label><?php esc_html_e('API URL', 'bytemash-woo-sync'); ?></label>
@@ -704,6 +719,9 @@ class ByteMash_Admin_Settings {
             $retention = max(7, min(365, $retention));
             update_option('bytemash_log_retention_days', $retention);
         }
+
+        // Save UI options
+        update_option('bytemash_force_product_buttons', isset($_POST['force_buttons']));
         
         // Log the settings update
         $logger = new ByteMash_Logger();
