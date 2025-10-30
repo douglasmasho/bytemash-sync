@@ -181,7 +181,14 @@ class ByteMash_Woo_Sync {
      */
     public function init_scheduler() {
         new ByteMash_Sync_Scheduler();
-        new ByteMash_Action_Scheduler_Sync();
+        // Only initialize Action Scheduler integration when scheduling is enabled
+        $prod = (bool) get_option('bytemash_cron_production_enabled', false);
+        $test = (bool) get_option('bytemash_cron_test_mode_enabled', false)
+            || (bool) get_option('bytemash_cron_full_test_mode_enabled', false)
+            || (bool) get_option('bytemash_cron_incremental_test_mode_enabled', false);
+        if ($prod || $test) {
+            new ByteMash_Action_Scheduler_Sync();
+        }
     }
     
     /**

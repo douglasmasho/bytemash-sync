@@ -21,6 +21,17 @@ class ByteMash_Action_Scheduler_Sync {
         
         $this->init_hooks();
     }
+
+    /**
+     * Check if background scheduling is enabled (production or any test mode)
+     */
+    private function is_scheduling_enabled() {
+        $prod = (bool) get_option('bytemash_cron_production_enabled', false);
+        $test = (bool) get_option('bytemash_cron_test_mode_enabled', false)
+            || (bool) get_option('bytemash_cron_full_test_mode_enabled', false)
+            || (bool) get_option('bytemash_cron_incremental_test_mode_enabled', false);
+        return ($prod || $test);
+    }
     
     /**
      * Initialize Action Scheduler hooks
@@ -33,12 +44,22 @@ class ByteMash_Action_Scheduler_Sync {
         
         // Hook for cleanup
         add_action('bytemash_action_scheduler_cleanup', array($this, 'cleanup_old_syncs'));
+
+        // If scheduling is disabled, proactively clear any pending schedules and log once
+        if (!$this->is_scheduling_enabled()) {
+            $this->clear_schedules();
+            $this->logger->log('info', 'Scheduling disabled: cleared Action Scheduler queues (full, incremental, batch, cleanup)', array(), 'action_scheduler');
+        }
     }
     
     /**
      * Schedule full sync using Action Scheduler
      */
     public function schedule_full_sync($interval = 'daily') {
+        if (!$this->is_scheduling_enabled()) {
+            $this->logger->log('warning', 'Schedule request ignored: scheduling disabled', array('type' => 'full'), 'action_scheduler');
+            return;
+        }
         // Clear existing schedules first
         $this->clear_full_sync_schedules();
         
@@ -60,6 +81,10 @@ class ByteMash_Action_Scheduler_Sync {
      * Schedule incremental sync using Action Scheduler
      */
     public function schedule_incremental_sync($interval = 'hourly') {
+        if (!$this->is_scheduling_enabled()) {
+            $this->logger->log('warning', 'Schedule request ignored: scheduling disabled', array('type' => 'incremental'), 'action_scheduler');
+            return;
+        }
         // Clear existing schedules first
         $this->clear_incremental_sync_schedules();
         
@@ -105,6 +130,11 @@ class ByteMash_Action_Scheduler_Sync {
      * Reschedule from settings
      */
     public function reschedule_from_settings() {
+        if (!$this->is_scheduling_enabled()) {
+            $this->clear_schedules();
+            $this->logger->log('info', 'Reschedule skipped: scheduling disabled. Cleared any existing schedules.', array(), 'action_scheduler');
+            return;
+        }
         $full_sync_interval = get_option('bytemash_amrod_full_sync_interval', 'daily');
         $incremental_sync_interval = get_option('bytemash_amrod_incremental_sync_interval', 'hourly');
         
@@ -121,6 +151,10 @@ class ByteMash_Action_Scheduler_Sync {
      * Run full sync action
      */
     public function run_full_sync_action($with_branding = true) {
+        if (!$this->is_scheduling_enabled()) {
+            $this->logger->log('warning', 'Full sync run aborted: scheduling disabled', array(), 'action_scheduler');
+            return;
+        }
         $this->logger->log('info', 'Action Scheduler full sync started', array(
             'with_branding' => $with_branding,
         ), 'action_scheduler');
@@ -173,6 +207,10 @@ class ByteMash_Action_Scheduler_Sync {
      * Run incremental sync action
      */
     public function run_incremental_sync_action($with_branding = true) {
+        if (!$this->is_scheduling_enabled()) {
+            $this->logger->log('warning', 'Incremental sync run aborted: scheduling disabled', array(), 'action_scheduler');
+            return;
+        }
         $this->logger->log('info', 'Action Scheduler incremental sync started', array(
             'with_branding' => $with_branding,
         ), 'action_scheduler');
