@@ -113,8 +113,8 @@ class ByteMash_Woo_Sync {
         add_action('woocommerce_single_product_summary', array($this, 'display_branding_guides'), 35);
         add_action('woocommerce_single_product_summary', array($this, 'display_brand_info'), 15);
 
-        // Force-inject buttons regardless of theme (optional via settings)
-        add_action('wp_footer', array($this, 'maybe_force_product_buttons'), 5);
+		// Force-inject buttons only if theme didn't render them (optional via settings)
+		add_action('wp_footer', array($this, 'maybe_force_product_buttons'), 5);
         
         // Allow products to be purchasable even without prices
         add_filter('woocommerce_is_purchasable', array($this, 'make_products_purchasable_without_price'), 10, 2);
@@ -2392,47 +2392,162 @@ class ByteMash_Woo_Sync {
         if (!$force) {
             return;
         }
-        // Render both elements; internal guards prevent duplication if already printed via hooks
-        $this->display_branding_guides();
-        $this->render_stock_modal_trigger();
+        // Build forced buttons only if theme didn't already output them
+        global $product;
+        if (!is_object($product) || !method_exists($product, 'get_id')) {
+            if (function_exists('wc_get_product')) {
+                $product = wc_get_product(get_the_ID());
+            }
+        }
+        if (!$product || !is_object($product) || !method_exists($product, 'get_id')) {
+            return;
+        }
+        $full_guide = get_post_meta($product->get_id(), '_amrod_full_branding_guide', true);
+        $logo24_guide = get_post_meta($product->get_id(), '_amrod_logo24_branding_guide', true);
 
-        // Relocate buttons near product title within the summary area for better visibility
+        $guide_html = '';
+        if (!empty($full_guide)) {
+            $guide_html .= '<a href="' . esc_url($full_guide) . '" target="_blank" class="button" style="background:#0073aa;color:#fff;padding:6px 12px;border-radius:3px;text-decoration:none;">Full Branding Guide</a>';
+        }
+        if (!empty($logo24_guide)) {
+            $guide_html .= '<a href="' . esc_url($logo24_guide) . '" target="_blank" class="button" style="background:#28a745;color:#fff;padding:6px 12px;border-radius:3px;text-decoration:none;">Logo24 Branding Guide</a>';
+        }
+        $inline_html = $guide_html . '<button type="button" class="button" id="bytemash-inline-stock" style="background:#6c757d;color:#fff;padding:6px 12px;border-radius:3px;">View Stock</button>';
+
         echo '<script>(function(){
-            var moved = false;
-            function move(el, after){
-                if(!el || !after || !after.parentNode) return false;
-                if(after.nextSibling){ after.parentNode.insertBefore(el, after.nextSibling); }
-                else { after.parentNode.appendChild(el); }
-                return true;
-            }
-            function tryMove(){
-                var summary = document.querySelector(".single-product .summary, .product .summary");
-                if(!summary) return false;
-                var title = summary.querySelector(".product_title, h1.product_title, h1");
-                var branding = document.querySelector(".amrod-branding-guides");
-                var stockBtn = document.getElementById("bytemash-stock-modal-trigger");
-                var anchor = title || summary.firstChild;
-                var did = false;
-                if(branding && !summary.contains(branding)) did = move(branding, anchor) || did;
-                if(stockBtn && !summary.contains(stockBtn)) did = move(stockBtn, (branding && summary.contains(branding)) ? branding : anchor) || did;
-                if(did) moved = true;
-                return did;
-            }
             function ready(fn){ if(document.readyState!=="loading"){ fn(); } else { document.addEventListener("DOMContentLoaded", fn); } }
             ready(function(){
-                // Initial attempt
-                if(!tryMove()){
-                    // Observe late-rendered templates/builders
-                    var obs = new MutationObserver(function(){
-                        if(moved) { try{ obs.disconnect(); }catch(e){} return; }
-                        if(tryMove()) { try{ obs.disconnect(); }catch(e){} }
+                // Only skip if BOTH already exist (avoid missing one of them)
+                if (document.querySelector(".amrod-branding-guides") && document.getElementById("bytemash-stock-modal-trigger")) { return; }
+                var summary = document.querySelector(".single-product .summary, .product .summary, .product, .brx-content, main, #content");
+                if(!summary) return;
+                var title = summary.querySelector(".product_title, h1.product_title, h1");
+                var anchor = title || summary.firstElementChild || summary;
+                var bar = document.createElement("div");
+                bar.className = "bytemash-action-inline";
+                bar.style.cssText = "margin:10px 0; display:flex; gap:10px; flex-wrap:wrap; align-items:center;";
+                var html = ' . json_encode($inline_html) . ';
+                bar.innerHTML = html;
+                if (anchor && anchor.parentNode){
+                    if (anchor.nextSibling){ anchor.parentNode.insertBefore(bar, anchor.nextSibling); }
+                    else { anchor.parentNode.appendChild(bar); }
+                }
+                var stockBtn = document.getElementById("bytemash-inline-stock");
+                if (stockBtn){
+                    stockBtn.addEventListener("click", function(){
+                        function ensureTriggerAndModal(){
+                            // Ensure trigger exists (same structure as server output)
+                            var triggerWrap = document.getElementById("bytemash-stock-modal-trigger");
+                            if (!triggerWrap){
+                                triggerWrap = document.createElement("div");
+                                triggerWrap.id = "bytemash-stock-modal-trigger";
+                                triggerWrap.style.display = "none";
+                                var btn = document.createElement("button");
+                                btn.type = "button";
+                                btn.className = "button";
+                                btn.textContent = "View Stock Availability";
+                                triggerWrap.appendChild(btn);
+                                document.body.appendChild(triggerWrap);
+                            }
+                            // Ensure modal container exists
+                            var modal = document.getElementById("bytemash-stock-modal");
+                            if (!modal){
+                                var wrap = document.createElement("div");
+                                wrap.id = "bytemash-stock-modal";
+                                wrap.className = "bytemash-stock-modal";
+                                wrap.style.display = "none";
+                                wrap.innerHTML = "<div class=\"bytemash-stock-modal__dialog\">"
+                                    + "<button type=\"button\" class=\"bytemash-stock-modal__close\" aria-label=\"Close\">×</button>"
+                                    + "<h3>Stock Availability</h3>"
+                                    + "<div id=\"bytemash-stock-modal__content\"><div class=\"bytemash-spinner\"></div></div>"
+                                    + "</div>";
+                                document.body.appendChild(wrap);
+                            }
+                        }
+                        function openViaTrigger(){
+                            var t = document.querySelector("#bytemash-stock-modal-trigger button");
+                            if (t){ t.click(); return true; }
+                            return false;
+                        }
+                        // Ensure required elements, then open like the original button
+                        ensureTriggerAndModal();
+                        if (!openViaTrigger()){
+                            // As a fallback, observe and open when ready
+                            var started=Date.now();
+                            var obs=new MutationObserver(function(){
+                                if (openViaTrigger() || (Date.now()-started)>5000){ try{obs.disconnect();}catch(e){} }
+                            });
+                            obs.observe(document.body,{childList:true,subtree:true});
+                        }
                     });
-                    obs.observe(document.body, { childList: true, subtree: true });
-                    // Safety timeout to stop observing after 8s
-                    setTimeout(function(){ try{ obs.disconnect(); }catch(e){} }, 8000);
                 }
             });
         })();</script>';
+    }
+
+    /**
+     * Render top action bar (under nav, before content) with branding + stock buttons when forced
+     */
+    public function render_product_action_bar() {
+        static $bytemash_action_bar_rendered = false;
+        if ($bytemash_action_bar_rendered) {
+            return;
+        }
+        if (!function_exists('is_product') || !is_product()) {
+            return;
+        }
+        if (!get_option('bytemash_force_product_buttons', false)) {
+            return;
+        }
+        global $product;
+        // Ensure we have a valid WC_Product object (wp_body_open may fire before globals are set)
+        if (!is_object($product) || !method_exists($product, 'get_id')) {
+            if (function_exists('wc_get_product')) {
+                $product = wc_get_product(get_the_ID());
+            }
+        }
+        if (!$product || !is_object($product) || !method_exists($product, 'get_id')) {
+            return;
+        }
+        // Read guide URLs
+        $full_guide = get_post_meta($product->get_id(), '_amrod_full_branding_guide', true);
+        $logo24_guide = get_post_meta($product->get_id(), '_amrod_logo24_branding_guide', true);
+
+        // Output a simple flex row action bar
+        echo '<div id="bytemash-action-bar" class="bytemash-action-bar" style="position:relative; z-index:2; background:#f8f9fb; border-bottom:1px solid #e9ecef;">';
+        echo '<div style="max-width:1200px; margin:0 auto; padding:10px 15px; display:flex; gap:10px; align-items:center; flex-wrap:wrap;">';
+        if (!empty($full_guide)) {
+            echo '<a href="' . esc_url($full_guide) . '" target="_blank" class="button" style="background:#0073aa; color:#fff; padding:8px 14px; border-radius:3px; text-decoration:none;">Full Branding Guide</a>';
+        }
+        if (!empty($logo24_guide)) {
+            echo '<a href="' . esc_url($logo24_guide) . '" target="_blank" class="button" style="background:#28a745; color:#fff; padding:8px 14px; border-radius:3px; text-decoration:none;">Logo24 Branding Guide</a>';
+        }
+        // Header stock button that triggers existing modal opener
+        echo '<button type="button" class="button" id="bytemash-actionbar-stock" style="background:#6c757d; color:#fff; padding:8px 14px; border-radius:3px;">View Stock</button>';
+        echo '</div>';
+        echo '</div>';
+
+        // Wire header button to open existing modal trigger if present
+        echo '<script>(function(){
+            var btn=function(){return document.getElementById("bytemash-actionbar-stock")};
+            function openModal(){
+                var t=document.querySelector("#bytemash-stock-modal-trigger button");
+                if(t){ t.click(); return true; }
+                return false;
+            }
+            var b=btn();
+            if(b){ b.addEventListener("click", function(){ if(!openModal()){ setTimeout(openModal,300); } }); }
+            // Try to move the action bar directly under header/nav if present
+            var bar=document.getElementById(\"bytemash-action-bar\");
+            if(bar){
+                var header=document.querySelector(\"header[role=\\\"banner\\\"], .brx-header, header.site-header, .site-header\");
+                if(header && header.parentNode){
+                    if(header.nextSibling){ header.parentNode.insertBefore(bar, header.nextSibling); }
+                    else { header.parentNode.appendChild(bar); }
+                }
+            }
+        })();</script>';
+        $bytemash_action_bar_rendered = true;
     }
     
     /**
