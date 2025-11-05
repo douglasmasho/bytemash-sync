@@ -61,13 +61,13 @@ class ByteMash_Sync_Scheduler {
                 } else {
                     $this->logger->log('warning', 'Action Scheduler not available, falling back to WordPress cron', array(), 'sync_scheduler');
                 }
-                set_transient('bytemash_action_scheduler_logged', true, 300); // 5 minutes
+                set_transient('bytemash_action_scheduler_logged', true, HOUR_IN_SECONDS); // reduce log spam
             }
         } else {
             $this->use_action_scheduler = false;
             if (!get_transient('bytemash_action_scheduler_logged')) {
                 $this->logger->log('warning', 'Action Scheduler class not found, using WordPress cron', array(), 'sync_scheduler');
-                set_transient('bytemash_action_scheduler_logged', true, 300); // 5 minutes
+                set_transient('bytemash_action_scheduler_logged', true, HOUR_IN_SECONDS); // reduce log spam
             }
         }
     }
@@ -244,17 +244,25 @@ class ByteMash_Sync_Scheduler {
                 $this->update_overall_progress($overall_progress);
                 
                 $this->logger->log('info', "📦 Phase {$phase_number}/{$overall_progress['total_phases']}: Starting full stock sync", array(), 'full_sync');
-                $results['stock'] = $this->product_sync->sync_stock_levels();
+                $stock_result = $this->product_sync->sync_stock_levels();
+                
+                if ($stock_result['success'] && !empty($stock_result['data'])) {
+                    $batch_processor = new ByteMash_Batch_Processor();
+                    $batch_processor->schedule_stock_sync($stock_result['data'], $stock_result['sync_id']);
+                    $this->logger->log('info', "Stock sync scheduled with batch processor", array('sync_id' => $stock_result['sync_id']), 'full_sync');
+                }
+                
+                $results['stock'] = $stock_result;
                 
                 $overall_progress['phases']['stock'] = array(
-                    'status' => 'completed',
-                    'completed_at' => current_time('mysql'),
+                    'status' => 'scheduled',
+                    'scheduled_at' => current_time('mysql'),
                     'result' => $results['stock']
                 );
                 $overall_progress['completed_phases']++;
                 $this->update_overall_progress($overall_progress);
                 
-                $this->logger->log('success', "✅ Phase {$phase_number}/{$overall_progress['total_phases']}: Stock sync completed", array(
+                $this->logger->log('success', "✅ Phase {$phase_number}/{$overall_progress['total_phases']}: Stock sync scheduled", array(
                     'result' => $results['stock']
                 ), 'full_sync');
                 $phase_number++;
@@ -265,17 +273,25 @@ class ByteMash_Sync_Scheduler {
                 $this->update_overall_progress($overall_progress);
                 
                 $this->logger->log('info', "💰 Phase {$phase_number}/{$overall_progress['total_phases']}: Starting full price sync", array(), 'full_sync');
-                $results['prices'] = $this->product_sync->sync_prices();
+                $prices_result = $this->product_sync->sync_prices();
+                
+                if ($prices_result['success'] && !empty($prices_result['data'])) {
+                    $batch_processor = new ByteMash_Batch_Processor();
+                    $batch_processor->schedule_prices_sync($prices_result['data'], $prices_result['sync_id']);
+                    $this->logger->log('info', "Prices sync scheduled with batch processor", array('sync_id' => $prices_result['sync_id']), 'full_sync');
+                }
+                
+                $results['prices'] = $prices_result;
                 
                 $overall_progress['phases']['prices'] = array(
-                    'status' => 'completed',
-                    'completed_at' => current_time('mysql'),
+                    'status' => 'scheduled',
+                    'scheduled_at' => current_time('mysql'),
                     'result' => $results['prices']
                 );
                 $overall_progress['completed_phases']++;
                 $this->update_overall_progress($overall_progress);
                 
-                $this->logger->log('success', "✅ Phase {$phase_number}/{$overall_progress['total_phases']}: Price sync completed", array(
+                $this->logger->log('success', "✅ Phase {$phase_number}/{$overall_progress['total_phases']}: Prices sync scheduled", array(
                     'result' => $results['prices']
                 ), 'full_sync');
                 $phase_number++;
@@ -286,7 +302,15 @@ class ByteMash_Sync_Scheduler {
                 $this->update_overall_progress($overall_progress);
                 
                 $this->logger->log('info', "📂 Phase {$phase_number}/{$overall_progress['total_phases']}: Starting full category sync", array(), 'full_sync');
-                $results['categories'] = $this->product_sync->sync_categories();
+                $categories_result = $this->product_sync->sync_categories();
+                
+                if ($categories_result['success'] && !empty($categories_result['tree'])) {
+                    $batch_processor = new ByteMash_Batch_Processor();
+                    $batch_processor->process_categories_batch($categories_result['tree']);
+                    $this->logger->log('info', "Categories processed with batch processor", array(), 'full_sync');
+                }
+                
+                $results['categories'] = $categories_result;
                 
                 $overall_progress['phases']['categories'] = array(
                     'status' => 'completed',
@@ -307,17 +331,25 @@ class ByteMash_Sync_Scheduler {
                 $this->update_overall_progress($overall_progress);
                 
                 $this->logger->log('info', "🏷️ Phase {$phase_number}/{$overall_progress['total_phases']}: Starting full brand sync", array(), 'full_sync');
-                $results['brands'] = $this->product_sync->sync_brands();
+                $brands_result = $this->product_sync->sync_brands();
+                
+                if ($brands_result['success'] && !empty($brands_result['data'])) {
+                    $batch_processor = new ByteMash_Batch_Processor();
+                    $batch_processor->schedule_brands_sync($brands_result['data'], $brands_result['sync_id']);
+                    $this->logger->log('info', "Brands sync scheduled with batch processor", array('sync_id' => $brands_result['sync_id']), 'full_sync');
+                }
+                
+                $results['brands'] = $brands_result;
                 
                 $overall_progress['phases']['brands'] = array(
-                    'status' => 'completed',
-                    'completed_at' => current_time('mysql'),
+                    'status' => 'scheduled',
+                    'scheduled_at' => current_time('mysql'),
                     'result' => $results['brands']
                 );
                 $overall_progress['completed_phases']++;
                 $this->update_overall_progress($overall_progress);
                 
-                $this->logger->log('success', "✅ Phase {$phase_number}/{$overall_progress['total_phases']}: Brand sync completed", array(
+                $this->logger->log('success', "✅ Phase {$phase_number}/{$overall_progress['total_phases']}: Brands sync scheduled", array(
                     'result' => $results['brands']
                 ), 'full_sync');
             }
@@ -589,12 +621,24 @@ class ByteMash_Sync_Scheduler {
             
             if ($sync_stock) {
                 $this->logger->log('info', 'Starting incremental stock sync', array(), 'incremental_sync');
-                $results['stock'] = $this->product_sync->sync_stock_updated();
+                $stock_result = $this->product_sync->sync_stock_updated();
+                if ($stock_result['success'] && !empty($stock_result['data'])) {
+                    $batch_processor = new ByteMash_Batch_Processor();
+                    $batch_processor->schedule_stock_sync($stock_result['data'], $stock_result['sync_id']);
+                    $this->logger->log('info', "Incremental stock sync scheduled with batch processor", array('sync_id' => $stock_result['sync_id']), 'incremental_sync');
+                }
+                $results['stock'] = $stock_result;
             }
             
             if ($sync_prices) {
                 $this->logger->log('info', 'Starting incremental price sync', array(), 'incremental_sync');
-                $results['prices'] = $this->product_sync->sync_prices_updated();
+                $prices_result = $this->product_sync->sync_prices_updated();
+                if ($prices_result['success'] && !empty($prices_result['data'])) {
+                    $batch_processor = new ByteMash_Batch_Processor();
+                    $batch_processor->schedule_prices_sync($prices_result['data'], $prices_result['sync_id']);
+                    $this->logger->log('info', "Incremental prices sync scheduled with batch processor", array('sync_id' => $prices_result['sync_id']), 'incremental_sync');
+                }
+                $results['prices'] = $prices_result;
             }
             
             if ($sync_categories) {
@@ -794,12 +838,28 @@ class ByteMash_Sync_Scheduler {
         $this->logger->log('info', 'Manual stock sync triggered', array(), 'stock_sync');
         
         try {
+            // Fetch stock data
             $result = $this->product_sync->sync_stock_levels();
             
-            if ($result['success']) {
-                wp_send_json_success($result);
-            } else {
+            if (!$result['success'] || empty($result['data'])) {
                 wp_send_json_error($result);
+                return;
+            }
+            
+            // Process all batches immediately
+            $batch_processor = new ByteMash_Batch_Processor();
+            $process_result = $batch_processor->process_stock_sync_immediately($result['data'], $result['sync_id']);
+            
+            if ($process_result['success']) {
+                wp_send_json_success(array(
+                    'message' => "Stock sync completed: {$process_result['processed']} processed, {$process_result['errors']} errors",
+                    'sync_id' => $result['sync_id'],
+                    'processed' => $process_result['processed'],
+                    'errors' => $process_result['errors'],
+                    'total' => $process_result['total'],
+                ));
+            } else {
+                wp_send_json_error($process_result);
             }
         } catch (Exception $e) {
             wp_send_json_error(array('message' => $e->getMessage()));
@@ -817,12 +877,28 @@ class ByteMash_Sync_Scheduler {
         }
         
         try {
+            // Fetch updated stock data
             $result = $this->product_sync->sync_stock_updated();
             
-            if ($result['success']) {
-                wp_send_json_success($result);
-            } else {
+            if (!$result['success'] || empty($result['data'])) {
                 wp_send_json_error($result);
+                return;
+            }
+            
+            // Process all batches immediately
+            $batch_processor = new ByteMash_Batch_Processor();
+            $process_result = $batch_processor->process_stock_sync_immediately($result['data'], $result['sync_id']);
+            
+            if ($process_result['success']) {
+                wp_send_json_success(array(
+                    'message' => "Stock sync completed: {$process_result['processed']} processed, {$process_result['errors']} errors",
+                    'sync_id' => $result['sync_id'],
+                    'processed' => $process_result['processed'],
+                    'errors' => $process_result['errors'],
+                    'total' => $process_result['total'],
+                ));
+            } else {
+                wp_send_json_error($process_result);
             }
         } catch (Exception $e) {
             wp_send_json_error(array('message' => $e->getMessage()));
@@ -840,12 +916,28 @@ class ByteMash_Sync_Scheduler {
         }
         
         try {
+            // Fetch price data
             $result = $this->product_sync->sync_prices();
             
-            if ($result['success']) {
-                wp_send_json_success($result);
-            } else {
+            if (!$result['success'] || empty($result['data'])) {
                 wp_send_json_error($result);
+                return;
+            }
+            
+            // Process all batches immediately
+            $batch_processor = new ByteMash_Batch_Processor();
+            $process_result = $batch_processor->process_prices_sync_immediately($result['data'], $result['sync_id']);
+            
+            if ($process_result['success']) {
+                wp_send_json_success(array(
+                    'message' => "Price sync completed: {$process_result['processed']} processed, {$process_result['errors']} errors",
+                    'sync_id' => $result['sync_id'],
+                    'processed' => $process_result['processed'],
+                    'errors' => $process_result['errors'],
+                    'total' => $process_result['total'],
+                ));
+            } else {
+                wp_send_json_error($process_result);
             }
         } catch (Exception $e) {
             wp_send_json_error(array('message' => $e->getMessage()));
@@ -863,12 +955,28 @@ class ByteMash_Sync_Scheduler {
         }
         
         try {
+            // Fetch updated price data
             $result = $this->product_sync->sync_prices_updated();
             
-            if ($result['success']) {
-                wp_send_json_success($result);
-            } else {
+            if (!$result['success'] || empty($result['data'])) {
                 wp_send_json_error($result);
+                return;
+            }
+            
+            // Process all batches immediately
+            $batch_processor = new ByteMash_Batch_Processor();
+            $process_result = $batch_processor->process_prices_sync_immediately($result['data'], $result['sync_id']);
+            
+            if ($process_result['success']) {
+                wp_send_json_success(array(
+                    'message' => "Price sync completed: {$process_result['processed']} processed, {$process_result['errors']} errors",
+                    'sync_id' => $result['sync_id'],
+                    'processed' => $process_result['processed'],
+                    'errors' => $process_result['errors'],
+                    'total' => $process_result['total'],
+                ));
+            } else {
+                wp_send_json_error($process_result);
             }
         } catch (Exception $e) {
             wp_send_json_error(array('message' => $e->getMessage()));
@@ -886,13 +994,23 @@ class ByteMash_Sync_Scheduler {
         }
         
         try {
+            // Fetch category data
             $result = $this->product_sync->sync_categories();
             
-            if ($result['success']) {
-                wp_send_json_success($result);
-            } else {
+            if (!$result['success'] || empty($result['tree'])) {
                 wp_send_json_error($result);
+                return;
             }
+            
+            // Process categories immediately (they process synchronously)
+            $batch_processor = new ByteMash_Batch_Processor();
+            $batch_processor->process_categories_batch($result['tree']);
+            
+            wp_send_json_success(array(
+                'message' => "Category sync completed",
+                'sync_id' => $result['sync_id'],
+                'total' => $result['total'],
+            ));
         } catch (Exception $e) {
             wp_send_json_error(array('message' => $e->getMessage()));
         }

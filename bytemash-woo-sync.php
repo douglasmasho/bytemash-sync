@@ -87,7 +87,40 @@ class ByteMash_Woo_Sync {
 
         // Public AJAX for stock modal data
         add_action('wp_ajax_bytemash_get_product_stock_table', array($this, 'ajax_get_product_stock_table'));
+        
+        // Frontend hooks for branding modal
+        add_action('woocommerce_single_product_summary', array($this, 'render_brandings_modal_trigger'), 26);
+        add_action('wp_enqueue_scripts', array($this, 'enqueue_brandings_assets'));
+        
+        // Public AJAX for brandings modal
+        add_action('wp_ajax_bytemash_get_product_brandings', array($this, 'ajax_get_product_brandings'));
+        add_action('wp_ajax_nopriv_bytemash_get_product_brandings', array($this, 'ajax_get_product_brandings'));
+
+        // Branding selection as product options
+        add_action('woocommerce_before_add_to_cart_button', array($this, 'render_branding_options_fields'), 15);
+        add_filter('woocommerce_add_to_cart_validation', array($this, 'validate_branding_options'), 10, 3);
+        add_filter('woocommerce_add_cart_item_data', array($this, 'add_branding_to_cart_item'), 10, 3);
+        add_filter('woocommerce_get_item_data', array($this, 'display_branding_in_cart'), 10, 2);
+        add_action('woocommerce_checkout_create_order_line_item', array($this, 'add_branding_to_order_items'), 10, 4);
         add_action('wp_ajax_nopriv_bytemash_get_product_stock_table', array($this, 'ajax_get_product_stock_table'));
+    }
+
+    /**
+     * Register activation hook to clear any existing schedules once on install
+     */
+    public static function register_activation() {
+        // Clear WP-Cron schedules
+        wp_clear_scheduled_hook('bytemash_full_sync_cron');
+        wp_clear_scheduled_hook('bytemash_incremental_sync_cron');
+        wp_clear_scheduled_hook('bytemash_cron_health_check');
+
+        // Clear Action Scheduler queues if available
+        if (function_exists('as_unschedule_all_actions')) {
+            as_unschedule_all_actions('bytemash_action_scheduler_full_sync', array('with_branding' => true), 'bytemash-sync');
+            as_unschedule_all_actions('bytemash_action_scheduler_incremental_sync', array('with_branding' => true), 'bytemash-sync');
+            as_unschedule_all_actions('bytemash_action_scheduler_batch_sync', null, 'bytemash-sync');
+            as_unschedule_all_actions('bytemash_action_scheduler_cleanup', null, 'bytemash-sync');
+        }
     }
     
     /**
@@ -112,12 +145,28 @@ class ByteMash_Woo_Sync {
         // Fallback: some themes don't call woocommerce_product_meta_end; also render in summary
         add_action('woocommerce_single_product_summary', array($this, 'display_branding_guides'), 35);
         add_action('woocommerce_single_product_summary', array($this, 'display_brand_info'), 15);
+        
+        // Display product data by default on product page
+        add_action('woocommerce_single_product_summary', array($this, 'display_brand_logo'), 16);
+        add_action('woocommerce_single_product_summary', array($this, 'display_color_swatches_row'), 17);
+        add_action('woocommerce_single_product_summary', array($this, 'display_product_gender'), 18);
+        add_action('woocommerce_single_product_summary', array($this, 'display_total_stock_info'), 19);
+        
+        // Register shortcodes
+        add_shortcode('amrod_brand_logo', array($this, 'shortcode_brand_logo'));
+        add_shortcode('amrod_color_swatches', array($this, 'shortcode_color_swatches'));
+        add_shortcode('amrod_gender', array($this, 'shortcode_gender'));
+        add_shortcode('amrod_total_stock', array($this, 'shortcode_total_stock'));
+
+        // Add Branding Guide tab next to Description/Additional Information
+        add_filter('woocommerce_product_tabs', array($this, 'add_branding_guide_tab'));
 
 		// Force-inject buttons only if theme didn't render them (optional via settings)
 		add_action('wp_footer', array($this, 'maybe_force_product_buttons'), 5);
         
         // Allow products to be purchasable even without prices
         add_filter('woocommerce_is_purchasable', array($this, 'make_products_purchasable_without_price'), 10, 2);
+        add_filter('woocommerce_variation_is_purchasable', array($this, 'make_variations_purchasable_without_price'), 10, 2);
         add_filter('woocommerce_product_is_in_stock', array($this, 'force_in_stock_when_has_stock'), 10, 2);
         add_filter('woocommerce_product_get_price', array($this, 'set_default_price_for_amrod_products'), 10, 2);
         add_action('woocommerce_before_add_to_cart_button', array($this, 'maybe_set_product_price'));
@@ -326,15 +375,124 @@ class ByteMash_Woo_Sync {
     }
 
     /**
+     * Add a "Branding Guide" tab on the single product page
+     */
+    public function add_branding_guide_tab($tabs) {
+        if (!is_product()) {
+            return $tabs;
+        }
+        global $product;
+        if (!$product) {
+            return $tabs;
+        }
+        $product_id = $product->get_id();
+        $full = get_post_meta($product_id, '_amrod_full_branding_guide', true);
+        $logo24 = get_post_meta($product_id, '_amrod_logo24_branding_guide', true);
+        $guide_url = $full ?: $logo24;
+        if (empty($guide_url)) {
+            return $tabs;
+        }
+
+        $tabs['branding_guide'] = array(
+            'title'    => __('Branding Guide', 'bytemash-woo-sync'),
+            'priority' => 40,
+            'callback' => array($this, 'render_branding_guide_tab_content'),
+        );
+        return $tabs;
+    }
+
+    /**
+     * Render the Branding Guide tab content
+     */
+    public function render_branding_guide_tab_content() {
+        global $product;
+        if (!$product) {
+            return;
+        }
+        $product_id = $product->get_id();
+        $full = get_post_meta($product_id, '_amrod_full_branding_guide', true);
+        $logo24 = get_post_meta($product_id, '_amrod_logo24_branding_guide', true);
+        $guide_url = $full ?: $logo24;
+        if (empty($guide_url)) {
+            echo '<p>' . esc_html__('Branding guide not available for this product.', 'bytemash-woo-sync') . '</p>';
+            return;
+        }
+
+        // Prefer inline PDF viewer when possible, fallback to download link
+        $safe_url = esc_url($guide_url);
+        echo '<div class="bytemash-branding-guide-tab">';
+        echo '<p><a href="' . $safe_url . '" target="_blank" rel="noopener">' . esc_html__('Open Branding Guide in new tab', 'bytemash-woo-sync') . '</a></p>';
+        echo '<div style="border:1px solid #eee; height:700px">';
+        echo '<iframe src="' . $safe_url . '#view=FitH" style="width:100%; height:100%" loading="lazy"></iframe>';
+        echo '</div>';
+        echo '</div>';
+    }
+
+    /**
      * Enqueue frontend assets for stock modal
      */
     public function enqueue_frontend_assets() {
         if (!is_product()) {
             return;
         }
+        
+        // Stock modal assets
         wp_enqueue_style('bytemash-stock-modal', plugins_url('assets/css/stock-modal.css', __FILE__), array(), BYTEMASH_WOO_SYNC_VERSION);
         wp_enqueue_script('bytemash-stock-modal', plugins_url('assets/js/stock-modal.js', __FILE__), array('jquery'), BYTEMASH_WOO_SYNC_VERSION, true);
         wp_localize_script('bytemash-stock-modal', 'bytemashStockModal', array(
+            'ajax_url' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('bytemash_woo_sync_nonce'),
+            'product_id' => get_the_ID(),
+        ));
+        
+        // Color swatches and size buttons assets
+        // Get product properly - global $product might not be available at this hook point
+        $product_id = get_the_ID();
+        $product = wc_get_product($product_id);
+        
+        if ($product && is_a($product, 'WC_Product') && $product->is_type('variable')) {
+            // Load color swatches CSS
+            wp_enqueue_style('bytemash-color-swatches', plugins_url('assets/css/color-swatches.css', __FILE__), array(), BYTEMASH_WOO_SYNC_VERSION);
+            
+            // Load color swatches JS
+            wp_enqueue_script('bytemash-color-swatches', plugins_url('assets/js/color-swatches.js', __FILE__), array('jquery'), BYTEMASH_WOO_SYNC_VERSION, true);
+            
+            // Get color swatches data for JavaScript
+            $product_id = $product->get_id();
+            $color_mapping = get_post_meta($product_id, '_amrod_color_mapping', true);
+            $swatches_data = array();
+            
+            if (!empty($color_mapping) && is_array($color_mapping)) {
+                foreach ($color_mapping as $color_name => $color_code) {
+                    $swatch_data = get_option("amrod_color_swatch_{$color_code}");
+                    if ($swatch_data && !empty($swatch_data['hexValue']) && is_array($swatch_data['hexValue'])) {
+                        $swatches_data[strtolower($color_name)] = array(
+                            'code' => $color_code,
+                            'name' => $swatch_data['name'] ?? $color_name,
+                            'hexValue' => $swatch_data['hexValue'][0] ?? '',
+                            'textColour' => $swatch_data['textColour'] ?? '#000',
+                            'tickColour' => $swatch_data['tickColour'] ?? '#fff',
+                        );
+                    }
+                }
+            }
+            
+            // Pass color swatches data to JavaScript
+            wp_localize_script('bytemash-color-swatches', 'bytemashColorSwatches', $swatches_data);
+        }
+    }
+
+    /**
+     * Enqueue branding modal assets
+     */
+    public function enqueue_brandings_assets() {
+        if (!is_product()) {
+            return;
+        }
+        // Reuse stock modal CSS for consistent styling
+        wp_enqueue_style('bytemash-stock-modal');
+        wp_enqueue_script('bytemash-brandings-modal', plugins_url('assets/js/branding-modal.js', __FILE__), array('jquery'), BYTEMASH_WOO_SYNC_VERSION, true);
+        wp_localize_script('bytemash-brandings-modal', 'bytemashBrandingsModal', array(
             'ajax_url' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('bytemash_woo_sync_nonce'),
             'product_id' => get_the_ID(),
@@ -362,6 +520,180 @@ class ByteMash_Woo_Sync {
             . '</div>'
             . '</div>';
         $bytemash_stock_modal_rendered = true;
+    }
+
+    /**
+     * Render brandings button + modal container on product page
+     */
+    public function render_brandings_modal_trigger() {
+        global $product;
+        static $bytemash_brandings_modal_rendered = false;
+        if ($bytemash_brandings_modal_rendered) {
+            return;
+        }
+        if (!$product) {
+            return;
+        }
+        echo '<div id="bytemash-brandings-modal-trigger" class="bytemash-stock-trigger"><button type="button" class="button">View Branding Options</button></div>';
+        echo '<div id="bytemash-brandings-modal" class="bytemash-stock-modal" style="display:none">'
+            . '<div class="bytemash-stock-modal__dialog">'
+            . '<button type="button" class="bytemash-stock-modal__close" aria-label="Close">×</button>'
+            . '<h3>Branding Options</h3>'
+            . '<div id="bytemash-brandings-modal__content"><div class="bytemash-spinner"></div></div>'
+            . '</div>'
+            . '</div>';
+        $bytemash_brandings_modal_rendered = true;
+    }
+
+    /**
+     * AJAX: Get branding options for product
+     */
+    public function ajax_get_product_brandings() {
+        check_ajax_referer('bytemash_woo_sync_nonce', 'nonce');
+        $product_id = isset($_POST['product_id']) ? intval($_POST['product_id']) : 0;
+        if (!$product_id) {
+            wp_send_json_error(array('message' => __('Invalid product.', 'bytemash-woo-sync')));
+        }
+        $brandings = get_post_meta($product_id, '_amrod_brandings', true);
+        if (empty($brandings) || !is_array($brandings)) {
+            wp_send_json_success(array('html' => '<p>No branding options available for this product.</p>'));
+        }
+        // Build simple HTML list of positions and methods
+        ob_start();
+        echo '<div class="bytemash-brandings">';
+        foreach ($brandings as $position) {
+            $posName = esc_html($position['positionName'] ?? '');
+            echo '<div class="bytemash-branding-pos">';
+            echo '<h4>' . $posName . '</h4>';
+            if (!empty($position['method']) && is_array($position['method'])) {
+                echo '<ul class="bytemash-branding-methods">';
+                foreach ($position['method'] as $method) {
+                    $mName = esc_html($method['brandingName'] ?? '');
+                    $dept = esc_html($method['brandingDepartment'] ?? '');
+                    $code = esc_html($method['brandingCode'] ?? '');
+                    $w = esc_html($method['maxPrintingSizeWidth'] ?? '');
+                    $h = esc_html($method['maxPrintingSizeHeight'] ?? '');
+                    echo '<li>' . $mName . ' (' . $dept . ', ' . $code . ') - ' . $w . ' x ' . $h . ' mm</li>';
+                }
+                echo '</ul>';
+            }
+            echo '</div>';
+        }
+        echo '</div>';
+        $html = ob_get_clean();
+        wp_send_json_success(array('html' => $html));
+    }
+
+    /**
+     * Render branding options as multi-select fields on the product page
+     */
+    public function render_branding_options_fields() {
+        global $product;
+        if (!$product) { return; }
+        $product_id = $product->get_id();
+        $brandings = get_post_meta($product_id, '_amrod_brandings', true);
+        if (empty($brandings) || !is_array($brandings)) { return; }
+        echo '<div class="bytemash-branding-options">';
+        echo '<h4>' . esc_html__('Branding Options', 'bytemash-woo-sync') . '</h4>';
+        // Instruction
+        echo '<p>' . esc_html__('Select one or more branding methods. Details for each method are shown for informed decisions.', 'bytemash-woo-sync') . '</p>';
+        foreach ($brandings as $idx => $pos) {
+            $posName = esc_html($pos['positionName'] ?? '');
+            $posCode = esc_attr($pos['positionCode'] ?? ('pos_' . $idx));
+            echo '<div class="bytemash-branding-group">';
+            echo '<strong>' . $posName . '</strong>';
+            if (!empty($pos['method']) && is_array($pos['method'])) {
+                foreach ($pos['method'] as $midx => $method) {
+                    $code = esc_attr($method['brandingCode'] ?? '');
+                    $name = esc_html($method['brandingName'] ?? '');
+                    $dept = esc_html($method['brandingDepartment'] ?? '');
+                    $w = esc_html($method['maxPrintingSizeWidth'] ?? '');
+                    $h = esc_html($method['maxPrintingSizeHeight'] ?? '');
+                    $field_id = 'bytemash_brandings_' . $posCode . '_' . $code . '_' . $midx;
+                    echo '<label style="display:block; margin:6px 0;">';
+                    echo '<input type="checkbox" name="bytemash_brandings[' . $posCode . '][]" value="' . $code . '" id="' . $field_id . '" /> ';
+                    echo $name . ' (' . $dept . ', ' . $code . ') - ' . $w . ' x ' . $h . ' mm';
+                    echo '</label>';
+                }
+            }
+            echo '</div>';
+        }
+        echo '</div>';
+    }
+
+    /**
+     * Validate branding options posted
+     */
+    public function validate_branding_options($passed, $product_id, $quantity) {
+        if (!isset($_POST['bytemash_brandings'])) { return $passed; }
+        $selected = $_POST['bytemash_brandings'];
+        $brandings = get_post_meta($product_id, '_amrod_brandings', true);
+        if (!is_array($brandings)) { return $passed; }
+        // Build whitelist map positionCode => [codes]
+        $map = array();
+        foreach ($brandings as $pos) {
+            $posCode = $pos['positionCode'] ?? '';
+            if (!$posCode) { continue; }
+            $map[$posCode] = array();
+            if (!empty($pos['method'])) {
+                foreach ($pos['method'] as $method) {
+                    if (!empty($method['brandingCode'])) {
+                        $map[$posCode][] = $method['brandingCode'];
+                    }
+                }
+            }
+        }
+        // Validate selections exist in whitelist
+        foreach ((array)$selected as $posCode => $codes) {
+            if (!isset($map[$posCode])) { continue; }
+            foreach ((array)$codes as $code) {
+                if (!in_array($code, $map[$posCode], true)) {
+                    wc_add_notice(__('Invalid branding selection.', 'bytemash-woo-sync'), 'error');
+                    return false;
+                }
+            }
+        }
+        return $passed;
+    }
+
+    /**
+     * Attach branding data to cart item
+     */
+    public function add_branding_to_cart_item($cart_item_data, $product_id, $variation_id) {
+        if (!isset($_POST['bytemash_brandings'])) { return $cart_item_data; }
+        $selected = $_POST['bytemash_brandings'];
+        if (!empty($selected)) {
+            $cart_item_data['bytemash_brandings'] = array_map(function($arr){ return array_values((array)$arr); }, (array)$selected);
+            $cart_item_data['bytemash_brandings_hash'] = md5(wp_json_encode($cart_item_data['bytemash_brandings']));
+        }
+        return $cart_item_data;
+    }
+
+    /**
+     * Show branding choices in cart/checkout
+     */
+    public function display_branding_in_cart($item_data, $cart_item) {
+        if (empty($cart_item['bytemash_brandings'])) { return $item_data; }
+        $display = array();
+        foreach ($cart_item['bytemash_brandings'] as $posCode => $codes) {
+            $display[] = strtoupper(sanitize_text_field($posCode)) . ': ' . implode(', ', array_map('sanitize_text_field', (array)$codes));
+        }
+        $item_data[] = array(
+            'key' => __('Branding', 'bytemash-woo-sync'),
+            'value' => wp_kses_post(implode('<br/>', $display)),
+            'display' => implode(', ', $display),
+        );
+        return $item_data;
+    }
+
+    /**
+     * Persist branding choices to order line items
+     */
+    public function add_branding_to_order_items($item, $cart_item_key, $values, $order) {
+        if (empty($values['bytemash_brandings'])) { return; }
+        foreach ($values['bytemash_brandings'] as $posCode => $codes) {
+            $item->add_meta_data('Branding ' . strtoupper(sanitize_text_field($posCode)), implode(', ', array_map('sanitize_text_field', (array)$codes)), true);
+        }
     }
 
     /**
@@ -1344,17 +1676,25 @@ class ByteMash_Woo_Sync {
         $product_sync = new ByteMash_Product_Sync();
         $result = $product_sync->sync_brands();
         
-        if ($result['success'] && isset($result['batches'])) {
-            $this->store_batches_in_queue($result['sync_id'], $result['batches']);
-            
+        if (!$result['success'] || empty($result['data'])) {
+            wp_send_json_error($result);
+            return;
+        }
+        
+        // Process all batches immediately
+        $batch_processor = new ByteMash_Batch_Processor();
+        $process_result = $batch_processor->process_brands_sync_immediately($result['data'], $result['sync_id']);
+        
+        if ($process_result['success']) {
             wp_send_json_success(array(
-                'message' => $result['message'],
+                'message' => "Brands sync completed: {$process_result['processed']} processed, {$process_result['errors']} errors",
                 'sync_id' => $result['sync_id'],
-                'total' => $result['total'],
-                'batch_count' => $result['batch_count']
+                'processed' => $process_result['processed'],
+                'errors' => $process_result['errors'],
+                'total' => $process_result['total'],
             ));
         } else {
-            wp_send_json_success(array('message' => $result['message']));
+            wp_send_json_error($process_result);
         }
     }
     
@@ -2579,26 +2919,391 @@ class ByteMash_Woo_Sync {
     }
     
     /**
+     * Display brand logo on product page
+     */
+    public function display_brand_logo() {
+        global $product;
+        if (!$product) {
+            return;
+        }
+        echo $this->shortcode_brand_logo();
+    }
+    
+    /**
+     * Shortcode: [amrod_brand_logo] - Display brand logo
+     * Gets brand code/name from product meta, then looks up logo URL from synced brands data
+     */
+    public function shortcode_brand_logo($atts = array()) {
+        // Try to get product from global first
+        global $product;
+        
+        // If no product in global, try to get from current post
+        if (!$product && is_singular('product')) {
+            $product_id = get_the_ID();
+            if ($product_id) {
+                $product = wc_get_product($product_id);
+            }
+        }
+        
+        // If still no product and shortcode is called with product_id attribute
+        if (!$product && !empty($atts['product_id'])) {
+            $product = wc_get_product(intval($atts['product_id']));
+        }
+        
+        if (!$product) {
+            return '';
+        }
+        
+        $product_id = $product->get_id();
+        $logo_url = '';
+        $brand_name = '';
+        
+        // Get brand code from product meta (primary method)
+        $brand_code = get_post_meta($product_id, '_amrod_brand_code', true);
+        
+        // For variations, check parent product
+        if (empty($brand_code) && $product->is_type('variation')) {
+            $parent_id = $product->get_parent_id();
+            if ($parent_id) {
+                $brand_code = get_post_meta($parent_id, '_amrod_brand_code', true);
+            }
+        }
+        
+        // Method 1: If we have brand code, look up brand data from options
+        if (!empty($brand_code)) {
+            $brand_data = get_option("amrod_brand_{$brand_code}");
+            if (is_array($brand_data) && !empty($brand_data['image'])) {
+                $logo_url = $brand_data['image'];
+                $brand_name = $brand_data['name'] ?? '';
+            }
+        }
+        
+        // Method 2: If no brand code or data not found, try to find by brand name
+        if (empty($logo_url)) {
+            $brand_name_meta = get_post_meta($product_id, '_amrod_brand', true);
+            if (empty($brand_name_meta) && $product->is_type('variation')) {
+                $parent_id = $product->get_parent_id();
+                if ($parent_id) {
+                    $brand_name_meta = get_post_meta($parent_id, '_amrod_brand', true);
+                }
+            }
+            
+            // Search all synced brands to find match by name
+            if (!empty($brand_name_meta)) {
+                global $wpdb;
+                $brand_options = $wpdb->get_results(
+                    "SELECT option_name, option_value FROM {$wpdb->options} WHERE option_name LIKE 'amrod_brand_%'",
+                    ARRAY_A
+                );
+                
+                foreach ($brand_options as $option) {
+                    $brand_data = maybe_unserialize($option['option_value']);
+                    if (is_array($brand_data) && 
+                        !empty($brand_data['name']) && 
+                        strcasecmp($brand_data['name'], $brand_name_meta) === 0 &&
+                        !empty($brand_data['image'])) {
+                        $logo_url = $brand_data['image'];
+                        $brand_name = $brand_data['name'];
+                        break;
+                    }
+                }
+            }
+        }
+        
+        if (empty($logo_url)) {
+            return '';
+        }
+        
+        ob_start();
+        ?>
+        <div class="amrod-brand-logo" style="margin: 15px 0;">
+            <?php if ($brand_name): ?>
+                <img src="<?php echo esc_url($logo_url); ?>" alt="<?php echo esc_attr($brand_name); ?>" style="max-height: 60px; max-width: 200px; object-fit: contain;">
+            <?php else: ?>
+                <img src="<?php echo esc_url($logo_url); ?>" alt="Brand Logo" style="max-height: 60px; max-width: 200px; object-fit: contain;">
+            <?php endif; ?>
+        </div>
+        <?php
+        return ob_get_clean();
+    }
+    
+    /**
+     * Display color swatches row on product page
+     */
+    public function display_color_swatches_row() {
+        global $product;
+        if (!$product) {
+            return;
+        }
+        echo $this->shortcode_color_swatches();
+    }
+    
+    /**
+     * Shortcode: [amrod_color_swatches] - Display color swatches
+     */
+    public function shortcode_color_swatches() {
+        global $product;
+        if (!$product) {
+            return '';
+        }
+        
+        $product_id = $product->get_id();
+        $color_mapping = get_post_meta($product_id, '_amrod_color_mapping', true);
+        
+        if (empty($color_mapping) || !is_array($color_mapping)) {
+            return '';
+        }
+        
+        $swatches = array();
+        foreach ($color_mapping as $color_name => $color_code) {
+            $swatch_data = get_option("amrod_color_swatch_{$color_code}");
+            if ($swatch_data && !empty($swatch_data['hexValue']) && is_array($swatch_data['hexValue'])) {
+                $hex = $swatch_data['hexValue'][0] ?? '';
+                if (!empty($hex)) {
+                    $swatches[] = array(
+                        'name' => $swatch_data['name'] ?? $color_name,
+                        'hex' => $hex,
+                        'code' => $color_code,
+                    );
+                }
+            }
+        }
+        
+        if (empty($swatches)) {
+            return '';
+        }
+        
+        ob_start();
+        ?>
+        <div class="amrod-color-swatches-row" style="margin: 15px 0;">
+            <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
+                <?php foreach ($swatches as $swatch): ?>
+                    <div class="amrod-color-swatch-circle" 
+                         style="width: 30px; height: 30px; border-radius: 50%; background-color: <?php echo esc_attr($swatch['hex']); ?>; border: 2px solid #ddd; cursor: pointer; display: inline-block;"
+                         title="<?php echo esc_attr($swatch['name']); ?>">
+                    </div>
+                <?php endforeach; ?>
+            </div>
+        </div>
+        <?php
+        return ob_get_clean();
+    }
+    
+    /**
+     * Display product gender on product page
+     */
+    public function display_product_gender() {
+        global $product;
+        if (!$product) {
+            return;
+        }
+        echo $this->shortcode_gender();
+    }
+    
+    /**
+     * Shortcode: [amrod_gender] - Display product gender
+     */
+    public function shortcode_gender() {
+        global $product;
+        if (!$product) {
+            return '';
+        }
+        
+        $gender = get_post_meta($product->get_id(), '_amrod_gender', true);
+        if (empty($gender)) {
+            return '';
+        }
+        
+        // Normalize gender text: "mens" -> "men"
+        $gender = str_ireplace('mens', 'men', $gender);
+        $gender = ucfirst(trim($gender));
+        
+        ob_start();
+        ?>
+        <div class="amrod-product-gender" style="margin: 15px 0;">
+            <strong>Gender:</strong> <span><?php echo esc_html($gender); ?></span>
+        </div>
+        <?php
+        return ob_get_clean();
+    }
+    
+    /**
+     * Display total stock info on product page
+     */
+    public function display_total_stock_info() {
+        global $product;
+        if (!$product) {
+            return;
+        }
+        echo $this->shortcode_total_stock();
+    }
+    
+    /**
+     * Shortcode: [amrod_total_stock] - Display total stock and incoming stock
+     */
+    public function shortcode_total_stock() {
+        global $product;
+        if (!$product) {
+            return '';
+        }
+        
+        $product_id = $product->get_id();
+        $total_stock = 0;
+        $total_incoming = 0;
+        
+        if ($product->is_type('variable')) {
+            // Calculate total from all variations
+            $variations = $product->get_children();
+            foreach ($variations as $variation_id) {
+                $variation = wc_get_product($variation_id);
+                if (!$variation) continue;
+                
+                $stock_qty = $variation->get_stock_quantity();
+                if ($stock_qty !== null) {
+                    $total_stock += (int) $stock_qty;
+                }
+                
+                // Get incoming stock from detail
+                $detail = get_post_meta($variation_id, '_amrod_stock_detail', true);
+                if (!empty($detail['incoming']) && is_array($detail['incoming'])) {
+                    foreach ($detail['incoming'] as $incoming) {
+                        $total_incoming += isset($incoming['total']) ? (int) $incoming['total'] : 0;
+                    }
+                }
+            }
+        } else {
+            // Simple product
+            $stock_qty = $product->get_stock_quantity();
+            if ($stock_qty !== null) {
+                $total_stock = (int) $stock_qty;
+            }
+            
+            $detail = get_post_meta($product_id, '_amrod_stock_detail', true);
+            if (!empty($detail['incoming']) && is_array($detail['incoming'])) {
+                foreach ($detail['incoming'] as $incoming) {
+                    $total_incoming += isset($incoming['total']) ? (int) $incoming['total'] : 0;
+                }
+            }
+        }
+        
+        if ($total_stock === 0 && $total_incoming === 0) {
+            return '';
+        }
+        
+        ob_start();
+        ?>
+        <div class="amrod-total-stock-info" style="margin: 15px 0;">
+            <?php if ($total_stock > 0): ?>
+                <div style="margin-bottom: 5px;">
+                    <strong>Total Stock:</strong> <span><?php echo number_format($total_stock); ?></span>
+                </div>
+            <?php endif; ?>
+            <?php if ($total_incoming > 0): ?>
+                <div>
+                    <strong>Incoming Stock:</strong> <span><?php echo number_format($total_incoming); ?></span>
+                </div>
+            <?php endif; ?>
+        </div>
+        <?php
+        return ob_get_clean();
+    }
+    
+    /**
      * Make products purchasable even without prices
      * This allows products to be orderable even if price sync is disabled or hasn't run yet
+     * Respects the purchasability mode setting
      * 
      * @param bool $purchasable Whether product is purchasable
      * @param WC_Product $product Product object
      * @return bool Modified purchasable status
      */
     public function make_products_purchasable_without_price($purchasable, $product) {
-        // Check if this is an Amrod-synced product (has Amrod metadata)
-        $amrod_sku = get_post_meta($product->get_id(), '_amrod_simple_code', true);
-        $amrod_full_code = get_post_meta($product->get_id(), '_amrod_full_code', true);
+        // If already purchasable, return as-is
+        if ($purchasable) {
+            return $purchasable;
+        }
         
-        if (!empty($amrod_sku) || !empty($amrod_full_code)) {
-            // This is an Amrod product - allow purchase even without price
+        // Get purchasability mode setting (default: force_with_stock for backward compatibility)
+        $purchasability_mode = get_option('bytemash_allow_orders_without_price', 'force_with_stock');
+        
+        // Default mode: only allow if price exists (standard WooCommerce behavior)
+        if ($purchasability_mode === 'default') {
+            return $purchasable;
+        }
+        
+        $stock_quantity = $product->get_stock_quantity();
+        
+        // Force all mode: allow ALL products regardless of price or stock
+        if ($purchasability_mode === 'force_all') {
             // Set a placeholder price of 0 to allow adding to cart
             if ($product->get_price() === '' || $product->get_price() === null) {
                 $product->set_price('0');
                 $product->set_regular_price('0');
             }
             return true;
+        }
+        
+        // Force with stock mode: only allow if product has stock quantity > 0
+        if ($purchasability_mode === 'force_with_stock') {
+            // Check if product has stock
+            if ($stock_quantity !== null && $stock_quantity > 0) {
+                // Set a placeholder price of 0 to allow adding to cart
+                if ($product->get_price() === '' || $product->get_price() === null) {
+                    $product->set_price('0');
+                    $product->set_regular_price('0');
+                }
+                return true;
+            }
+        }
+        
+        return $purchasable;
+    }
+    
+    /**
+     * Make variations purchasable even without prices
+     * Respects the purchasability mode setting
+     * 
+     * @param bool $purchasable Whether variation is purchasable
+     * @param WC_Product_Variation $variation Variation object
+     * @return bool Modified purchasable status
+     */
+    public function make_variations_purchasable_without_price($purchasable, $variation) {
+        // If already purchasable, return as-is
+        if ($purchasable) {
+            return $purchasable;
+        }
+        
+        // Get purchasability mode setting (default: force_with_stock for backward compatibility)
+        $purchasability_mode = get_option('bytemash_allow_orders_without_price', 'force_with_stock');
+        
+        // Default mode: only allow if price exists (standard WooCommerce behavior)
+        if ($purchasability_mode === 'default') {
+            return $purchasable;
+        }
+        
+        $stock_quantity = $variation->get_stock_quantity();
+        
+        // Force all mode: allow ALL variations regardless of price or stock
+        if ($purchasability_mode === 'force_all') {
+            // Set a placeholder price of 0 to allow adding to cart
+            if ($variation->get_price() === '' || $variation->get_price() === null) {
+                $variation->set_price('0');
+                $variation->set_regular_price('0');
+            }
+            return true;
+        }
+        
+        // Force with stock mode: only allow if variation has stock quantity > 0
+        if ($purchasability_mode === 'force_with_stock') {
+            // Check if variation has stock
+            if ($stock_quantity !== null && $stock_quantity > 0) {
+                // Set a placeholder price of 0 to allow adding to cart
+                if ($variation->get_price() === '' || $variation->get_price() === null) {
+                    $variation->set_price('0');
+                    $variation->set_regular_price('0');
+                }
+                return true;
+            }
         }
         
         return $purchasable;
@@ -2619,14 +3324,23 @@ class ByteMash_Woo_Sync {
             return $is_in_stock;
         }
         
-        // Check if this is an Amrod-synced product (has Amrod metadata)
-        $amrod_sku = get_post_meta($product->get_id(), '_amrod_simple_code', true);
-        $amrod_full_code = get_post_meta($product->get_id(), '_amrod_full_code', true);
+        // Get purchasability mode setting
+        $purchasability_mode = get_option('bytemash_allow_orders_without_price', 'force_with_stock');
         
-        if (!empty($amrod_sku) || !empty($amrod_full_code)) {
-            // This is an Amrod product - check if it has stock
-            $stock_quantity = $product->get_stock_quantity();
-            
+        // Default mode: use standard WooCommerce behavior
+        if ($purchasability_mode === 'default') {
+            return $is_in_stock;
+        }
+        
+        $stock_quantity = $product->get_stock_quantity();
+        
+        // Force all mode: force all products to be in stock
+        if ($purchasability_mode === 'force_all') {
+            return true;
+        }
+        
+        // Force with stock mode: only force in stock if product has stock quantity > 0
+        if ($purchasability_mode === 'force_with_stock') {
             if ($stock_quantity !== null && $stock_quantity > 0) {
                 // Has stock but WooCommerce marked as out of stock (probably due to no price)
                 // Force it to be in stock
@@ -2708,6 +3422,9 @@ class ByteMash_Woo_Sync {
         return $price_html;
     }
 }
+
+// Register plugin activation hook
+register_activation_hook(__FILE__, array('ByteMash_Woo_Sync', 'register_activation'));
 
 /**
  * Initialize the plugin
@@ -2999,3 +3716,5 @@ add_shortcode('amrod_before_title', function() {
 	do_action('woocommerce_before_shop_loop_item_title');
 	return ob_get_clean();
 });
+
+// Additional shortcodes registered in ByteMash_Woo_Sync class

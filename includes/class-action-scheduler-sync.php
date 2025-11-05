@@ -42,6 +42,14 @@ class ByteMash_Action_Scheduler_Sync {
         add_action('bytemash_action_scheduler_incremental_sync', array($this, 'run_incremental_sync_action'));
         add_action('bytemash_action_scheduler_batch_sync', array($this, 'run_batch_sync_action'), 10, 3);
         
+        // Hook for stock/prices/brands batch processing via Action Scheduler
+        add_action('bytemash_action_scheduler_stock_batch', array($this, 'run_stock_batch_action'), 10, 2);
+        add_action('bytemash_action_scheduler_prices_batch', array($this, 'run_prices_batch_action'), 10, 2);
+        add_action('bytemash_action_scheduler_brands_batch', array($this, 'run_brands_batch_action'), 10, 2);
+        
+        // Hook for phase completion to trigger next phase
+        add_action('bytemash_action_scheduler_phase_complete', array($this, 'run_next_phase_action'), 10, 2);
+        
         // Hook for cleanup
         add_action('bytemash_action_scheduler_cleanup', array($this, 'cleanup_old_syncs'));
 
@@ -109,6 +117,11 @@ class ByteMash_Action_Scheduler_Sync {
         $this->clear_full_sync_schedules();
         $this->clear_incremental_sync_schedules();
         
+        // Also clear stock/prices/brands batch schedules
+        as_unschedule_all_actions('bytemash_action_scheduler_stock_batch', null, 'bytemash-sync');
+        as_unschedule_all_actions('bytemash_action_scheduler_prices_batch', null, 'bytemash-sync');
+        as_unschedule_all_actions('bytemash_action_scheduler_brands_batch', null, 'bytemash-sync');
+        
         $this->logger->log('info', "All sync schedules cleared", array(), 'action_scheduler');
     }
     
@@ -159,44 +172,298 @@ class ByteMash_Action_Scheduler_Sync {
             'with_branding' => $with_branding,
         ), 'action_scheduler');
         
-		// Respect product sync disable option
-		$products_sync_enabled = get_option('bytemash_sync_products', true);
-		if (!$products_sync_enabled) {
-			$this->logger->log('warning', 'Products sync is disabled. Skipping Action Scheduler full sync.', array(), 'action_scheduler');
-			return;
-		}
-		
         try {
-            // Fetch products from Amrod API
-            $api_client = new ByteMash_Amrod_API_Client();
-            if ($with_branding) {
-                $products = $api_client->get_products_with_branding();
-            } else {
-                $products = $api_client->get_products_without_branding();
+            // Get enabled sync attributes
+            $sync_products = get_option('bytemash_sync_products', true);
+            $sync_stock = get_option('bytemash_sync_stock', true);
+            $sync_prices = get_option('bytemash_sync_prices', true);
+            $sync_categories = get_option('bytemash_sync_categories', true);
+            $sync_brands = get_option('bytemash_sync_brands', true);
+            
+            // Build phase queue
+            $phases = array();
+            if ($sync_products) $phases[] = 'products';
+            if ($sync_stock) $phases[] = 'stock';
+            if ($sync_prices) $phases[] = 'prices';
+            if ($sync_categories) $phases[] = 'categories';
+            if ($sync_brands) $phases[] = 'brands';
+            
+            $this->logger->log('info', "Action Scheduler full sync phases enabled (queue order)", array(
+                'phases' => $phases,
+                'with_branding' => $with_branding,
+            ), 'action_scheduler');
+            
+            // Store phase queue for sequential processing
+            $sync_id = 'full_' . time() . '_' . wp_generate_password(8, false);
+            set_transient("bytemash_as_sync_{$sync_id}_phases", $phases, 24 * HOUR_IN_SECONDS);
+            set_transient("bytemash_as_sync_{$sync_id}_with_branding", $with_branding, 24 * HOUR_IN_SECONDS);
+            set_transient("bytemash_as_sync_{$sync_id}_current_phase", 0, 24 * HOUR_IN_SECONDS);
+            
+            // Start first phase
+            if (!empty($phases)) {
+                $this->run_phase_action($sync_id, $phases[0], $with_branding);
             }
             
-            if (is_wp_error($products)) {
-                $this->logger->log('error', 'Failed to fetch products for Action Scheduler full sync', array(
-                    'error' => $products->get_error_message(),
+        } catch (Exception $e) {
+            $this->logger->log('error', 'Action Scheduler full sync failed', array(
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ), 'action_scheduler');
+        }
+    }
+    
+    /**
+     * Run a specific phase
+     */
+    private function run_phase_action($sync_id, $phase, $with_branding) {
+        $this->logger->log('info', "Starting phase: {$phase}", array('sync_id' => $sync_id, 'phase' => $phase), 'action_scheduler');
+        
+        switch ($phase) {
+            case 'products':
+                $api_client = new ByteMash_Amrod_API_Client();
+                if ($with_branding) {
+                    $products = $api_client->get_products_with_branding();
+                } else {
+                    $products = $api_client->get_products_without_branding();
+                }
+                
+                if (is_wp_error($products)) {
+                    $this->logger->log('error', 'Failed to fetch products', array('error' => $products->get_error_message()), 'action_scheduler');
+                    $this->schedule_next_phase($sync_id);
+                } elseif (is_array($products) && !empty($products)) {
+                    $total = count($products);
+                    $batch_size = (int) get_option('bytemash_amrod_batch_size', 10);
+                    $this->logger->log('info', "Processing {$total} products in batches of {$batch_size}", array(), 'action_scheduler');
+                    $this->schedule_batch_processing($products, 'full', $with_branding, $sync_id, 'products');
+                } else {
+                    $this->logger->log('warning', 'No products found', array(), 'action_scheduler');
+                    $this->schedule_next_phase($sync_id);
+                }
+                break;
+                
+            case 'stock':
+                $this->logger->log('info', "Fetching stock data for stock sync phase", array('sync_id' => $sync_id), 'action_scheduler');
+                try {
+                    $stock_result = $this->product_sync->sync_stock_levels();
+                    
+                    if (!$stock_result['success']) {
+                        $this->logger->log('error', "Stock sync phase failed: API fetch unsuccessful", array(
+                            'sync_id' => $sync_id,
+                            'error_message' => $stock_result['message'] ?? 'Unknown error',
+                            'result' => $stock_result,
+                        ), 'action_scheduler');
+                        $this->schedule_next_phase($sync_id);
+                    } elseif (empty($stock_result['data'])) {
+                        $this->logger->log('warning', "Stock sync phase: No stock data returned", array(
+                            'sync_id' => $sync_id,
+                            'result' => $stock_result,
+                        ), 'action_scheduler');
+                        $this->schedule_next_phase($sync_id);
+                    } else {
+                        $this->logger->log('info', "Stock data fetched successfully, scheduling batches", array(
+                            'sync_id' => $sync_id,
+                            'stock_sync_id' => $stock_result['sync_id'],
+                            'total_items' => count($stock_result['data']),
+                        ), 'action_scheduler');
+                        $this->schedule_stock_sync_action($stock_result['data'], $stock_result['sync_id'], $sync_id, 'stock');
+                    }
+                } catch (Exception $e) {
+                    $this->logger->log('error', "Stock sync phase exception", array(
+                        'sync_id' => $sync_id,
+                        'error' => $e->getMessage(),
+                        'trace' => $e->getTraceAsString(),
+                    ), 'action_scheduler');
+                    $this->schedule_next_phase($sync_id);
+                }
+                break;
+                
+            case 'prices':
+                $this->logger->log('info', "Fetching prices data for prices sync phase", array('sync_id' => $sync_id), 'action_scheduler');
+                try {
+                    $prices_result = $this->product_sync->sync_prices();
+                    
+                    if (!$prices_result['success']) {
+                        $this->logger->log('error', "Prices sync phase failed: API fetch unsuccessful", array(
+                            'sync_id' => $sync_id,
+                            'error_message' => $prices_result['message'] ?? 'Unknown error',
+                            'result' => $prices_result,
+                        ), 'action_scheduler');
+                        $this->schedule_next_phase($sync_id);
+                    } elseif (empty($prices_result['data'])) {
+                        $this->logger->log('warning', "Prices sync phase: No prices data returned", array(
+                            'sync_id' => $sync_id,
+                            'result' => $prices_result,
+                        ), 'action_scheduler');
+                        $this->schedule_next_phase($sync_id);
+                    } else {
+                        $this->logger->log('info', "Prices data fetched successfully, scheduling batches", array(
+                            'sync_id' => $sync_id,
+                            'prices_sync_id' => $prices_result['sync_id'],
+                            'total_items' => count($prices_result['data']),
+                        ), 'action_scheduler');
+                        $this->schedule_prices_sync_action($prices_result['data'], $prices_result['sync_id'], $sync_id, 'prices');
+                    }
+                } catch (Exception $e) {
+                    $this->logger->log('error', "Prices sync phase exception", array(
+                        'sync_id' => $sync_id,
+                        'error' => $e->getMessage(),
+                        'trace' => $e->getTraceAsString(),
+                    ), 'action_scheduler');
+                    $this->schedule_next_phase($sync_id);
+                }
+                break;
+                
+            case 'categories':
+                $categories_result = $this->product_sync->sync_categories();
+                if ($categories_result['success'] && !empty($categories_result['tree'])) {
+                    $batch_processor = new ByteMash_Batch_Processor();
+                    $batch_processor->process_categories_batch($categories_result['tree']);
+                    $this->logger->log('info', "Categories processed", array(), 'action_scheduler');
+                }
+                $this->schedule_next_phase($sync_id);
+                break;
+                
+            case 'brands':
+                $this->logger->log('info', "Fetching brands data for brands sync phase", array('sync_id' => $sync_id), 'action_scheduler');
+                try {
+                    $brands_result = $this->product_sync->sync_brands();
+                    
+                    if (!$brands_result['success']) {
+                        $this->logger->log('error', "Brands sync phase failed: API fetch unsuccessful", array(
+                            'sync_id' => $sync_id,
+                            'error_message' => $brands_result['message'] ?? 'Unknown error',
+                            'result' => $brands_result,
+                        ), 'action_scheduler');
+                        $this->schedule_next_phase($sync_id);
+                    } elseif (empty($brands_result['data'])) {
+                        $this->logger->log('warning', "Brands sync phase: No brands data returned", array(
+                            'sync_id' => $sync_id,
+                            'result' => $brands_result,
+                        ), 'action_scheduler');
+                        $this->schedule_next_phase($sync_id);
+                    } else {
+                        $this->logger->log('info', "Brands data fetched successfully, scheduling batches", array(
+                            'sync_id' => $sync_id,
+                            'brands_sync_id' => $brands_result['sync_id'],
+                            'total_items' => count($brands_result['data']),
+                        ), 'action_scheduler');
+                        $this->schedule_brands_sync_action($brands_result['data'], $brands_result['sync_id'], $sync_id, 'brands');
+                    }
+                } catch (Exception $e) {
+                    $this->logger->log('error', "Brands sync phase exception", array(
+                        'sync_id' => $sync_id,
+                        'error' => $e->getMessage(),
+                        'trace' => $e->getTraceAsString(),
+                    ), 'action_scheduler');
+                    $this->schedule_next_phase($sync_id);
+                }
+                break;
+        }
+    }
+    
+    /**
+     * Schedule next phase after current phase completes
+     */
+    private function schedule_next_phase($sync_id) {
+        try {
+            $phases = get_transient("bytemash_as_sync_{$sync_id}_phases");
+            $current_index = (int) get_transient("bytemash_as_sync_{$sync_id}_current_phase");
+            
+            if (!$phases || !is_array($phases)) {
+                $this->logger->log('info', "All phases completed for sync {$sync_id}", array(), 'action_scheduler');
+                return;
+            }
+            
+            $next_index = $current_index + 1;
+            
+            if ($next_index >= count($phases)) {
+                $this->logger->log('success', "All phases completed for sync {$sync_id}", array(
+                    'sync_id' => $sync_id,
+                    'total_phases' => count($phases),
+                ), 'action_scheduler');
+                delete_transient("bytemash_as_sync_{$sync_id}_phases");
+                delete_transient("bytemash_as_sync_{$sync_id}_with_branding");
+                delete_transient("bytemash_as_sync_{$sync_id}_current_phase");
+                return;
+            }
+            
+            $with_branding = get_transient("bytemash_as_sync_{$sync_id}_with_branding");
+            if ($with_branding === false) {
+                $this->logger->log('warning', "Could not retrieve with_branding setting for next phase", array(
+                    'sync_id' => $sync_id,
+                ), 'action_scheduler');
+                $with_branding = true; // Default fallback
+            }
+            
+            set_transient("bytemash_as_sync_{$sync_id}_current_phase", $next_index, 24 * HOUR_IN_SECONDS);
+            
+            $next_phase = $phases[$next_index];
+            if (!isset($next_phase)) {
+                $this->logger->log('error', "Next phase not found in phases array", array(
+                    'sync_id' => $sync_id,
+                    'next_index' => $next_index,
+                    'total_phases' => count($phases),
+                    'phases' => $phases,
                 ), 'action_scheduler');
                 return;
             }
             
-            if (!is_array($products) || empty($products)) {
-                $this->logger->log('warning', 'No products found for Action Scheduler full sync', array(), 'action_scheduler');
-                return;
+            $this->logger->log('info', "Scheduling next phase: {$next_phase}", array(
+                'sync_id' => $sync_id,
+                'phase_index' => $next_index,
+                'current_phase_index' => $current_index,
+                'total_phases' => count($phases),
+            ), 'action_scheduler');
+            
+            // Schedule next phase immediately (or with small delay)
+            $scheduled = as_schedule_single_action(
+                time(),
+                'bytemash_action_scheduler_phase_complete',
+                array($sync_id, $next_phase),
+                'bytemash-sync'
+            );
+            
+            if (!$scheduled) {
+                $this->logger->log('error', "Failed to schedule next phase", array(
+                    'sync_id' => $sync_id,
+                    'next_phase' => $next_phase,
+                ), 'action_scheduler');
             }
             
-            $total = count($products);
-            $batch_size = (int) get_option('bytemash_amrod_batch_size', 10);
+        } catch (Exception $e) {
+            $this->logger->log('error', "Exception while scheduling next phase", array(
+                'sync_id' => $sync_id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ), 'action_scheduler');
+        }
+    }
+    
+    /**
+     * Run next phase after previous completes
+     */
+    public function run_next_phase_action($sync_id, $phase) {
+        $this->logger->log('info', "Running next phase action", array(
+            'sync_id' => $sync_id,
+            'phase' => $phase,
+        ), 'action_scheduler');
+        
+        try {
+            $with_branding = get_transient("bytemash_as_sync_{$sync_id}_with_branding");
+            if ($with_branding === false) {
+                $this->logger->log('warning', "Could not retrieve with_branding setting, using default", array(
+                    'sync_id' => $sync_id,
+                    'phase' => $phase,
+                ), 'action_scheduler');
+                $with_branding = true; // Default fallback
+            }
             
-            $this->logger->log('info', "Processing {$total} products in batches of {$batch_size}", array(), 'action_scheduler');
-            
-            // Process products in batches using Action Scheduler
-            $this->schedule_batch_processing($products, 'full', $with_branding);
+            $this->run_phase_action($sync_id, $phase, $with_branding);
             
         } catch (Exception $e) {
-            $this->logger->log('error', 'Action Scheduler full sync failed', array(
+            $this->logger->log('error', "Exception while running next phase", array(
+                'sync_id' => $sync_id,
+                'phase' => $phase,
                 'error' => $e->getMessage(),
                 'trace' => $e->getTraceAsString(),
             ), 'action_scheduler');
@@ -215,41 +482,64 @@ class ByteMash_Action_Scheduler_Sync {
             'with_branding' => $with_branding,
         ), 'action_scheduler');
         
-		// Respect product sync disable option
-		$products_sync_enabled = get_option('bytemash_sync_products', true);
-		if (!$products_sync_enabled) {
-			$this->logger->log('warning', 'Products sync is disabled. Skipping Action Scheduler incremental sync.', array(), 'action_scheduler');
-			return;
-		}
-		
         try {
-            // Fetch updated products from Amrod API
-            $api_client = new ByteMash_Amrod_API_Client();
-            if ($with_branding) {
-                $products = $api_client->get_products_with_branding_updated();
-            } else {
-                $products = $api_client->get_products_without_branding_updated();
+            // Get enabled sync attributes (incremental only syncs products, stock, and prices)
+            $sync_products = get_option('bytemash_sync_products', true);
+            $sync_stock = get_option('bytemash_sync_stock', true);
+            $sync_prices = get_option('bytemash_sync_prices', true);
+            
+            $this->logger->log('info', "Action Scheduler incremental sync phases enabled", array(
+                'products' => $sync_products,
+                'stock' => $sync_stock,
+                'prices' => $sync_prices,
+            ), 'action_scheduler');
+            
+            // Products sync
+            if ($sync_products) {
+                $api_client = new ByteMash_Amrod_API_Client();
+                if ($with_branding) {
+                    $products = $api_client->get_products_with_branding_updated();
+                } else {
+                    $products = $api_client->get_products_without_branding_updated();
+                }
+                
+                if (is_wp_error($products)) {
+                    $this->logger->log('error', 'Failed to fetch updated products for Action Scheduler incremental sync', array(
+                        'error' => $products->get_error_message(),
+                    ), 'action_scheduler');
+                } elseif (is_array($products) && !empty($products)) {
+                    $total = count($products);
+                    $batch_size = (int) get_option('bytemash_amrod_batch_size', 10);
+                    $this->logger->log('info', "Processing {$total} updated products in batches of {$batch_size}", array(), 'action_scheduler');
+                    $this->schedule_batch_processing($products, 'incremental', $with_branding);
+                } else {
+                    $this->logger->log('info', 'No updated products found for Action Scheduler incremental sync', array(), 'action_scheduler');
+                }
             }
             
-            if (is_wp_error($products)) {
-                $this->logger->log('error', 'Failed to fetch updated products for Action Scheduler incremental sync', array(
-                    'error' => $products->get_error_message(),
-                ), 'action_scheduler');
-                return;
+            // Stock sync (incremental, via Action Scheduler)
+            if ($sync_stock) {
+                $this->logger->log('info', "Starting incremental stock sync", array(), 'action_scheduler');
+                $stock_result = $this->product_sync->sync_stock_updated();
+                
+                if ($stock_result['success'] && !empty($stock_result['data'])) {
+                    $this->schedule_stock_sync_action($stock_result['data'], $stock_result['sync_id']);
+                    $this->logger->log('info', "Stock sync scheduled with Action Scheduler", array('sync_id' => $stock_result['sync_id']), 'action_scheduler');
+                }
             }
             
-            if (!is_array($products) || empty($products)) {
-                $this->logger->log('info', 'No updated products found for Action Scheduler incremental sync', array(), 'action_scheduler');
-                return;
+            // Prices sync (incremental, via Action Scheduler)
+            if ($sync_prices) {
+                $this->logger->log('info', "Starting incremental prices sync", array(), 'action_scheduler');
+                $prices_result = $this->product_sync->sync_prices_updated();
+                
+                if ($prices_result['success'] && !empty($prices_result['data'])) {
+                    $this->schedule_prices_sync_action($prices_result['data'], $prices_result['sync_id']);
+                    $this->logger->log('info', "Prices sync scheduled with Action Scheduler", array('sync_id' => $prices_result['sync_id']), 'action_scheduler');
+                }
             }
             
-            $total = count($products);
-            $batch_size = (int) get_option('bytemash_amrod_batch_size', 10);
-            
-            $this->logger->log('info', "Processing {$total} updated products in batches of {$batch_size}", array(), 'action_scheduler');
-            
-            // Process products in batches using Action Scheduler
-            $this->schedule_batch_processing($products, 'incremental', $with_branding);
+            $this->logger->log('success', 'Action Scheduler incremental sync completed', array(), 'action_scheduler');
             
         } catch (Exception $e) {
             $this->logger->log('error', 'Action Scheduler incremental sync failed', array(
@@ -262,7 +552,7 @@ class ByteMash_Action_Scheduler_Sync {
     /**
      * Schedule batch processing using Action Scheduler
      */
-    private function schedule_batch_processing($products, $sync_type, $with_branding) {
+    private function schedule_batch_processing($products, $sync_type, $with_branding, $phase_sync_id = null, $phase_name = null) {
         $batch_size = (int) get_option('bytemash_amrod_batch_size', 10);
         $batches = array_chunk($products, $batch_size);
         $batch_count = count($batches);
@@ -277,6 +567,11 @@ class ByteMash_Action_Scheduler_Sync {
         $sync_id = $sync_type . '_' . uniqid();
         set_transient("bytemash_action_scheduler_{$sync_id}_products", $products, 12 * HOUR_IN_SECONDS);
         
+        // Store phase sync info if part of a queue
+        if ($phase_sync_id) {
+            set_transient("bytemash_as_products_{$sync_id}_phase_sync", $phase_sync_id, 24 * HOUR_IN_SECONDS);
+        }
+        
         // Schedule each batch with a small delay to prevent overwhelming the system
         foreach ($batches as $batch_index => $batch) {
             $delay = $batch_index * 30; // 30 seconds between batches
@@ -289,14 +584,482 @@ class ByteMash_Action_Scheduler_Sync {
             );
         }
         
-        // Schedule cleanup after all batches are processed
-        $cleanup_delay = ($batch_count * 30) + 300; // 5 minutes after last batch
-        as_schedule_single_action(
-            time() + $cleanup_delay,
-            'bytemash_action_scheduler_cleanup',
-            array($sync_id),
-            'bytemash-sync'
-        );
+        // Schedule cleanup after all batches are processed (only if not in phase queue)
+        if (!$phase_sync_id) {
+            $cleanup_delay = ($batch_count * 30) + 300; // 5 minutes after last batch
+            as_schedule_single_action(
+                time() + $cleanup_delay,
+                'bytemash_action_scheduler_cleanup',
+                array($sync_id),
+                'bytemash-sync'
+            );
+        }
+    }
+    
+    /**
+     * Schedule stock sync using Action Scheduler
+     */
+    private function schedule_stock_sync_action($stock_data, $sync_id, $phase_sync_id = null, $phase_name = null) {
+        if (!is_array($stock_data)) {
+            $this->logger->log('error', "Stock sync scheduling failed: Invalid data type", array(
+                'sync_id' => $sync_id,
+                'phase_sync_id' => $phase_sync_id,
+                'data_type' => gettype($stock_data),
+            ), 'action_scheduler');
+            if ($phase_sync_id) {
+                $this->schedule_next_phase($phase_sync_id);
+            }
+            return false;
+        }
+        
+        if (empty($stock_data)) {
+            $this->logger->log('warning', "Stock sync scheduling skipped: Empty stock data", array(
+                'sync_id' => $sync_id,
+                'phase_sync_id' => $phase_sync_id,
+            ), 'action_scheduler');
+            if ($phase_sync_id) {
+                $this->schedule_next_phase($phase_sync_id);
+            }
+            return false;
+        }
+        
+        $total = count($stock_data);
+        $batches = array_chunk($stock_data, 50);
+        $batch_count = count($batches);
+        
+        $this->logger->log('info', "Scheduling {$batch_count} stock batches with Action Scheduler", array(
+            'sync_id' => $sync_id,
+            'total' => $total,
+            'batch_count' => $batch_count,
+        ), 'action_scheduler');
+        
+        // Cache stock data temporarily
+        set_transient("bytemash_sync_{$sync_id}_stock", $stock_data, 12 * HOUR_IN_SECONDS);
+        
+        // Set up progress tracking
+        $batch_processor = new ByteMash_Batch_Processor();
+        $batch_processor->save_sync_progress($sync_id, array(
+            'type' => 'stock',
+            'total' => $total,
+            'processed' => 0,
+            'batch_count' => $batch_count,
+            'current_batch' => 0,
+            'status' => 'scheduled',
+            'started' => current_time('mysql'),
+        ));
+        
+        // Store phase sync info if part of a queue
+        if ($phase_sync_id) {
+            set_transient("bytemash_as_stock_{$sync_id}_phase_sync", $phase_sync_id, 24 * HOUR_IN_SECONDS);
+        }
+        
+        // Schedule each batch with Action Scheduler
+        $scheduled_count = 0;
+        foreach ($batches as $batch_index => $batch) {
+            $delay = $batch_index * 3; // 3 seconds between batches
+            
+            $scheduled = as_schedule_single_action(
+                time() + $delay,
+                'bytemash_action_scheduler_stock_batch',
+                array($sync_id, $batch_index),
+                'bytemash-sync'
+            );
+            
+            if ($scheduled) {
+                $scheduled_count++;
+            } else {
+                $this->logger->log('error', "Failed to schedule stock batch", array(
+                    'sync_id' => $sync_id,
+                    'batch_index' => $batch_index,
+                ), 'action_scheduler');
+            }
+        }
+        
+        $this->logger->log('info', "Stock batches scheduled", array(
+            'sync_id' => $sync_id,
+            'total_batches' => $batch_count,
+            'scheduled_count' => $scheduled_count,
+        ), 'action_scheduler');
+        
+        return true;
+    }
+    
+    /**
+     * Schedule prices sync using Action Scheduler
+     */
+    private function schedule_prices_sync_action($prices_data, $sync_id, $phase_sync_id = null, $phase_name = null) {
+        if (!is_array($prices_data)) {
+            $this->logger->log('error', "Prices sync scheduling failed: Invalid data type", array(
+                'sync_id' => $sync_id,
+                'phase_sync_id' => $phase_sync_id,
+                'data_type' => gettype($prices_data),
+            ), 'action_scheduler');
+            if ($phase_sync_id) {
+                $this->schedule_next_phase($phase_sync_id);
+            }
+            return false;
+        }
+        
+        if (empty($prices_data)) {
+            $this->logger->log('warning', "Prices sync scheduling skipped: Empty prices data", array(
+                'sync_id' => $sync_id,
+                'phase_sync_id' => $phase_sync_id,
+            ), 'action_scheduler');
+            if ($phase_sync_id) {
+                $this->schedule_next_phase($phase_sync_id);
+            }
+            return false;
+        }
+        
+        $total = count($prices_data);
+        $batches = array_chunk($prices_data, 100);
+        $batch_count = count($batches);
+        
+        $this->logger->log('info', "Scheduling {$batch_count} price batches with Action Scheduler", array(
+            'sync_id' => $sync_id,
+            'total' => $total,
+            'batch_count' => $batch_count,
+        ), 'action_scheduler');
+        
+        // Cache prices data temporarily
+        set_transient("bytemash_sync_{$sync_id}_prices", $prices_data, 12 * HOUR_IN_SECONDS);
+        
+        // Set up progress tracking
+        $batch_processor = new ByteMash_Batch_Processor();
+        $batch_processor->save_sync_progress($sync_id, array(
+            'type' => 'prices',
+            'total' => $total,
+            'processed' => 0,
+            'batch_count' => $batch_count,
+            'current_batch' => 0,
+            'status' => 'scheduled',
+            'started' => current_time('mysql'),
+        ));
+        
+        // Store phase sync info if part of a queue
+        if ($phase_sync_id) {
+            set_transient("bytemash_as_prices_{$sync_id}_phase_sync", $phase_sync_id, 24 * HOUR_IN_SECONDS);
+        }
+        
+        // Schedule each batch with Action Scheduler
+        foreach ($batches as $batch_index => $batch) {
+            $delay = $batch_index * 2; // 2 seconds between batches
+            
+            as_schedule_single_action(
+                time() + $delay,
+                'bytemash_action_scheduler_prices_batch',
+                array($sync_id, $batch_index),
+                'bytemash-sync'
+            );
+        }
+        
+        return true;
+    }
+    
+    /**
+     * Schedule brands sync using Action Scheduler
+     */
+    private function schedule_brands_sync_action($brands_data, $sync_id, $phase_sync_id = null, $phase_name = null) {
+        if (!is_array($brands_data)) {
+            $this->logger->log('error', "Brands sync scheduling failed: Invalid data type", array(
+                'sync_id' => $sync_id,
+                'phase_sync_id' => $phase_sync_id,
+                'data_type' => gettype($brands_data),
+            ), 'action_scheduler');
+            if ($phase_sync_id) {
+                $this->schedule_next_phase($phase_sync_id);
+            }
+            return false;
+        }
+        
+        if (empty($brands_data)) {
+            $this->logger->log('warning', "Brands sync scheduling skipped: Empty brands data", array(
+                'sync_id' => $sync_id,
+                'phase_sync_id' => $phase_sync_id,
+            ), 'action_scheduler');
+            if ($phase_sync_id) {
+                $this->schedule_next_phase($phase_sync_id);
+            }
+            return false;
+        }
+        
+        $total = count($brands_data);
+        $batches = array_chunk($brands_data, 50);
+        $batch_count = count($batches);
+        
+        $this->logger->log('info', "Scheduling {$batch_count} brand batches with Action Scheduler", array(
+            'sync_id' => $sync_id,
+            'total' => $total,
+            'batch_count' => $batch_count,
+        ), 'action_scheduler');
+        
+        // Cache brands data temporarily
+        set_transient("bytemash_sync_{$sync_id}_brands", $brands_data, 12 * HOUR_IN_SECONDS);
+        
+        // Set up progress tracking
+        $batch_processor = new ByteMash_Batch_Processor();
+        $batch_processor->save_sync_progress($sync_id, array(
+            'type' => 'brands',
+            'total' => $total,
+            'processed' => 0,
+            'batch_count' => $batch_count,
+            'current_batch' => 0,
+            'status' => 'scheduled',
+            'started' => current_time('mysql'),
+        ));
+        
+        // Store phase sync info if part of a queue
+        if ($phase_sync_id) {
+            set_transient("bytemash_as_brands_{$sync_id}_phase_sync", $phase_sync_id, 24 * HOUR_IN_SECONDS);
+        }
+        
+        // Schedule each batch with Action Scheduler
+        foreach ($batches as $batch_index => $batch) {
+            $delay = $batch_index * 2; // 2 seconds between batches
+            
+            as_schedule_single_action(
+                time() + $delay,
+                'bytemash_action_scheduler_brands_batch',
+                array($sync_id, $batch_index),
+                'bytemash-sync'
+            );
+        }
+        
+        return true;
+    }
+    
+    /**
+     * Run stock batch action
+     */
+    public function run_stock_batch_action($sync_id, $batch_index) {
+        $this->logger->log('info', "Processing stock batch", array(
+            'sync_id' => $sync_id,
+            'batch_index' => $batch_index,
+        ), 'action_scheduler');
+        
+        try {
+            $batch_processor = new ByteMash_Batch_Processor();
+            $progress_before = $batch_processor->get_sync_progress($sync_id);
+            
+            if (!$progress_before) {
+                $this->logger->log('error', "Stock batch processing failed: No progress data found", array(
+                    'sync_id' => $sync_id,
+                    'batch_index' => $batch_index,
+                ), 'action_scheduler');
+                return;
+            }
+            
+            $batch_processor->process_stock_batch($sync_id, $batch_index);
+            
+            // Check if this is part of a phase queue
+            $phase_sync_id = get_transient("bytemash_as_stock_{$sync_id}_phase_sync");
+            
+            // Get updated progress after processing
+            $progress = $batch_processor->get_sync_progress($sync_id);
+            
+            if (!$progress) {
+                $this->logger->log('error', "Stock batch processing failed: Progress lost after processing", array(
+                    'sync_id' => $sync_id,
+                    'batch_index' => $batch_index,
+                ), 'action_scheduler');
+                return;
+            }
+            
+            if (!isset($progress['batch_count'])) {
+                $this->logger->log('error', "Stock batch processing failed: Missing batch_count in progress", array(
+                    'sync_id' => $sync_id,
+                    'batch_index' => $batch_index,
+                    'progress' => $progress,
+                ), 'action_scheduler');
+                return;
+            }
+            
+            $this->logger->log('info', "Stock batch processed", array(
+                'sync_id' => $sync_id,
+                'batch_index' => $batch_index,
+                'processed' => $progress['processed'] ?? 0,
+                'errors' => $progress['errors'] ?? 0,
+                'batch_count' => $progress['batch_count'],
+            ), 'action_scheduler');
+            
+            // Schedule next batch via Action Scheduler if needed
+            if (($batch_index + 1) < $progress['batch_count']) {
+                $next_batch = $batch_index + 1;
+                $this->logger->log('info', "Scheduling next stock batch", array(
+                    'sync_id' => $sync_id,
+                    'next_batch' => $next_batch,
+                ), 'action_scheduler');
+                
+                as_schedule_single_action(
+                    time() + 3,
+                    'bytemash_action_scheduler_stock_batch',
+                    array($sync_id, $next_batch),
+                    'bytemash-sync'
+                );
+            } else {
+                // Last batch - schedule next phase if in queue
+                $this->logger->log('success', "Stock sync phase completed", array(
+                    'sync_id' => $sync_id,
+                    'total_processed' => $progress['processed'] ?? 0,
+                    'total_errors' => $progress['errors'] ?? 0,
+                ), 'action_scheduler');
+                
+                if ($phase_sync_id) {
+                    $this->schedule_next_phase($phase_sync_id);
+                    delete_transient("bytemash_as_stock_{$sync_id}_phase_sync");
+                }
+            }
+            
+        } catch (Exception $e) {
+            $this->logger->log('error', "Stock batch processing exception", array(
+                'sync_id' => $sync_id,
+                'batch_index' => $batch_index,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ), 'action_scheduler');
+        }
+    }
+    
+    /**
+     * Run prices batch action
+     */
+    public function run_prices_batch_action($sync_id, $batch_index) {
+        $this->logger->log('info', "Processing prices batch", array(
+            'sync_id' => $sync_id,
+            'batch_index' => $batch_index,
+        ), 'action_scheduler');
+        
+        try {
+            $batch_processor = new ByteMash_Batch_Processor();
+            $progress_before = $batch_processor->get_sync_progress($sync_id);
+            
+            if (!$progress_before) {
+                $this->logger->log('error', "Prices batch processing failed: No progress data found", array(
+                    'sync_id' => $sync_id,
+                    'batch_index' => $batch_index,
+                ), 'action_scheduler');
+                return;
+            }
+            
+            $batch_processor->process_prices_batch($sync_id, $batch_index);
+            
+            // Check if this is part of a phase queue
+            $phase_sync_id = get_transient("bytemash_as_prices_{$sync_id}_phase_sync");
+            
+            // Get updated progress after processing
+            $progress = $batch_processor->get_sync_progress($sync_id);
+            
+            if (!$progress || !isset($progress['batch_count'])) {
+                $this->logger->log('error', "Prices batch processing failed: Progress lost or invalid", array(
+                    'sync_id' => $sync_id,
+                    'batch_index' => $batch_index,
+                    'progress' => $progress,
+                ), 'action_scheduler');
+                return;
+            }
+            
+            // Schedule next batch via Action Scheduler if needed
+            if (($batch_index + 1) < $progress['batch_count']) {
+                $next_batch = $batch_index + 1;
+                as_schedule_single_action(
+                    time() + 2,
+                    'bytemash_action_scheduler_prices_batch',
+                    array($sync_id, $next_batch),
+                    'bytemash-sync'
+                );
+            } else {
+                // Last batch - schedule next phase if in queue
+                $this->logger->log('success', "Prices sync phase completed", array(
+                    'sync_id' => $sync_id,
+                    'total_processed' => $progress['processed'] ?? 0,
+                    'total_errors' => $progress['errors'] ?? 0,
+                ), 'action_scheduler');
+                
+                if ($phase_sync_id) {
+                    $this->schedule_next_phase($phase_sync_id);
+                    delete_transient("bytemash_as_prices_{$sync_id}_phase_sync");
+                }
+            }
+            
+        } catch (Exception $e) {
+            $this->logger->log('error', "Prices batch processing exception", array(
+                'sync_id' => $sync_id,
+                'batch_index' => $batch_index,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ), 'action_scheduler');
+        }
+    }
+    
+    /**
+     * Run brands batch action
+     */
+    public function run_brands_batch_action($sync_id, $batch_index) {
+        $this->logger->log('info', "Processing brands batch", array(
+            'sync_id' => $sync_id,
+            'batch_index' => $batch_index,
+        ), 'action_scheduler');
+        
+        try {
+            $batch_processor = new ByteMash_Batch_Processor();
+            $progress_before = $batch_processor->get_sync_progress($sync_id);
+            
+            if (!$progress_before) {
+                $this->logger->log('error', "Brands batch processing failed: No progress data found", array(
+                    'sync_id' => $sync_id,
+                    'batch_index' => $batch_index,
+                ), 'action_scheduler');
+                return;
+            }
+            
+            $batch_processor->process_brands_batch($sync_id, $batch_index);
+            
+            // Check if this is part of a phase queue
+            $phase_sync_id = get_transient("bytemash_as_brands_{$sync_id}_phase_sync");
+            
+            // Get updated progress after processing
+            $progress = $batch_processor->get_sync_progress($sync_id);
+            
+            if (!$progress || !isset($progress['batch_count'])) {
+                $this->logger->log('error', "Brands batch processing failed: Progress lost or invalid", array(
+                    'sync_id' => $sync_id,
+                    'batch_index' => $batch_index,
+                    'progress' => $progress,
+                ), 'action_scheduler');
+                return;
+            }
+            
+            // Schedule next batch via Action Scheduler if needed
+            if (($batch_index + 1) < $progress['batch_count']) {
+                $next_batch = $batch_index + 1;
+                as_schedule_single_action(
+                    time() + 2,
+                    'bytemash_action_scheduler_brands_batch',
+                    array($sync_id, $next_batch),
+                    'bytemash-sync'
+                );
+            } else {
+                // Last batch - schedule next phase if in queue
+                $this->logger->log('success', "Brands sync phase completed", array(
+                    'sync_id' => $sync_id,
+                    'total_processed' => $progress['processed'] ?? 0,
+                    'total_errors' => $progress['errors'] ?? 0,
+                ), 'action_scheduler');
+                
+                if ($phase_sync_id) {
+                    $this->schedule_next_phase($phase_sync_id);
+                    delete_transient("bytemash_as_brands_{$sync_id}_phase_sync");
+                }
+            }
+            
+        } catch (Exception $e) {
+            $this->logger->log('error', "Brands batch processing exception", array(
+                'sync_id' => $sync_id,
+                'batch_index' => $batch_index,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ), 'action_scheduler');
+        }
     }
     
     /**
@@ -403,6 +1166,20 @@ class ByteMash_Action_Scheduler_Sync {
                 'batch_size' => count($batch),
             ), 'action_scheduler');
             
+            // Check if this is the last batch and part of a phase queue
+            $batch_size = (int) get_option('bytemash_amrod_batch_size', 10);
+            $total_batches = ceil(count($products) / $batch_size);
+            $is_last_batch = ($batch_index + 1) >= $total_batches;
+            
+            if ($is_last_batch) {
+                $phase_sync_id = get_transient("bytemash_as_products_{$sync_id}_phase_sync");
+                if ($phase_sync_id) {
+                    $this->logger->log('info', "Products phase completed, scheduling next phase", array('phase_sync_id' => $phase_sync_id), 'action_scheduler');
+                    $this->schedule_next_phase($phase_sync_id);
+                    delete_transient("bytemash_as_products_{$sync_id}_phase_sync");
+                }
+            }
+
         } catch (Exception $e) {
             $this->logger->log('error', "Batch {$batch_index} failed for sync {$sync_id}", array(
                 'error' => $e->getMessage(),

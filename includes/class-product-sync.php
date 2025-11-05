@@ -522,7 +522,29 @@ class ByteMash_Product_Sync {
         if ($product_id && !$force) {
             // Check if product data has changed before updating
             $existing_product = wc_get_product($product_id);
-            if ($this->is_product_data_unchanged($existing_product, $product_data)) {
+            $is_unchanged = $this->is_product_data_unchanged($existing_product, $product_data);
+            
+            // Check if brand needs to be updated even if product is otherwise unchanged
+            $needs_brand_update = false;
+            if (!empty($product_data['brand'])) {
+                $existing_brand = get_post_meta($product_id, '_amrod_brand', true);
+                $existing_brand_code = get_post_meta($product_id, '_amrod_brand_code', true);
+                $api_brand = '';
+                $api_brand_code = '';
+                if (is_array($product_data['brand'])) {
+                    $api_brand = $product_data['brand']['brandName'] ?? $product_data['brand']['name'] ?? $product_data['brand']['Brand'] ?? '';
+                    $api_brand_code = $product_data['brand']['code'] ?? '';
+                } else {
+                    $api_brand = (string) $product_data['brand'];
+                }
+                
+                // Need to update brand if: brand meta is missing, or brand name differs, or brand code differs
+                if (empty($existing_brand) || $existing_brand !== $api_brand || $existing_brand_code !== $api_brand_code) {
+                    $needs_brand_update = true;
+                }
+            }
+            
+            if ($is_unchanged && !$needs_brand_update) {
                 $this->logger->log('info', "Product data unchanged, skipping: {$sku}", array(
                     'sku' => $sku,
                     'product_id' => $product_id,
@@ -530,7 +552,7 @@ class ByteMash_Product_Sync {
                 return array('success' => true, 'product_id' => $product_id, 'skipped' => true, 'message' => 'Product data unchanged');
             }
             
-            // Update existing product (data has changed)
+            // Update existing product (data has changed or brand needs update)
             $product = $existing_product;
         } else {
             // Create new simple product
@@ -549,7 +571,7 @@ class ByteMash_Product_Sync {
                 $product->set_category_ids($category_ids);
             }
             
-            // Set brand
+            // Always set brand if present in API data (even if product is otherwise unchanged)
             if (!empty($product_data['brand'])) {
                 $this->set_product_brand($product, $product_data['brand']);
             }
@@ -584,7 +606,7 @@ class ByteMash_Product_Sync {
                 $product->set_stock_status($stock_qty > 0 ? 'instock' : 'outofstock');
             }
             
-            $this->logger->log('success', "Product synced: {$sku}", array(), 'product_sync');
+            // Reduce noise: avoid per-product success logs
             
             return array('success' => true, 'product_id' => $product_id);
             
@@ -643,11 +665,32 @@ class ByteMash_Product_Sync {
             return false;
         }
         
-        // Compare brand
+        // Compare brand - always update if brand meta is missing but API has brand data
         $existing_brand = get_post_meta($existing_product->get_id(), '_amrod_brand', true);
-        $api_brand = $api_data['brand']['brandName'] ?? '';
+        $existing_brand_code = get_post_meta($existing_product->get_id(), '_amrod_brand_code', true);
+        $api_brand = '';
+        $api_brand_code = '';
+        if (!empty($api_data['brand'])) {
+            if (is_array($api_data['brand'])) {
+                $api_brand = $api_data['brand']['brandName'] ?? $api_data['brand']['name'] ?? $api_data['brand']['Brand'] ?? '';
+                $api_brand_code = $api_data['brand']['code'] ?? '';
+            } else {
+                $api_brand = (string) $api_data['brand'];
+            }
+        }
         
-        if ($existing_brand !== $api_brand) {
+        // If brand meta is missing but API has brand data, consider it changed
+        if (empty($existing_brand) && !empty($api_brand)) {
+            return false; // Need to update to add brand
+        }
+        
+        // If existing brand differs from API brand, consider it changed
+        if (!empty($api_brand) && $existing_brand !== $api_brand) {
+            return false;
+        }
+        
+        // If brand code differs, consider it changed
+        if (!empty($api_brand_code) && $existing_brand_code !== $api_brand_code) {
             return false;
         }
         
@@ -732,11 +775,7 @@ class ByteMash_Product_Sync {
                 throw new Exception('Failed to save product');
             }
             
-            $this->logger->log('info', 'Product saved successfully', array(
-                'product_id' => $product_id,
-                'sku' => $product->get_sku(),
-                'type' => $product->get_type(),
-            ), 'product_sync');
+            // Reduce noise: do not log per-product success
             
             return $product_id;
         } catch (Exception $e) {
@@ -976,6 +1015,17 @@ class ByteMash_Product_Sync {
             return;
         }
         
+        // Persist brand meta for reference (only identifier, not logo URL)
+        // Logo URL is stored in brands sync data (amrod_brand_{code} option)
+        $product_id = $product->get_id();
+        update_post_meta($product_id, '_amrod_brand', sanitize_text_field($brand_name));
+        if (is_array($brand_data)) {
+            if (!empty($brand_data['code'])) {
+                update_post_meta($product_id, '_amrod_brand_code', sanitize_text_field($brand_data['code']));
+            }
+            // Note: Logo URL is NOT stored in product meta - it's retrieved from brands sync data
+        }
+        
         // Check if brand taxonomy exists (many themes/plugins use 'product_brand')
         if (taxonomy_exists('product_brand')) {
             $term = get_term_by('name', $brand_name, 'product_brand');
@@ -984,14 +1034,14 @@ class ByteMash_Product_Sync {
                 $result = wp_insert_term($brand_name, 'product_brand');
                 
                 if (!is_wp_error($result)) {
-                    wp_set_object_terms($product->get_id(), $result['term_id'], 'product_brand');
+                    wp_set_object_terms($product_id, $result['term_id'], 'product_brand');
                 }
             } else {
-                wp_set_object_terms($product->get_id(), $term->term_id, 'product_brand');
+                wp_set_object_terms($product_id, $term->term_id, 'product_brand');
             }
         } else {
             // Store as meta if taxonomy doesn't exist
-            update_post_meta($product->get_id(), '_product_brand', sanitize_text_field($brand_name));
+            update_post_meta($product_id, '_product_brand', sanitize_text_field($brand_name));
         }
     }
     
@@ -1165,6 +1215,7 @@ class ByteMash_Product_Sync {
                 'total' => $total,
             'batch_count' => $batch_count,
             'batches' => $batches,
+            'data' => $stock_data,
             );
     }
     
@@ -1217,6 +1268,7 @@ class ByteMash_Product_Sync {
                 'total' => $total,
             'batch_count' => $batch_count,
             'batches' => $batches,
+            'data' => $stock_data,
             );
     }
     
@@ -1272,6 +1324,7 @@ class ByteMash_Product_Sync {
                 'total' => $total,
             'batch_count' => $batch_count,
             'batches' => $batches,
+            'data' => $prices_data,
             );
     }
     
@@ -1324,6 +1377,7 @@ class ByteMash_Product_Sync {
                 'total' => $total,
             'batch_count' => $batch_count,
             'batches' => $batches,
+            'data' => $prices_data,
             );
     }
     
@@ -1466,10 +1520,11 @@ class ByteMash_Product_Sync {
         $exact_match_found = false;
         
         // Try exact matches first
+        $exact_match_product_ids = array();
         foreach ($skus_to_try as $sku) {
             $product_id = wc_get_product_id_by_sku($sku);
             if ($product_id) {
-                $product_ids[] = $product_id;
+                $exact_match_product_ids[] = $product_id;
                 $matched_sku = $sku;
                 $exact_match_found = true;
                 $this->logger->log('success', "✅ Exact SKU matched: {$sku}", array(), 'stock_sync');
@@ -1477,35 +1532,74 @@ class ByteMash_Product_Sync {
             }
         }
         
-        // ALWAYS try pattern matching with simpleCode to catch all variants
-        // Example: Even if "ALT-1603" exists, also update "ALT-1603-Y", "ALT-1603-R", etc.
-        if (!empty($simpleCode)) {
-            global $wpdb;
-            $like_pattern = $wpdb->esc_like($simpleCode) . '%';
-            
-            $matching_products = $wpdb->get_results($wpdb->prepare(
-                "SELECT post_id, meta_value as sku FROM {$wpdb->postmeta} 
-                WHERE meta_key = '_sku' AND meta_value LIKE %s",
-                $like_pattern
-            ));
-            
-            if ($matching_products) {
-                $pattern_matched_count = 0;
-                foreach ($matching_products as $match) {
-                    // Avoid duplicates
-                    if (!in_array($match->post_id, $product_ids)) {
+        // If we found an exact match, check if it's a simple product
+        // If so, only update that product (don't do pattern matching for variable parents)
+        if ($exact_match_found && !empty($exact_match_product_ids)) {
+            $exact_product = wc_get_product($exact_match_product_ids[0]);
+            if ($exact_product && !$exact_product->is_type('variable')) {
+                // Exact match is a simple product - only update this one
+                $product_ids = $exact_match_product_ids;
+            } else {
+                // Exact match is variable or not found - do pattern matching for variations
+                $product_ids = $exact_match_product_ids;
+                
+                // ALWAYS try pattern matching with simpleCode to catch all variants
+                // Example: Even if "ALT-1603" exists, also update "ALT-1603-Y", "ALT-1603-R", etc.
+                if (!empty($simpleCode)) {
+                    global $wpdb;
+                    $like_pattern = $wpdb->esc_like($simpleCode) . '%';
+                    
+                    $matching_products = $wpdb->get_results($wpdb->prepare(
+                        "SELECT post_id, meta_value as sku FROM {$wpdb->postmeta} 
+                        WHERE meta_key = '_sku' AND meta_value LIKE %s",
+                        $like_pattern
+                    ));
+                    
+                    if ($matching_products) {
+                        $pattern_matched_count = 0;
+                        foreach ($matching_products as $match) {
+                            // Avoid duplicates
+                            if (!in_array($match->post_id, $product_ids)) {
+                                $product_ids[] = $match->post_id;
+                                $pattern_matched_count++;
+                            }
+                        }
+                        
+                        if ($pattern_matched_count > 0) {
+                            $matched_sku = $simpleCode . '*';
+                            $log_msg = $exact_match_found 
+                                ? "✅ Pattern matched {$pattern_matched_count} additional variant(s) with SKU starting with: {$simpleCode}"
+                                : "✅ Pattern matched {$pattern_matched_count} product(s) with SKU starting with: {$simpleCode}";
+                            
+                            $this->logger->log('success', $log_msg, array(), 'stock_sync');
+                        }
+                    }
+                }
+            }
+        } else {
+            // No exact match - try pattern matching
+            $product_ids = array();
+            if (!empty($simpleCode)) {
+                global $wpdb;
+                $like_pattern = $wpdb->esc_like($simpleCode) . '%';
+                
+                $matching_products = $wpdb->get_results($wpdb->prepare(
+                    "SELECT post_id, meta_value as sku FROM {$wpdb->postmeta} 
+                    WHERE meta_key = '_sku' AND meta_value LIKE %s",
+                    $like_pattern
+                ));
+                
+                if ($matching_products) {
+                    $pattern_matched_count = 0;
+                    foreach ($matching_products as $match) {
                         $product_ids[] = $match->post_id;
                         $pattern_matched_count++;
                     }
-                }
-                
-                if ($pattern_matched_count > 0) {
-                    $matched_sku = $simpleCode . '*';
-                    $log_msg = $exact_match_found 
-                        ? "✅ Pattern matched {$pattern_matched_count} additional variant(s) with SKU starting with: {$simpleCode}"
-                        : "✅ Pattern matched {$pattern_matched_count} product(s) with SKU starting with: {$simpleCode}";
                     
-                    $this->logger->log('success', $log_msg, array(), 'stock_sync');
+                    if ($pattern_matched_count > 0) {
+                        $matched_sku = $simpleCode . '*';
+                        $this->logger->log('success', "✅ Pattern matched {$pattern_matched_count} product(s) with SKU starting with: {$simpleCode}", array(), 'stock_sync');
+                    }
                 }
             }
         }
@@ -1548,13 +1642,56 @@ class ByteMash_Product_Sync {
                 
                 // For variable products, handle stock differently based on stockType
                 if ($product->is_type('variable')) {
-                    $this->update_variable_product_stock($product, $stock_item, $stock_qty, $reserved_qty, $incoming, $modified, $stock_type);
+                    // Determine if this is base product stock or variation stock
+                    // Base product stock indicators (in priority order):
+                    // 1. fullCode === simpleCode AND no colourCode (definitely base product, not a variation)
+                    // 2. stockType === 0 (explicit base stock)
+                    // 3. fullCode === simpleCode AND product SKU matches simpleCode
+                    $is_base_stock = false;
+                    $product_sku = $product->get_sku();
+                    $colour_code = $stock_item['colourCode'] ?? null;
+                    
+                    // First check: if fullCode === simpleCode and no colourCode, it's ALWAYS base product stock
+                    if ($fullCode === $simpleCode && empty($colour_code)) {
+                        // This is definitely base product stock, not a variation
+                        $is_base_stock = true;
+                    } elseif ($stock_type === 0) {
+                        // StockType 0 is always base product stock
+                        $is_base_stock = true;
+                    } elseif ($fullCode === $simpleCode && $product_sku === $simpleCode) {
+                        // Product SKU matches = base product stock
+                        $is_base_stock = true;
+                    }
+                    
+                    if ($is_base_stock) {
+                        // Update base variable product stock directly
+                        $product->set_manage_stock(true);
+                        $product->set_stock_quantity($stock_qty);
+                        $product->set_stock_status($stock_qty > 0 ? 'instock' : 'outofstock');
+                        $this->save_product_safely($product);
+                        
+                        $detail = array(
+                            'stock' => $stock_qty,
+                            'reserved' => $reserved_qty,
+                            'incoming' => $incoming,
+                            'modified' => $modified,
+                            'fullCode' => $stock_item['fullCode'] ?? '',
+                            'simpleCode' => $simpleCode,
+                            'stockType' => 0,
+                        );
+                        update_post_meta($pid, '_amrod_stock_detail', $detail);
+                    } else {
+                        // Try to update as variation (existing logic)
+                        // Ensure simpleCode is passed correctly to the variation update method
+                        $stock_item['simpleCode'] = $simpleCode;
+                        $this->update_variable_product_stock($product, $stock_item, $stock_qty, $reserved_qty, $incoming, $modified, $stock_type);
+                    }
                 } else {
                     // Simple product - update directly
-                $product->set_manage_stock(true);
-                $product->set_stock_quantity($stock_qty);
-                $product->set_stock_status($stock_qty > 0 ? 'instock' : 'outofstock');
-                $this->save_product_safely($product);
+                    $product->set_manage_stock(true);
+                    $product->set_stock_quantity($stock_qty);
+                    $product->set_stock_status($stock_qty > 0 ? 'instock' : 'outofstock');
+                    $this->save_product_safely($product);
                     
                     // Store detailed stock breakdown
                     $detail = array(
@@ -1929,6 +2066,7 @@ class ByteMash_Product_Sync {
             'total' => $total,
             'batch_count' => $batch_count,
             'batches' => $batches,
+            'data' => $brands,
         );
     }
     
@@ -2321,6 +2459,8 @@ class ByteMash_Product_Sync {
             'total' => $total,
             'batch_count' => $batch_count,
             'batches' => $batches,
+            'tree' => $categories,
+            'data' => $flat_categories,
         );
     }
     
@@ -2475,12 +2615,18 @@ class ByteMash_Product_Sync {
                     ), 'product_sync');
                 }
             } else {
-                $this->logger->log('warning', 'Could not find matching variation for stock update', array(
-                    'parent_id' => $product_id,
-                    'full_code' => $full_code,
-                    'simple_code' => $simple_code,
-                    'colour_code' => $colour_code,
-                ), 'product_sync');
+                // Only log warning if this is actually a variation (stockType 1 or 2)
+                // If stockType is 0 or fullCode === simpleCode with no colourCode, 
+                // this should have been handled as base product stock earlier
+                if ($stock_type >= 1) {
+                    $this->logger->log('warning', 'Could not find matching variation for stock update', array(
+                        'parent_id' => $product_id,
+                        'full_code' => $full_code,
+                        'simple_code' => $simple_code,
+                        'colour_code' => $colour_code,
+                        'stock_type' => $stock_type,
+                    ), 'product_sync');
+                }
             }
         }
     }

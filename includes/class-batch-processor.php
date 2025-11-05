@@ -23,6 +23,52 @@ class ByteMash_Batch_Processor {
     private $batch_size = 10;
     
     /**
+     * Find matching variation for stock update
+     */
+    private function find_matching_variation($variable_product, $full_code, $simple_code, $colour_code) {
+        $variations = $variable_product->get_children();
+        
+        foreach ($variations as $variation_id) {
+            $variation = wc_get_product($variation_id);
+            if (!$variation) continue;
+            
+            $variation_sku = $variation->get_sku();
+            
+            // Direct SKU match (fullCode is primary for variations)
+            if ($variation_sku === $full_code) {
+                return $variation_id;
+            }
+            
+            // Also try simpleCode match
+            if ($variation_sku === $simple_code) {
+                return $variation_id;
+            }
+            
+            // Try to match by simple code + colour code pattern
+            if ($colour_code && strpos($variation_sku, $simple_code) === 0) {
+                // Check if the variation SKU contains the colour code
+                if (strpos($variation_sku, $colour_code) !== false) {
+                    return $variation_id;
+                }
+            }
+            
+            // Fallback: try matching by simple_code prefix if full_code matches pattern
+            if ($full_code && strpos($variation_sku, $simple_code) === 0) {
+                // Additional check: if full_code has a suffix, try to match it
+                if ($colour_code && strpos($variation_sku, $colour_code) !== false) {
+                    return $variation_id;
+                }
+                // Or if no colour code, match any variation starting with simple_code
+                if (!$colour_code) {
+                    return $variation_id;
+                }
+            }
+        }
+        
+        return null;
+    }
+    
+    /**
      * Constructor
      */
     public function __construct() {
@@ -31,6 +77,19 @@ class ByteMash_Batch_Processor {
         
         // Register hooks for batch processing
         $this->init_hooks();
+    }
+
+    /**
+     * Mirror important logs to debug.log for easier diagnosis
+     */
+    private function log_to_debug($level, $message, $context = array()) {
+        if (defined('WP_DEBUG_LOG') && WP_DEBUG_LOG) {
+            $entry = '[bytemash ' . $level . '] ' . $message;
+            if (!empty($context)) {
+                $entry .= ' ' . wp_json_encode($context);
+            }
+            error_log($entry);
+        }
     }
     
     /**
@@ -43,6 +102,7 @@ class ByteMash_Batch_Processor {
         add_action('bytemash_process_stock_batch', array($this, 'process_stock_batch'), 10, 2);
         add_action('bytemash_process_prices_batch', array($this, 'process_prices_batch'), 10, 2);
         add_action('bytemash_process_categories_batch', array($this, 'process_categories_batch'), 10, 1);
+        add_action('bytemash_process_brands_batch', array($this, 'process_brands_batch'), 10, 2);
     }
     
     /**
@@ -499,53 +559,449 @@ class ByteMash_Batch_Processor {
     }
     
     /**
+     * Process all stock batches synchronously (for manual syncs)
+     */
+    public function process_stock_sync_immediately($stock_data, $sync_id) {
+        if (!is_array($stock_data) || empty($stock_data)) {
+            return array('success' => false, 'message' => 'No stock data to process');
+        }
+        
+        $total = count($stock_data);
+        $batches = array_chunk($stock_data, 50);
+        $batch_count = count($batches);
+        
+        $this->logger->log('info', "Processing {$batch_count} stock batches immediately for {$total} items", array(), 'batch_processor');
+        
+        // Store stock data in transient (required by process_stock_batch)
+        set_transient("bytemash_sync_{$sync_id}_stock", $stock_data, 24 * HOUR_IN_SECONDS);
+        
+        // Set up progress tracking
+        $progress = array(
+            'type' => 'stock',
+            'total' => $total,
+            'processed' => 0,
+            'batch_count' => $batch_count,
+            'current_batch' => 0,
+            'errors' => 0,
+            'status' => 'processing',
+            'started' => current_time('mysql'),
+        );
+        $this->save_sync_progress($sync_id, $progress);
+        
+        // Process all batches immediately with optimized approach
+        foreach ($batches as $batch_index => $batch) {
+            $this->process_stock_batch($sync_id, $batch_index);
+        }
+        
+        // Get final progress
+        $final_progress = $this->get_sync_progress($sync_id);
+        if ($final_progress) {
+            $total_processed = $final_progress['processed'] ?? 0;
+            $total_errors = $final_progress['errors'] ?? 0;
+            
+            // Mark as completed
+            $final_progress['status'] = 'completed';
+            $final_progress['completed'] = current_time('mysql');
+            $this->save_sync_progress($sync_id, $final_progress);
+        } else {
+            $total_processed = 0;
+            $total_errors = 0;
+        }
+        
+        $this->logger->log('success', "Stock sync completed: {$total_processed} processed, {$total_errors} errors", array(), 'batch_processor');
+        $this->log_to_debug('success', 'Stock sync completed', array('processed' => $total_processed, 'errors' => $total_errors, 'total' => $total));
+        
+        return array(
+            'success' => true,
+            'processed' => $total_processed,
+            'errors' => $total_errors,
+            'total' => $total,
+        );
+    }
+    
+    /**
      * Process stock batch
      */
     public function process_stock_batch($sync_id, $batch_index) {
         $progress = $this->get_sync_progress($sync_id);
-        if (!$progress) return;
+        if (!$progress) {
+            $ctx = array('sync_id' => $sync_id, 'batch_index' => $batch_index);
+            $this->logger->log('error', "Stock batch processing failed: No progress data", $ctx, 'batch_processor');
+            $this->log_to_debug('error', 'Stock batch processing failed: No progress data', $ctx);
+            // Cannot continue without progress metadata
+            return;
+        }
         
         $stock_data = get_transient("bytemash_sync_{$sync_id}_stock");
         if (!$stock_data) {
-            $this->update_sync_status($sync_id, 'error', 'Cached data expired');
+            $ctx = array('sync_id' => $sync_id, 'batch_index' => $batch_index, 'transient_key' => "bytemash_sync_{$sync_id}_stock");
+            $this->logger->log('error', "Stock batch missing cached data; skipping batch", $ctx, 'batch_processor');
+            $this->log_to_debug('error', 'Stock batch missing cached data; skipping batch', $ctx);
+            // Advance progress and continue with next batch
+            $progress['current_batch'] = $batch_index + 1;
+            $this->save_sync_progress($sync_id, $progress);
+            $next_batch = $batch_index + 1;
+            if ($next_batch < ($progress['batch_count'] ?? 0)) {
+                $backtrace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 5);
+                $called_from_action_scheduler = false;
+                foreach ($backtrace as $frame) {
+                    if (isset($frame['function']) && strpos($frame['function'], 'run_stock_batch_action') !== false) {
+                        $called_from_action_scheduler = true;
+                        break;
+                    }
+                }
+                if (!$called_from_action_scheduler) {
+                    wp_schedule_single_event(time() + 3, 'bytemash_process_stock_batch', array($sync_id, $next_batch));
+                }
+            }
+            return;
+        }
+        
+        if (!is_array($stock_data)) {
+            $ctx = array('sync_id' => $sync_id, 'batch_index' => $batch_index, 'data_type' => gettype($stock_data));
+            $this->logger->log('error', "Stock batch invalid data type; skipping batch", $ctx, 'batch_processor');
+            $this->log_to_debug('error', 'Stock batch invalid data type; skipping batch', $ctx);
+            // Advance progress and continue with next batch
+            $progress['current_batch'] = $batch_index + 1;
+            $this->save_sync_progress($sync_id, $progress);
+            $next_batch = $batch_index + 1;
+            if ($next_batch < ($progress['batch_count'] ?? 0)) {
+                $backtrace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 5);
+                $called_from_action_scheduler = false;
+                foreach ($backtrace as $frame) {
+                    if (isset($frame['function']) && strpos($frame['function'], 'run_stock_batch_action') !== false) {
+                        $called_from_action_scheduler = true;
+                        break;
+                    }
+                }
+                if (!$called_from_action_scheduler) {
+                    wp_schedule_single_event(time() + 3, 'bytemash_process_stock_batch', array($sync_id, $next_batch));
+                }
+            }
             return;
         }
         
         $batches = array_chunk($stock_data, 50);
-        if (!isset($batches[$batch_index])) return;
+        if (!isset($batches[$batch_index])) {
+            $ctx = array('sync_id' => $sync_id, 'batch_index' => $batch_index, 'total_batches' => count($batches));
+            $this->logger->log('error', "Stock batch index out of range; skipping batch", $ctx, 'batch_processor');
+            $this->log_to_debug('error', 'Stock batch index out of range; skipping batch', $ctx);
+            // Advance progress and continue with next batch
+            $progress['current_batch'] = $batch_index + 1;
+            $this->save_sync_progress($sync_id, $progress);
+            $next_batch = $batch_index + 1;
+            if ($next_batch < ($progress['batch_count'] ?? 0)) {
+                $backtrace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 5);
+                $called_from_action_scheduler = false;
+                foreach ($backtrace as $frame) {
+                    if (isset($frame['function']) && strpos($frame['function'], 'run_stock_batch_action') !== false) {
+                        $called_from_action_scheduler = true;
+                        break;
+                    }
+                }
+                if (!$called_from_action_scheduler) {
+                    wp_schedule_single_event(time() + 3, 'bytemash_process_stock_batch', array($sync_id, $next_batch));
+                }
+            }
+            return;
+        }
         
         $batch = $batches[$batch_index];
+        
+        if (empty($batch)) {
+            $this->logger->log('warning', "Stock batch is empty", array(
+                'sync_id' => $sync_id,
+                'batch_index' => $batch_index,
+            ), 'batch_processor');
+            return;
+        }
         
         global $wpdb;
         $processed = 0;
         $errors = 0;
+        $error_details = array();
         
-        foreach ($batch as $stock_item) {
-            $simple_code = $stock_item['simpleCode'] ?? $stock_item['fullCode'] ?? null;
+        // Disable hooks and cache for faster bulk operations
+        wp_suspend_cache_addition(true);
+        
+        // Extract all SKUs first (both simpleCode and fullCode for variations)
+        $skus_to_update = array();
+        $valid_items = array();
+        
+        foreach ($batch as $item_index => $stock_item) {
+            $simple_code = $stock_item['simpleCode'] ?? null;
+            $full_code = $stock_item['fullCode'] ?? null;
+            $stock_type = isset($stock_item['stockType']) ? (int) $stock_item['stockType'] : 0;
             
-            if (!$simple_code) {
+            if (!$simple_code && !$full_code) {
                 $errors++;
+                if (count($error_details) < 10) {
+                    $error_details[] = "Item {$item_index}: Missing SKU/code";
+                }
                 continue;
             }
             
-            // Find product by SKU
-            $product_id = wc_get_product_id_by_sku($simple_code);
-            
-            if (!$product_id) {
+            if (!isset($stock_item['stock'])) {
                 $errors++;
+                if (count($error_details) < 10) {
+                    $error_details[] = "Item {$item_index}: Missing stock value";
+                }
                 continue;
             }
             
-            $product = wc_get_product($product_id);
+            // For variations (stockType 1 or 2), try both simpleCode (parent) and fullCode (variation)
+            // For base stock (stockType 0), use simpleCode
+            $primary_sku = ($stock_type >= 1 && $full_code) ? $full_code : ($simple_code ?? $full_code);
             
-            if ($product && isset($stock_item['stock'])) {
-                $product->set_stock_quantity((int) $stock_item['stock']);
-                $product->set_stock_status($stock_item['stock'] > 0 ? 'instock' : 'outofstock');
+            $skus_to_update[$primary_sku] = $item_index;
+            
+            // Also add simpleCode if it's different (for finding parent variable product)
+            if ($simple_code && $simple_code !== $primary_sku) {
+                $skus_to_update[$simple_code] = $item_index;
+            }
+            
+            $valid_items[$item_index] = array(
+                'sku' => $primary_sku,
+                'simple_code' => $simple_code,
+                'full_code' => $full_code,
+                'stock' => (int) $stock_item['stock'],
+                'stock_type' => $stock_type,
+                'stock_item' => $stock_item,
+            );
+        }
+        
+        // Batch lookup all product IDs in one query (much faster than individual lookups)
+        $product_ids_map = array();
+        if (!empty($skus_to_update)) {
+            $skus = array_keys($skus_to_update);
+            $placeholders = implode(',', array_fill(0, count($skus), '%s'));
+            $query = $wpdb->prepare(
+                "SELECT post_id, meta_value FROM {$wpdb->postmeta} 
+                WHERE meta_key = '_sku' AND meta_value IN ($placeholders)",
+                ...$skus
+            );
+            $results = $wpdb->get_results($query, ARRAY_A);
+            
+            foreach ($results as $row) {
+                $sku = $row['meta_value'];
+                // Store mapping for both SKU variations
+                if (!isset($product_ids_map[$sku])) {
+                    $product_ids_map[$sku] = array();
+                }
+                $product_ids_map[$sku][] = (int) $row['post_id'];
+            }
+        }
+        
+        // Batch load all products once (avoid repeated wc_get_product calls)
+        $products_cache = array();
+        $product_ids_to_load = array();
+        foreach ($product_ids_map as $sku => $ids) {
+            foreach ($ids as $id) {
+                $product_ids_to_load[] = $id;
+            }
+        }
+        $product_ids_to_load = array_unique($product_ids_to_load);
+        if (!empty($product_ids_to_load)) {
+            foreach ($product_ids_to_load as $product_id) {
+                $products_cache[$product_id] = wc_get_product($product_id);
+            }
+        }
+        
+        // Process updates using WooCommerce objects but with optimized approach
+        foreach ($valid_items as $item_index => $item_data) {
+            try {
+                $stock_value = $item_data['stock'];
+                $target_status = $stock_value > 0 ? 'instock' : 'outofstock';
+                $stock_type = $item_data['stock_type'];
+                $simple_code = $item_data['simple_code'];
+                $full_code = $item_data['full_code'];
+                $stock_item = $item_data['stock_item'];
+                
+                // Try to find product by fullCode first (for variations)
+                $product_id = null;
+                $product = null;
+                
+                if ($full_code && isset($product_ids_map[$full_code])) {
+                    $candidate_ids = $product_ids_map[$full_code];
+                    foreach ($candidate_ids as $pid) {
+                        $candidate = wc_get_product($pid);
+                        if ($candidate && !$candidate->is_type('variable')) {
+                            // Found a simple product or variation with this SKU
+                            $product_id = $pid;
+                            $product = $candidate;
+                            break;
+                        }
+                    }
+                }
+                
+                // If not found and stockType >= 1 (variation), try finding parent variable product
+                if (!$product && $stock_type >= 1 && $simple_code && isset($product_ids_map[$simple_code])) {
+                    $parent_ids = $product_ids_map[$simple_code];
+                    foreach ($parent_ids as $pid) {
+                        $candidate = wc_get_product($pid);
+                        if ($candidate && $candidate->is_type('variable')) {
+                            // Found parent variable product - will find variation below
+                            $product_id = $pid;
+                            $product = $candidate;
+                            break;
+                        }
+                    }
+                }
+                
+                // Fallback: try primary SKU
+                if (!$product && isset($product_ids_map[$item_data['sku']])) {
+                    $candidate_ids = $product_ids_map[$item_data['sku']];
+                    if (!empty($candidate_ids)) {
+                        $product_id = $candidate_ids[0];
+                        $product = $products_cache[$product_id] ?? wc_get_product($product_id);
+                    }
+                }
+                
+                if (!$product) {
+                $errors++;
+                    if (count($error_details) < 10) {
+                        $error_details[] = "Item {$item_index}: Product not found for SKU '{$item_data['sku']}' (simpleCode: {$simple_code}, fullCode: {$full_code})";
+                    }
+                continue;
+            }
+            
+                // Handle variable products and variations
+                if ($product->is_type('variable')) {
+                    $colour_code = $stock_item['colourCode'] ?? null;
+                    $product_sku = $product->get_sku();
+                    
+                    // Determine if this is base product stock or variation stock
+                    // Base product stock indicators (in priority order):
+                    // 1. fullCode === simpleCode AND no colourCode (definitely base product, not a variation)
+                    // 2. stockType === 0 (explicit base stock)
+                    // 3. fullCode === simpleCode AND product SKU matches simpleCode
+                    $is_base_stock = false;
+                    
+                    // First check: if fullCode === simpleCode and no colourCode, it's ALWAYS base product stock
+                    if ($full_code === $simple_code && empty($colour_code)) {
+                        // This is definitely base product stock, not a variation
+                        $is_base_stock = true;
+                    } elseif ($stock_type === 0) {
+                        // StockType 0 is always base product stock
+                        $is_base_stock = true;
+                    } elseif ($full_code === $simple_code && $product_sku === $simple_code) {
+                        // Product SKU matches = base product stock
+                        $is_base_stock = true;
+                    }
+                    
+                    if ($is_base_stock) {
+                        // Update base variable product stock
+                        $current_qty = (int) $product->get_stock_quantity();
+                        $current_status = $product->get_stock_status();
+                        
+                        if ($current_qty !== (int) $stock_value || $current_status !== $target_status) {
+                            $product->set_manage_stock(true);
+                            $product->set_backorders('no');
+                            $product->set_stock_quantity($stock_value);
+                            $product->set_stock_status($target_status);
                 $product->save();
+                        }
+                        $processed++;
+                    } else {
+                        // Try to find and update matching variation by fullCode
+                        $variation_id = $this->find_matching_variation($product, $full_code, $simple_code, $colour_code);
+                        
+                        if ($variation_id) {
+                            $variation = wc_get_product($variation_id);
+                            if ($variation) {
+                                $current_qty = (int) $variation->get_stock_quantity();
+                                $current_status = $variation->get_stock_status();
+                                
+                                if ($current_qty !== (int) $stock_value || $current_status !== $target_status) {
+                                    $variation->set_manage_stock(true);
+                                    $variation->set_backorders('no');
+                                    $variation->set_stock_quantity($stock_value);
+                                    $variation->set_stock_status($target_status);
+                                    $variation->save();
+                                }
                 $processed++;
             } else {
                 $errors++;
+                                if (count($error_details) < 10) {
+                                    $error_details[] = "Item {$item_index}: Variation {$variation_id} not found";
+                                }
+                            }
+                        } else {
+                            $errors++;
+                            if (count($error_details) < 10) {
+                                $error_details[] = "Item {$item_index}: Could not find matching variation for fullCode '{$full_code}' (simpleCode: {$simple_code})";
+                            }
+                        }
+                    }
+                } else if ($product->is_type('variation')) {
+                    // Direct variation update (found by fullCode)
+                    $current_qty = (int) $product->get_stock_quantity();
+                    $current_status = $product->get_stock_status();
+                    
+                    if ($current_qty !== (int) $stock_value || $current_status !== $target_status) {
+                        $product->set_manage_stock(true);
+                        $product->set_backorders('no');
+                        $product->set_stock_quantity($stock_value);
+                        $product->set_stock_status($target_status);
+                        $product->save();
+                    }
+                    $processed++;
+                } else {
+                    // Simple product - update directly
+                    // Skip unchanged to keep sync fast
+                    $current_qty = (int) $product->get_stock_quantity();
+                    $current_status = $product->get_stock_status();
+                    $current_manage = (bool) $product->get_manage_stock();
+                    $current_backorders = method_exists($product, 'get_backorders') ? $product->get_backorders() : 'no';
+
+                    if ($current_qty === (int) $stock_value
+                        && $current_status === $target_status
+                        && $current_manage === true
+                        && ($current_backorders === 'no' || $current_backorders === 'no_backorders')) {
+                        $processed++;
+                        continue;
+                    }
+
+                    // Ensure WooCommerce treats quantity as authoritative
+                    $product->set_manage_stock(true);
+                    $product->set_backorders('no');
+                    $product->set_stock_quantity($stock_value);
+                    $product->set_stock_status($target_status);
+                    
+                    // Save product (WooCommerce handles this efficiently)
+                    $product->save();
+                    $processed++;
+                }
+                
+            } catch (Exception $e) {
+                $errors++;
+                if (count($error_details) < 10) {
+                    $error_details[] = "Item {$item_index}: Exception - " . $e->getMessage();
+                }
+                $ctx = array('sync_id' => $sync_id, 'batch_index' => $batch_index, 'item_index' => $item_index, 'error' => $e->getMessage());
+                $this->logger->log('error', "Stock item processing exception", $ctx, 'batch_processor');
+                $this->log_to_debug('error', 'Stock item processing exception', $ctx);
             }
+        }
+        
+        // Re-enable cache
+        wp_suspend_cache_addition(false);
+        
+        // Clear object cache for updated products in batch
+        if ($processed > 0 && !empty($product_ids_map)) {
+            foreach (array_unique(array_values($product_ids_map)) as $product_id) {
+                clean_post_cache($product_id);
+            }
+        }
+        
+        if ($errors > 0 && count($error_details) <= 10) {
+            $ctx = array('sync_id' => $sync_id, 'batch_index' => $batch_index, 'processed' => $processed, 'errors' => $errors, 'error_details' => $error_details);
+            $this->logger->log('warning', "Stock batch processing completed with errors", $ctx, 'batch_processor');
+            $this->log_to_debug('warning', 'Stock batch processing completed with errors', $ctx);
+        } elseif ($errors > 0) {
+            $ctx = array('sync_id' => $sync_id, 'batch_index' => $batch_index, 'processed' => $processed, 'errors' => $errors, 'error_sample' => array_slice($error_details, 0, 5));
+            $this->logger->log('warning', "Stock batch processing completed with errors", $ctx, 'batch_processor');
+            $this->log_to_debug('warning', 'Stock batch processing completed with errors', $ctx);
         }
         
         // Update progress
@@ -554,11 +1010,25 @@ class ByteMash_Batch_Processor {
         $progress['errors'] = ($progress['errors'] ?? 0) + $errors;
         $this->save_sync_progress($sync_id, $progress);
         
-        // Schedule next batch
+        // Schedule next batch (only if not using Action Scheduler)
+        // Action Scheduler handles scheduling when it calls this method
         $next_batch = $batch_index + 1;
         
         if ($next_batch < $progress['batch_count']) {
+            // Check if we're being called from Action Scheduler by checking the call stack
+            $backtrace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 5);
+            $called_from_action_scheduler = false;
+            foreach ($backtrace as $frame) {
+                if (isset($frame['function']) && strpos($frame['function'], 'run_stock_batch_action') !== false) {
+                    $called_from_action_scheduler = true;
+                    break;
+                }
+            }
+            
+            // Only schedule via WP-Cron if not called from Action Scheduler
+            if (!$called_from_action_scheduler) {
             wp_schedule_single_event(time() + 3, 'bytemash_process_stock_batch', array($sync_id, $next_batch));
+            }
         } else {
             $progress['status'] = 'completed';
             $progress['completed'] = current_time('mysql');
@@ -598,6 +1068,97 @@ class ByteMash_Batch_Processor {
         wp_schedule_single_event(time(), 'bytemash_process_prices_batch', array($sync_id, 0));
         
         return true;
+    }
+    
+    /**
+     * Process all price batches synchronously (for manual syncs)
+     */
+    public function process_prices_sync_immediately($prices_data, $sync_id) {
+        if (!is_array($prices_data) || empty($prices_data)) {
+            return array('success' => false, 'message' => 'No price data to process');
+        }
+        
+        $total = count($prices_data);
+        $batches = array_chunk($prices_data, 100);
+        $batch_count = count($batches);
+        
+        $this->logger->log('info', "Processing {$batch_count} price batches immediately for {$total} items", array(), 'batch_processor');
+        
+        // Set up progress tracking
+        $progress = array(
+            'type' => 'prices',
+            'total' => $total,
+            'processed' => 0,
+            'batch_count' => $batch_count,
+            'current_batch' => 0,
+            'errors' => 0,
+            'status' => 'processing',
+            'started' => current_time('mysql'),
+        );
+        $this->save_sync_progress($sync_id, $progress);
+        
+        $total_processed = 0;
+        $total_errors = 0;
+        
+        // Process all batches immediately
+        foreach ($batches as $batch_index => $batch) {
+            $processed = 0;
+            $errors = 0;
+            
+            foreach ($batch as $price_item) {
+                $simple_code = $price_item['simplecode'] ?? $price_item['simpleCode'] ?? null;
+                
+                if (!$simple_code || !isset($price_item['price'])) {
+                    $errors++;
+                    continue;
+                }
+                
+                $product_id = wc_get_product_id_by_sku($simple_code);
+                
+                if (!$product_id) {
+                    $errors++;
+                    continue;
+                }
+                
+                $product = wc_get_product($product_id);
+                
+                if ($product) {
+                    $product->set_regular_price($price_item['price']);
+                    $product->save();
+                    $processed++;
+                } else {
+                    $errors++;
+                }
+            }
+            
+            $total_processed += $processed;
+            $total_errors += $errors;
+            
+            // Update progress
+            $progress['processed'] = $total_processed;
+            $progress['current_batch'] = $batch_index + 1;
+            $progress['errors'] = $total_errors;
+            $this->save_sync_progress($sync_id, $progress);
+            
+            $this->logger->log('info', "Price batch " . ($batch_index + 1) . "/{$batch_count} processed", array(
+                'processed' => $processed,
+                'errors' => $errors,
+            ), 'batch_processor');
+        }
+        
+        // Mark as completed
+        $progress['status'] = 'completed';
+        $progress['completed'] = current_time('mysql');
+        $this->save_sync_progress($sync_id, $progress);
+        
+        $this->logger->log('success', "Prices sync completed: {$total_processed} processed, {$total_errors} errors", array(), 'batch_processor');
+        
+        return array(
+            'success' => true,
+            'processed' => $total_processed,
+            'errors' => $total_errors,
+            'total' => $total,
+        );
     }
     
     /**
@@ -652,11 +1213,24 @@ class ByteMash_Batch_Processor {
         $progress['errors'] = ($progress['errors'] ?? 0) + $errors;
         $this->save_sync_progress($sync_id, $progress);
         
-        // Schedule next batch
+        // Schedule next batch (only if not using Action Scheduler)
         $next_batch = $batch_index + 1;
         
         if ($next_batch < $progress['batch_count']) {
+            // Check if we're being called from Action Scheduler
+            $backtrace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 5);
+            $called_from_action_scheduler = false;
+            foreach ($backtrace as $frame) {
+                if (isset($frame['function']) && strpos($frame['function'], 'run_prices_batch_action') !== false) {
+                    $called_from_action_scheduler = true;
+                    break;
+                }
+            }
+            
+            // Only schedule via WP-Cron if not called from Action Scheduler
+            if (!$called_from_action_scheduler) {
             wp_schedule_single_event(time() + 2, 'bytemash_process_prices_batch', array($sync_id, $next_batch));
+            }
         } else {
             $progress['status'] = 'completed';
             $progress['completed'] = current_time('mysql');
@@ -664,6 +1238,167 @@ class ByteMash_Batch_Processor {
             delete_transient("bytemash_sync_{$sync_id}_prices");
             
             $this->logger->log('success', 'Prices sync completed', array(), 'batch_processor');
+        }
+    }
+
+    /**
+     * Schedule brands sync
+     */
+    public function schedule_brands_sync($brands_data, $sync_id) {
+        if (!is_array($brands_data) || empty($brands_data)) {
+            return false;
+        }
+        $total = count($brands_data);
+        $batches = array_chunk($brands_data, 50);
+        $batch_count = count($batches);
+        $this->logger->log('info', "Scheduling {$batch_count} batches for {$total} brands", array(), 'batch_processor');
+        set_transient("bytemash_sync_{$sync_id}_brands", $brands_data, HOUR_IN_SECONDS);
+        $this->save_sync_progress($sync_id, array(
+            'type' => 'brands',
+            'total' => $total,
+            'processed' => 0,
+            'batch_count' => $batch_count,
+            'current_batch' => 0,
+            'status' => 'scheduled',
+            'started' => current_time('mysql'),
+        ));
+        wp_schedule_single_event(time(), 'bytemash_process_brands_batch', array($sync_id, 0));
+        return true;
+    }
+
+    /**
+     * Process all brand batches synchronously (for manual syncs)
+     */
+    public function process_brands_sync_immediately($brands_data, $sync_id) {
+        if (!is_array($brands_data) || empty($brands_data)) {
+            return array('success' => false, 'message' => 'No brand data to process');
+        }
+        
+        $total = count($brands_data);
+        $batches = array_chunk($brands_data, 50);
+        $batch_count = count($batches);
+        
+        $this->logger->log('info', "Processing {$batch_count} brand batches immediately for {$total} items", array(), 'batch_processor');
+        
+        // Set up progress tracking
+        $progress = array(
+            'type' => 'brands',
+            'total' => $total,
+            'processed' => 0,
+            'batch_count' => $batch_count,
+            'current_batch' => 0,
+            'errors' => 0,
+            'status' => 'processing',
+            'started' => current_time('mysql'),
+        );
+        $this->save_sync_progress($sync_id, $progress);
+        
+        $total_processed = 0;
+        $total_errors = 0;
+        $product_sync = new ByteMash_Product_Sync();
+        
+        // Process all batches immediately
+        foreach ($batches as $batch_index => $batch) {
+            $processed = 0;
+            $errors = 0;
+            
+            foreach ($batch as $brand_data) {
+                try {
+                    $result = $product_sync->sync_single_brand($brand_data);
+                    if (!empty($result['success'])) {
+                        $processed++;
+                    } else {
+                        $errors++;
+                    }
+                } catch (Exception $e) {
+                    $errors++;
+                }
+            }
+            
+            $total_processed += $processed;
+            $total_errors += $errors;
+            
+            // Update progress
+            $progress['processed'] = $total_processed;
+            $progress['current_batch'] = $batch_index + 1;
+            $progress['errors'] = $total_errors;
+            $this->save_sync_progress($sync_id, $progress);
+            
+            $this->logger->log('info', "Brand batch " . ($batch_index + 1) . "/{$batch_count} processed", array(
+                'processed' => $processed,
+                'errors' => $errors,
+            ), 'batch_processor');
+        }
+        
+        // Mark as completed
+        $progress['status'] = 'completed';
+        $progress['completed'] = current_time('mysql');
+        $this->save_sync_progress($sync_id, $progress);
+        
+        $this->logger->log('success', "Brands sync completed: {$total_processed} processed, {$total_errors} errors", array(), 'batch_processor');
+        
+        return array(
+            'success' => true,
+            'processed' => $total_processed,
+            'errors' => $total_errors,
+            'total' => $total,
+        );
+    }
+    
+    /**
+     * Process brands batch
+     */
+    public function process_brands_batch($sync_id, $batch_index) {
+        $progress = $this->get_sync_progress($sync_id);
+        if (!$progress) return;
+        $brands_data = get_transient("bytemash_sync_{$sync_id}_brands");
+        if (!$brands_data) {
+            $this->update_sync_status($sync_id, 'error', 'Cached data expired');
+            return;
+        }
+        $batches = array_chunk($brands_data, 50);
+        if (!isset($batches[$batch_index])) return;
+        $batch = $batches[$batch_index];
+        $processed = 0;
+        $errors = 0;
+        foreach ($batch as $brand_data) {
+            try {
+                $result = (new ByteMash_Product_Sync())->sync_single_brand($brand_data);
+                if (!empty($result['success'])) {
+                    $processed++;
+                } else {
+                    $errors++;
+                }
+            } catch (Exception $e) {
+                $errors++;
+            }
+        }
+        $progress['processed'] += $processed;
+        $progress['current_batch'] = $batch_index + 1;
+        $progress['errors'] = ($progress['errors'] ?? 0) + $errors;
+        $this->save_sync_progress($sync_id, $progress);
+        $next_batch = $batch_index + 1;
+        if ($next_batch < $progress['batch_count']) {
+            // Check if we're being called from Action Scheduler
+            $backtrace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 5);
+            $called_from_action_scheduler = false;
+            foreach ($backtrace as $frame) {
+                if (isset($frame['function']) && strpos($frame['function'], 'run_brands_batch_action') !== false) {
+                    $called_from_action_scheduler = true;
+                    break;
+                }
+            }
+            
+            // Only schedule via WP-Cron if not called from Action Scheduler
+            if (!$called_from_action_scheduler) {
+                wp_schedule_single_event(time() + 2, 'bytemash_process_brands_batch', array($sync_id, $next_batch));
+            }
+        } else {
+            $progress['status'] = 'completed';
+            $progress['completed'] = current_time('mysql');
+            $this->save_sync_progress($sync_id, $progress);
+            delete_transient("bytemash_sync_{$sync_id}_brands");
+            $this->logger->log('success', 'Brands sync completed', array(), 'batch_processor');
         }
     }
     
@@ -758,7 +1493,7 @@ class ByteMash_Batch_Processor {
     /**
      * Save sync progress to database
      */
-    private function save_sync_progress($sync_id, $progress) {
+    public function save_sync_progress($sync_id, $progress) {
         update_option("bytemash_sync_progress_{$sync_id}", $progress, false);
     }
     
@@ -1031,5 +1766,6 @@ class ByteMash_Batch_Processor {
         }
     }
 }
+
 
 
