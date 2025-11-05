@@ -541,6 +541,16 @@ class ByteMash_Product_Sync {
                 // Need to update brand if: brand meta is missing, or brand name differs, or brand code differs
                 if (empty($existing_brand) || $existing_brand !== $api_brand || $existing_brand_code !== $api_brand_code) {
                     $needs_brand_update = true;
+                    
+                    // Log that brand update is needed
+                    $this->logger->log('info', "Brand update needed for product: {$sku}", array(
+                        'product_id' => $product_id,
+                        'sku' => $sku,
+                        'existing_brand' => $existing_brand,
+                        'new_brand' => $api_brand,
+                        'existing_code' => $existing_brand_code,
+                        'new_code' => $api_brand_code,
+                    ), 'product_sync');
                 }
             }
             
@@ -1018,12 +1028,37 @@ class ByteMash_Product_Sync {
         // Persist brand meta for reference (only identifier, not logo URL)
         // Logo URL is stored in brands sync data (amrod_brand_{code} option)
         $product_id = $product->get_id();
+        $sku = $product->get_sku();
+        
+        // Check if brand is already set (to determine if it's an update or new)
+        $existing_brand = get_post_meta($product_id, '_amrod_brand', true);
+        $is_update = !empty($existing_brand);
+        
         update_post_meta($product_id, '_amrod_brand', sanitize_text_field($brand_name));
+        
+        $brand_code = '';
         if (is_array($brand_data)) {
             if (!empty($brand_data['code'])) {
-                update_post_meta($product_id, '_amrod_brand_code', sanitize_text_field($brand_data['code']));
+                $brand_code = sanitize_text_field($brand_data['code']);
+                update_post_meta($product_id, '_amrod_brand_code', $brand_code);
             }
             // Note: Logo URL is NOT stored in product meta - it's retrieved from brands sync data
+        }
+        
+        // Log brand sync
+        $log_data = array(
+            'product_id' => $product_id,
+            'sku' => $sku,
+            'brand_name' => $brand_name,
+        );
+        if (!empty($brand_code)) {
+            $log_data['brand_code'] = $brand_code;
+        }
+        
+        if ($is_update && $existing_brand !== $brand_name) {
+            $this->logger->log('info', "Brand updated: {$brand_name}", $log_data, 'product_sync');
+        } else if (!$is_update) {
+            $this->logger->log('info', "Brand set: {$brand_name}", $log_data, 'product_sync');
         }
         
         // Check if brand taxonomy exists (many themes/plugins use 'product_brand')
