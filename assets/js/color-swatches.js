@@ -157,11 +157,24 @@ jQuery(document).ready(function($) {
                     }
                     
                     // Update select value
-                    $select.val(colorValue).trigger('change');
+                    // Update the select value
+                    $select.val(colorValue);
+                    
+                    // Trigger change event to notify WooCommerce
+                    $select.trigger('change');
+                    
+                    // Also trigger input event (some themes/hooks listen to this)
+                    $select.trigger('input');
                     
                     // Update visual state
                     $swatchContainer.find('.bytemash-color-swatch').removeClass('selected');
                     $(this).addClass('selected');
+                    
+                    // Force WooCommerce to check for variation match
+                    const $variationsForm = $('.variations_form');
+                    if ($variationsForm.length > 0) {
+                        $variationsForm.trigger('check_variations');
+                    }
                     
                     // Update selected color display
                     updateSelectedColorDisplay($row, swatchData);
@@ -305,11 +318,24 @@ jQuery(document).ready(function($) {
                     }
                     
                     // Update select value
-                    $select.val(sizeValue).trigger('change');
+                    // Update the select value
+                    $select.val(sizeValue);
+                    
+                    // Trigger change event to notify WooCommerce
+                    $select.trigger('change');
+                    
+                    // Also trigger input event (some themes/hooks listen to this)
+                    $select.trigger('input');
                     
                     // Update visual state - only one can be selected
                     $buttonContainer.find('.bytemash-size-button').removeClass('selected');
                     $(this).addClass('selected');
+                    
+                    // Force WooCommerce to check for variation match
+                    const $variationsForm = $('.variations_form');
+                    if ($variationsForm.length > 0) {
+                        $variationsForm.trigger('check_variations');
+                    }
                     
                     // Update selected size display
                     updateSelectedSizeDisplay($row, sizeName);
@@ -410,6 +436,17 @@ jQuery(document).ready(function($) {
             initColorSwatches();
             initSizeButtons();
         }, 50);
+    });
+    
+    // Ensure variation form is properly initialized
+    $(document).on('woocommerce_variation_has_changed', function() {
+        // This event fires when a valid variation is found
+        // Make sure the form is ready for submission
+        const $variationId = $('input[name="variation_id"]');
+        if ($variationId.length > 0 && $variationId.val() && $variationId.val() !== '') {
+            // Variation is selected, enable add to cart if disabled
+            $('.single_add_to_cart_button').prop('disabled', false);
+        }
     });
     
     // Watch for variations table being added to DOM using MutationObserver

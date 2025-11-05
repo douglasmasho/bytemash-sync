@@ -639,6 +639,24 @@ class ByteMash_Admin_Settings {
                         <tbody>
                             <tr>
                                 <th scope="row">
+                                    <label for="quote_mode_enabled"><?php esc_html_e('Quote Mode', 'bytemash-woo-sync'); ?></label>
+                                </th>
+                                <td>
+                                    <?php 
+                                    $quote_mode_enabled = get_option('bytemash_quote_mode_enabled', false);
+                                    ?>
+                                    <label>
+                                        <input type="checkbox" name="quote_mode_enabled" id="quote_mode_enabled" value="1" <?php checked($quote_mode_enabled, true); ?>>
+                                        <?php esc_html_e('Enable Quote Mode', 'bytemash-woo-sync'); ?>
+                                    </label>
+                                    <p class="description">
+                                        <?php esc_html_e('When enabled, replaces the normal ordering flow with a custom quote request form. The form includes color, size, branding options, and quantity selection. All products will use quote requests instead of regular orders.', 'bytemash-woo-sync'); ?>
+                                    </p>
+                                </td>
+                            </tr>
+                            
+                            <tr>
+                                <th scope="row">
                                     <label for="allow_orders_without_price"><?php esc_html_e('Allow Orders Without Price', 'bytemash-woo-sync'); ?></label>
                                 </th>
                                 <td>
@@ -783,6 +801,10 @@ class ByteMash_Admin_Settings {
         foreach ($sync_attributes as $option_name => $value) {
             update_option($option_name, $value);
         }
+        
+        // Save quote mode setting
+        $quote_mode_enabled = isset($_POST['quote_mode_enabled']) && $_POST['quote_mode_enabled'] === '1';
+        update_option('bytemash_quote_mode_enabled', $quote_mode_enabled);
         
         // Save purchasability setting
         if (isset($_POST['allow_orders_without_price'])) {

@@ -490,6 +490,19 @@ class ByteMash_Admin_Dashboard {
                             <?php esc_html_e('View Logs', 'bytemash-woo-sync'); ?>
                         </a>
                         
+                        <?php if (class_exists('WooCommerce')) : ?>
+                            <a href="<?php echo esc_url(admin_url('edit.php?post_type=shop_order&post_status=wc-quote-request')); ?>" class="button">
+                                <span class="dashicons dashicons-email-alt"></span>
+                                <?php esc_html_e('Quote Requests', 'bytemash-woo-sync'); ?>
+                                <?php
+                                $quote_count = self::get_quote_request_count();
+                                if ($quote_count > 0) {
+                                    echo ' <span class="count">(' . esc_html($quote_count) . ')</span>';
+                                }
+                                ?>
+                            </a>
+                        <?php endif; ?>
+                        
                         <a href="https://newapidocs.amrod.co.za/" target="_blank" class="button">
                             <span class="dashicons dashicons-book"></span>
                             <?php esc_html_e('API Docs', 'bytemash-woo-sync'); ?>
@@ -636,6 +649,25 @@ class ByteMash_Admin_Dashboard {
         ");
         
         return (int) $count;
+    }
+    
+    /**
+     * Get count of quote requests
+     */
+    private static function get_quote_request_count() {
+        if (!class_exists('WooCommerce')) {
+            return 0;
+        }
+        
+        $args = array(
+            'post_type' => 'shop_order',
+            'post_status' => 'wc-quote-request',
+            'posts_per_page' => -1,
+            'fields' => 'ids',
+        );
+        
+        $query = new WP_Query($args);
+        return (int) $query->found_posts;
     }
 }
 

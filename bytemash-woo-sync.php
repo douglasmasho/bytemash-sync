@@ -97,12 +97,47 @@ class ByteMash_Woo_Sync {
         add_action('wp_ajax_nopriv_bytemash_get_product_brandings', array($this, 'ajax_get_product_brandings'));
 
         // Branding selection as product options
+        // Add to both hooks to ensure it shows in normal purchase flow AND quote requests
         add_action('woocommerce_before_add_to_cart_button', array($this, 'render_branding_options_fields'), 15);
+        // Also add to summary as fallback for when add to cart button is hidden
+        add_action('woocommerce_single_product_summary', array($this, 'render_branding_options_fields'), 20);
+        // Also ensure it shows in quote mode (after variation form but before submit button)
+        add_action('woocommerce_after_add_to_cart_form', array($this, 'render_branding_options_fields_quote_mode'), 8);
         add_filter('woocommerce_add_to_cart_validation', array($this, 'validate_branding_options'), 10, 3);
         add_filter('woocommerce_add_cart_item_data', array($this, 'add_branding_to_cart_item'), 10, 3);
         add_filter('woocommerce_get_item_data', array($this, 'display_branding_in_cart'), 10, 2);
         add_action('woocommerce_checkout_create_order_line_item', array($this, 'add_branding_to_order_items'), 10, 4);
         add_action('wp_ajax_nopriv_bytemash_get_product_stock_table', array($this, 'ajax_get_product_stock_table'));
+        
+        // Quote request system - show button when NOT in quote mode OR as fallback in quote mode
+        if (!$this->is_quote_mode_enabled()) {
+            add_action('woocommerce_single_product_summary', array($this, 'render_quote_request_button'), 30);
+        } else {
+            // In quote mode, add button as fallback to woocommerce_single_product_summary (after form)
+            add_action('woocommerce_single_product_summary', array($this, 'render_quote_request_button_fallback'), 35);
+        }
+        add_action('wp_enqueue_scripts', array($this, 'enqueue_quote_request_assets'));
+        add_action('wp_ajax_bytemash_submit_quote_request', array($this, 'ajax_submit_quote_request'));
+        add_action('wp_ajax_nopriv_bytemash_submit_quote_request', array($this, 'ajax_submit_quote_request'));
+        add_action('init', array($this, 'register_quote_request_order_status'));
+        add_filter('wc_order_statuses', array($this, 'add_quote_request_order_status'));
+        
+        // Quote Mode - replace normal ordering flow with custom quote form
+        add_action('woocommerce_before_add_to_cart_form', array($this, 'maybe_add_quote_mode_wrapper'), 5);
+        add_action('woocommerce_before_add_to_cart_button', array($this, 'maybe_hide_add_to_cart_in_quote_mode'), 5);
+        add_action('woocommerce_after_add_to_cart_button', array($this, 'maybe_replace_add_to_cart_with_quote_button'), 5);
+        // Also add button after form to ensure it shows even if add to cart button doesn't render
+        add_action('woocommerce_after_add_to_cart_form', array($this, 'maybe_replace_add_to_cart_with_quote_button'), 15);
+        add_action('woocommerce_after_add_to_cart_form', array($this, 'maybe_close_quote_mode_wrapper'), 20);
+        // Also add directly to single product summary as final fallback
+        add_action('woocommerce_single_product_summary', array($this, 'maybe_replace_add_to_cart_with_quote_button'), 32);
+        
+        // In quote mode, ensure all variations are visible (even without prices)
+        add_filter('woocommerce_hide_invisible_variations', array($this, 'show_all_variations_in_quote_mode'), 10, 3);
+        add_filter('woocommerce_product_get_children', array($this, 'include_all_variations_in_quote_mode'), 10, 2);
+        add_filter('woocommerce_product_variation_get_visibility', array($this, 'make_all_variations_visible_in_quote_mode'), 10, 2);
+        add_filter('woocommerce_available_variation', array($this, 'include_all_variations_in_available_data'), 10, 3);
+        add_filter('woocommerce_variation_is_visible', array($this, 'make_all_variations_visible_in_quote_mode_visibility'), 10, 4);
     }
 
     /**
@@ -168,6 +203,10 @@ class ByteMash_Woo_Sync {
         add_filter('woocommerce_is_purchasable', array($this, 'make_products_purchasable_without_price'), 10, 2);
         add_filter('woocommerce_variation_is_purchasable', array($this, 'make_variations_purchasable_without_price'), 10, 2);
         add_filter('woocommerce_product_is_in_stock', array($this, 'force_in_stock_when_has_stock'), 10, 2);
+        add_filter('woocommerce_product_get_stock_status', array($this, 'force_stock_status_when_has_stock'), 10, 2);
+        add_filter('woocommerce_variation_get_stock_status', array($this, 'force_stock_status_when_has_stock'), 10, 2);
+        // Hide the out of stock message for products that should allow quote requests
+        add_filter('woocommerce_get_stock_html', array($this, 'hide_out_of_stock_message_for_quote_requests'), 10, 2);
         add_filter('woocommerce_product_get_price', array($this, 'set_default_price_for_amrod_products'), 10, 2);
         add_action('woocommerce_before_add_to_cart_button', array($this, 'maybe_set_product_price'));
         add_filter('woocommerce_get_price_html', array($this, 'hide_zero_price_display'), 10, 2);
@@ -446,11 +485,13 @@ class ByteMash_Woo_Sync {
         ));
         
         // Color swatches and size buttons assets
+        // Load for ALL products (not just variable) to support quote requests
         // Get product properly - global $product might not be available at this hook point
         $product_id = get_the_ID();
         $product = wc_get_product($product_id);
         
-        if ($product && is_a($product, 'WC_Product') && $product->is_type('variable')) {
+        if ($product && is_a($product, 'WC_Product')) {
+            // Always load color swatches CSS and JS for quote requests
             // Load color swatches CSS
             wp_enqueue_style('bytemash-color-swatches', plugins_url('assets/css/color-swatches.css', __FILE__), array(), BYTEMASH_WOO_SYNC_VERSION);
             
@@ -462,6 +503,7 @@ class ByteMash_Woo_Sync {
             $color_mapping = get_post_meta($product_id, '_amrod_color_mapping', true);
             $swatches_data = array();
             
+            // For variable products, get color mapping from meta
             if (!empty($color_mapping) && is_array($color_mapping)) {
                 foreach ($color_mapping as $color_name => $color_code) {
                     $swatch_data = get_option("amrod_color_swatch_{$color_code}");
@@ -477,7 +519,46 @@ class ByteMash_Woo_Sync {
                 }
             }
             
-            // Pass color swatches data to JavaScript
+            // For simple products, try to get color data from product attributes if available
+            if (empty($swatches_data) && !$product->is_type('variable')) {
+                $attributes = $product->get_attributes();
+                if (!empty($attributes)) {
+                    foreach ($attributes as $attr_name => $attr) {
+                        if (strtolower($attr_name) === 'color' || strtolower($attr_name) === 'pa_color') {
+                            $options = $attr->get_options();
+                            if (!empty($options)) {
+                                foreach ($options as $color_name) {
+                                    // Try to find swatch data for this color
+                                    $swatch_data = null;
+                                    // Search through all color swatches to find a match
+                                    $all_swatches = get_option('amrod_color_swatches', array());
+                                    if (!empty($all_swatches)) {
+                                        foreach ($all_swatches as $code => $swatch) {
+                                            if (isset($swatch['name']) && strtolower($swatch['name']) === strtolower($color_name)) {
+                                                $swatch_data = $swatch;
+                                                break;
+                                            }
+                                        }
+                                    }
+                                    
+                                    if ($swatch_data && !empty($swatch_data['hexValue'])) {
+                                        $hex_value = is_array($swatch_data['hexValue']) ? $swatch_data['hexValue'][0] : $swatch_data['hexValue'];
+                                        $swatches_data[strtolower($color_name)] = array(
+                                            'code' => $code ?? '',
+                                            'name' => $swatch_data['name'] ?? $color_name,
+                                            'hexValue' => $hex_value,
+                                            'textColour' => $swatch_data['textColour'] ?? '#000',
+                                            'tickColour' => $swatch_data['tickColour'] ?? '#fff',
+                                        );
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Pass color swatches data to JavaScript (even if empty, so JS can still run)
             wp_localize_script('bytemash-color-swatches', 'bytemashColorSwatches', $swatches_data);
         }
     }
@@ -588,14 +669,88 @@ class ByteMash_Woo_Sync {
      * Render branding options as multi-select fields on the product page
      */
     public function render_branding_options_fields() {
-        global $product;
-        if (!$product) { return; }
-        $product_id = $product->get_id();
+        // Prevent duplicate rendering (since we hook to both before_add_to_cart_button and single_product_summary)
+        static $branding_options_rendered = false;
+        if ($branding_options_rendered) {
+            return;
+        }
+        
+        // Get product properly - global $product might not be available
+        $product_id = get_the_ID();
+        $product = wc_get_product($product_id);
+        
+        if (!$product || !is_a($product, 'WC_Product')) {
+            return;
+        }
+        
         $brandings = get_post_meta($product_id, '_amrod_brandings', true);
-        if (empty($brandings) || !is_array($brandings)) { return; }
+        // Show branding options section even if empty - allows quote requests for all products
+        if (empty($brandings) || !is_array($brandings)) {
+            // Still show the section header for quote requests, but no options
+            return;
+        }
+        
+        // Mark as rendered to prevent duplicates
+        $branding_options_rendered = true;
         echo '<div class="bytemash-branding-options">';
         echo '<h4>' . esc_html__('Branding Options', 'bytemash-woo-sync') . '</h4>';
         // Instruction
+        echo '<p>' . esc_html__('Select one or more branding methods. Details for each method are shown for informed decisions.', 'bytemash-woo-sync') . '</p>';
+        foreach ($brandings as $idx => $pos) {
+            $posName = esc_html($pos['positionName'] ?? '');
+            $posCode = esc_attr($pos['positionCode'] ?? ('pos_' . $idx));
+            echo '<div class="bytemash-branding-group">';
+            echo '<strong>' . $posName . '</strong>';
+            if (!empty($pos['method']) && is_array($pos['method'])) {
+                foreach ($pos['method'] as $midx => $method) {
+                    $code = esc_attr($method['brandingCode'] ?? '');
+                    $name = esc_html($method['brandingName'] ?? '');
+                    $dept = esc_html($method['brandingDepartment'] ?? '');
+                    $w = esc_html($method['maxPrintingSizeWidth'] ?? '');
+                    $h = esc_html($method['maxPrintingSizeHeight'] ?? '');
+                    $field_id = 'bytemash_brandings_' . $posCode . '_' . $code . '_' . $midx;
+                    echo '<label style="display:block; margin:6px 0;">';
+                    echo '<input type="checkbox" name="bytemash_brandings[' . $posCode . '][]" value="' . $code . '" id="' . $field_id . '" /> ';
+                    echo $name . ' (' . $dept . ', ' . $code . ') - ' . $w . ' x ' . $h . ' mm';
+                    echo '</label>';
+                }
+            }
+            echo '</div>';
+        }
+        echo '</div>';
+    }
+    
+    /**
+     * Render branding options in quote mode (ensures it shows even if form is hidden)
+     */
+    public function render_branding_options_fields_quote_mode() {
+        if (!$this->is_quote_mode_enabled()) {
+            return;
+        }
+        
+        // Only render if not already rendered (check static flag)
+        static $branding_options_rendered = false;
+        if ($branding_options_rendered) {
+            return;
+        }
+        
+        // Get product
+        $product_id = get_the_ID();
+        $product = wc_get_product($product_id);
+        
+        if (!$product || !is_a($product, 'WC_Product')) {
+            return;
+        }
+        
+        $brandings = get_post_meta($product_id, '_amrod_brandings', true);
+        if (empty($brandings) || !is_array($brandings)) {
+            return;
+        }
+        
+        // Mark as rendered to prevent duplicates
+        $branding_options_rendered = true;
+        echo '<div class="bytemash-branding-options">';
+        echo '<h4>' . esc_html__('Branding Options', 'bytemash-woo-sync') . '</h4>';
         echo '<p>' . esc_html__('Select one or more branding methods. Details for each method are shown for informed decisions.', 'bytemash-woo-sync') . '</p>';
         foreach ($brandings as $idx => $pos) {
             $posName = esc_html($pos['positionName'] ?? '');
@@ -625,10 +780,24 @@ class ByteMash_Woo_Sync {
      * Validate branding options posted
      */
     public function validate_branding_options($passed, $product_id, $quantity) {
-        if (!isset($_POST['bytemash_brandings'])) { return $passed; }
+        // Don't validate branding if validation already failed (let WooCommerce handle its own validation first)
+        if (!$passed) {
+            return $passed;
+        }
+        
+        // Branding is optional - if no branding is selected, validation passes
+        if (!isset($_POST['bytemash_brandings']) || empty($_POST['bytemash_brandings'])) { 
+            return $passed; 
+        }
+        
         $selected = $_POST['bytemash_brandings'];
         $brandings = get_post_meta($product_id, '_amrod_brandings', true);
-        if (!is_array($brandings)) { return $passed; }
+        
+        // If no branding options exist for this product, branding is optional
+        if (!is_array($brandings) || empty($brandings)) { 
+            return $passed; 
+        }
+        
         // Build whitelist map positionCode => [codes]
         $map = array();
         foreach ($brandings as $pos) {
@@ -643,9 +812,20 @@ class ByteMash_Woo_Sync {
                 }
             }
         }
-        // Validate selections exist in whitelist
+        
+        // Validate selections exist in whitelist (only if branding was actually selected)
         foreach ((array)$selected as $posCode => $codes) {
-            if (!isset($map[$posCode])) { continue; }
+            // Skip empty selections (branding is optional)
+            if (empty($codes)) { 
+                continue; 
+            }
+            
+            if (!isset($map[$posCode])) { 
+                // Invalid position code
+                wc_add_notice(__('Invalid branding position selected.', 'bytemash-woo-sync'), 'error');
+                return false;
+            }
+            
             foreach ((array)$codes as $code) {
                 if (!in_array($code, $map[$posCode], true)) {
                     wc_add_notice(__('Invalid branding selection.', 'bytemash-woo-sync'), 'error');
@@ -653,6 +833,7 @@ class ByteMash_Woo_Sync {
                 }
             }
         }
+        
         return $passed;
     }
 
@@ -3268,6 +3449,11 @@ class ByteMash_Woo_Sync {
      * @return bool Modified purchasable status
      */
     public function make_variations_purchasable_without_price($purchasable, $variation) {
+        // If quote mode is enabled, make ALL variations purchasable
+        if ($this->is_quote_mode_enabled()) {
+            return true;
+        }
+        
         // If already purchasable, return as-is
         if ($purchasable) {
             return $purchasable;
@@ -3319,36 +3505,383 @@ class ByteMash_Woo_Sync {
      * @return bool Modified stock status
      */
     public function force_in_stock_when_has_stock($is_in_stock, $product) {
-        // If already in stock, use default behavior
-        if ($is_in_stock) {
+        // Get purchasability mode setting
+        $purchasability_mode = get_option('bytemash_allow_orders_without_price', 'force_with_stock');
+        
+        // Default mode: use standard WooCommerce behavior (but still check for quote requests)
+        if ($purchasability_mode === 'default') {
+            // Even in default mode, if product has no price, allow quote requests by making it in stock
+            // This ensures quote request button shows even when product appears out of stock
+            $price = $product->get_price();
+            if (empty($price) || $price === '' || $price === null || $price === '0' || $price === 0) {
+                // Check if it's an Amrod product (has Amrod meta)
+                $product_id = $product->get_id();
+                $amrod_code = get_post_meta($product_id, '_amrod_simple_code', true);
+                if (!empty($amrod_code)) {
+                    // It's an Amrod product without price - allow quote requests by making it appear in stock
+                    return true;
+                }
+            }
             return $is_in_stock;
+        }
+        
+        // Force all mode: force all products to be in stock (for quote requests)
+        if ($purchasability_mode === 'force_all') {
+            return true;
+        }
+        
+        // Force with stock mode: check both WooCommerce stock and Amrod stock data
+        if ($purchasability_mode === 'force_with_stock') {
+            $product_id = $product->get_id();
+            
+            // Check WooCommerce stock quantity
+            $stock_quantity = $product->get_stock_quantity();
+            if ($stock_quantity !== null && $stock_quantity > 0) {
+                return true;
+            }
+            
+            // Also check Amrod stock detail (for products without WooCommerce stock set)
+            $stock_detail = get_post_meta($product_id, '_amrod_stock_detail', true);
+            if (!empty($stock_detail) && is_array($stock_detail)) {
+                $amrod_stock = isset($stock_detail['stock']) ? intval($stock_detail['stock']) : 0;
+                if ($amrod_stock > 0) {
+                    return true;
+                }
+            }
+            
+            // For variable products, check variations
+            if ($product->is_type('variable')) {
+                $variations = $product->get_children();
+                foreach ($variations as $variation_id) {
+                    $variation_stock = get_post_meta($variation_id, '_stock', true);
+                    if ($variation_stock !== null && intval($variation_stock) > 0) {
+                        return true;
+                    }
+                    // Check Amrod stock detail for variation
+                    $variation_stock_detail = get_post_meta($variation_id, '_amrod_stock_detail', true);
+                    if (!empty($variation_stock_detail) && is_array($variation_stock_detail)) {
+                        $variation_amrod_stock = isset($variation_stock_detail['stock']) ? intval($variation_stock_detail['stock']) : 0;
+                        if ($variation_amrod_stock > 0) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+        
+        return $is_in_stock;
+    }
+    
+    /**
+     * Force stock status to 'instock' when product has stock (for quote requests)
+     * This filter handles the stock_status property directly
+     * 
+     * @param string $stock_status Current stock status ('instock', 'outofstock', 'onbackorder')
+     * @param WC_Product $product Product object
+     * @return string Modified stock status
+     */
+    public function force_stock_status_when_has_stock($stock_status, $product) {
+        // If already in stock, return as-is
+        if ($stock_status === 'instock') {
+            return $stock_status;
         }
         
         // Get purchasability mode setting
         $purchasability_mode = get_option('bytemash_allow_orders_without_price', 'force_with_stock');
         
-        // Default mode: use standard WooCommerce behavior
+        // Default mode: use standard WooCommerce behavior (but still check for quote requests)
         if ($purchasability_mode === 'default') {
-            return $is_in_stock;
+            // Even in default mode, if product has no price, allow quote requests by making it in stock
+            $price = $product->get_price();
+            if (empty($price) || $price === '' || $price === null || $price === '0' || $price === 0) {
+                // Check if it's an Amrod product (has Amrod meta)
+                $product_id = $product->get_id();
+                $amrod_code = get_post_meta($product_id, '_amrod_simple_code', true);
+                if (!empty($amrod_code)) {
+                    // It's an Amrod product without price - allow quote requests by making it appear in stock
+                    return 'instock';
+                }
+            }
+            return $stock_status;
         }
         
-        $stock_quantity = $product->get_stock_quantity();
-        
-        // Force all mode: force all products to be in stock
+        // Force all mode: force all products to be in stock (for quote requests)
         if ($purchasability_mode === 'force_all') {
-            return true;
+            return 'instock';
         }
         
-        // Force with stock mode: only force in stock if product has stock quantity > 0
+        // Force with stock mode: check both WooCommerce stock and Amrod stock data
         if ($purchasability_mode === 'force_with_stock') {
+            $product_id = $product->get_id();
+            
+            // Check WooCommerce stock quantity
+            $stock_quantity = $product->get_stock_quantity();
             if ($stock_quantity !== null && $stock_quantity > 0) {
-                // Has stock but WooCommerce marked as out of stock (probably due to no price)
-                // Force it to be in stock
-                return true;
+                return 'instock';
+            }
+            
+            // Also check Amrod stock detail (for products without WooCommerce stock set)
+            $stock_detail = get_post_meta($product_id, '_amrod_stock_detail', true);
+            if (!empty($stock_detail) && is_array($stock_detail)) {
+                $amrod_stock = isset($stock_detail['stock']) ? intval($stock_detail['stock']) : 0;
+                if ($amrod_stock > 0) {
+                    return 'instock';
+                }
+            }
+            
+            // For variable products, check variations
+            if ($product->is_type('variable')) {
+                $variations = $product->get_children();
+                foreach ($variations as $variation_id) {
+                    $variation_stock = get_post_meta($variation_id, '_stock', true);
+                    if ($variation_stock !== null && intval($variation_stock) > 0) {
+                        return 'instock';
+                    }
+                    // Check Amrod stock detail for variation
+                    $variation_stock_detail = get_post_meta($variation_id, '_amrod_stock_detail', true);
+                    if (!empty($variation_stock_detail) && is_array($variation_stock_detail)) {
+                        $variation_amrod_stock = isset($variation_stock_detail['stock']) ? intval($variation_stock_detail['stock']) : 0;
+                        if ($variation_amrod_stock > 0) {
+                            return 'instock';
+                        }
+                    }
+                }
             }
         }
         
-        return $is_in_stock;
+        return $stock_status;
+    }
+    
+    /**
+     * Hide the "out of stock" message for products that should allow quote requests
+     * This prevents WooCommerce from showing "This product is currently out of stock and unavailable."
+     * 
+     * @param string $html Stock HTML message
+     * @param WC_Product $product Product object
+     * @return string Modified stock HTML (empty string to hide message)
+     */
+    public function hide_out_of_stock_message_for_quote_requests($html, $product) {
+        // Get purchasability mode setting
+        $purchasability_mode = get_option('bytemash_allow_orders_without_price', 'force_with_stock');
+        
+        // Check if product has no price
+        $price = $product->get_price();
+        $has_no_price = empty($price) || $price === '' || $price === null || $price === '0' || $price === 0;
+        
+        // Check if it's an Amrod product
+        $product_id = $product->get_id();
+        $amrod_code = get_post_meta($product_id, '_amrod_simple_code', true);
+        $is_amrod_product = !empty($amrod_code);
+        
+        // If it's an Amrod product without price, hide the out of stock message
+        if ($is_amrod_product && $has_no_price) {
+            // Force all mode: always hide the message
+            if ($purchasability_mode === 'force_all') {
+                return '';
+            }
+            
+            // Force with stock mode: hide if product has stock
+            if ($purchasability_mode === 'force_with_stock') {
+                // Check WooCommerce stock
+                $stock_quantity = $product->get_stock_quantity();
+                if ($stock_quantity !== null && $stock_quantity > 0) {
+                    return '';
+                }
+                
+                // Check Amrod stock detail
+                $stock_detail = get_post_meta($product_id, '_amrod_stock_detail', true);
+                if (!empty($stock_detail) && is_array($stock_detail)) {
+                    $amrod_stock = isset($stock_detail['stock']) ? intval($stock_detail['stock']) : 0;
+                    if ($amrod_stock > 0) {
+                        return '';
+                    }
+                }
+                
+                // For variable products, check variations
+                if ($product->is_type('variable')) {
+                    $variations = $product->get_children();
+                    foreach ($variations as $variation_id) {
+                        $variation_stock = get_post_meta($variation_id, '_stock', true);
+                        if ($variation_stock !== null && intval($variation_stock) > 0) {
+                            return '';
+                        }
+                        $variation_stock_detail = get_post_meta($variation_id, '_amrod_stock_detail', true);
+                        if (!empty($variation_stock_detail) && is_array($variation_stock_detail)) {
+                            $variation_amrod_stock = isset($variation_stock_detail['stock']) ? intval($variation_stock_detail['stock']) : 0;
+                            if ($variation_amrod_stock > 0) {
+                                return '';
+                            }
+                        }
+                    }
+                }
+            }
+            
+            // Default mode: still hide for Amrod products without price (to allow quote requests)
+            if ($purchasability_mode === 'default') {
+                return '';
+            }
+        }
+        
+        return $html;
+    }
+    
+    /**
+     * Check if quote mode is enabled
+     */
+    private function is_quote_mode_enabled() {
+        return get_option('bytemash_quote_mode_enabled', false) === true || get_option('bytemash_quote_mode_enabled', false) === '1';
+    }
+    
+    /**
+     * Add wrapper div for quote mode (allows styling while keeping form visible)
+     */
+    public function maybe_add_quote_mode_wrapper() {
+        if (!$this->is_quote_mode_enabled()) {
+            return;
+        }
+        
+        // Output CSS to hide ONLY the add to cart button, keep variations and branding visible
+        echo '<style type="text/css">';
+        echo '.bytemash-quote-mode-active .single_add_to_cart_button { display: none !important; }';
+        echo '.bytemash-quote-mode-active .variations_button { display: none !important; }';
+        echo '.bytemash-quote-mode-active form.cart { display: block !important; }';
+        echo '.bytemash-quote-mode-active .variations { display: block !important; }';
+        echo '.bytemash-quote-mode-active .variations_form { display: block !important; }';
+        echo '</style>';
+        
+        // Start wrapper div
+        echo '<div class="bytemash-quote-mode-active bytemash-custom-quote-form">';
+    }
+    
+    /**
+     * Hide add to cart button in quote mode (but keep variation form and branding visible)
+     */
+    public function maybe_hide_add_to_cart_in_quote_mode() {
+        // This is handled by CSS in maybe_add_quote_mode_wrapper
+        // This hook is kept for compatibility but doesn't need to do anything
+    }
+    
+    /**
+     * Replace add to cart button with quote request button
+     */
+    public function maybe_replace_add_to_cart_with_quote_button() {
+        if (!$this->is_quote_mode_enabled()) {
+            return;
+        }
+        
+        // Prevent duplicate rendering using a static flag
+        static $quote_button_rendered = false;
+        if ($quote_button_rendered) {
+            return;
+        }
+        
+        // Mark as rendered
+        $quote_button_rendered = true;
+        
+        // Add quote request button after the add to cart button (which is hidden by CSS)
+        echo '<div class="bytemash-quote-submit" style="margin: 20px 0; clear: both;">';
+        echo '<button type="button" id="bytemash-request-quote-btn" class="button alt" style="width: 100%; padding: 15px; font-size: 16px; display: block !important;">';
+        echo esc_html__('Make Quote Request', 'bytemash-woo-sync');
+        echo '</button>';
+        echo '<div id="bytemash-quote-request-message" style="margin-top: 10px; display: none;"></div>';
+        echo '</div>';
+    }
+    
+    /**
+     * Close wrapper div for quote mode
+     */
+    public function maybe_close_quote_mode_wrapper() {
+        if (!$this->is_quote_mode_enabled()) {
+            return;
+        }
+        
+        // Close wrapper div
+        echo '</div>';
+    }
+    
+    /**
+     * Show all variations in quote mode (even if they would normally be hidden)
+     */
+    public function show_all_variations_in_quote_mode($hide, $variation_id, $variation) {
+        if (!$this->is_quote_mode_enabled()) {
+            return $hide;
+        }
+        
+        // Don't hide any variations in quote mode
+        return false;
+    }
+    
+    /**
+     * Include all variations in children array in quote mode
+     */
+    public function include_all_variations_in_quote_mode($children, $product) {
+        if (!$this->is_quote_mode_enabled()) {
+            return $children;
+        }
+        
+        // If it's a variable product, get ALL variation IDs (not just visible ones)
+        if ($product && $product->is_type('variable')) {
+            $all_variation_ids = $product->get_children();
+            // Return all variations, not just purchasable/visible ones
+            return $all_variation_ids;
+        }
+        
+        return $children;
+    }
+    
+    /**
+     * Make all variations visible in quote mode
+     */
+    public function make_all_variations_visible_in_quote_mode($visibility, $variation) {
+        if (!$this->is_quote_mode_enabled()) {
+            return $visibility;
+        }
+        
+        // Make all variations visible in quote mode
+        return 'visible';
+    }
+    
+    /**
+     * Make all variations visible (for visibility filter)
+     */
+    public function make_all_variations_visible_in_quote_mode_visibility($visible, $variation_id, $id, $variation) {
+        if (!$this->is_quote_mode_enabled()) {
+            return $visible;
+        }
+        
+        // Make all variations visible in quote mode
+        return true;
+    }
+    
+    /**
+     * Include all variations in available variation data (for JavaScript)
+     */
+    public function include_all_variations_in_available_data($variation_data, $product, $variation) {
+        if (!$this->is_quote_mode_enabled()) {
+            return $variation_data;
+        }
+        
+        // If variation data is empty or null, create it so the variation appears
+        if (empty($variation_data) || !is_array($variation_data)) {
+            // Build basic variation data so it appears in the form
+            $variation_data = array(
+                'variation_id' => $variation->get_id(),
+                'attributes' => $variation->get_variation_attributes(),
+                'price_html' => '',
+                'availability_html' => '',
+                'image' => array(),
+                'is_purchasable' => true,
+                'is_in_stock' => true,
+                'is_visible' => true,
+            );
+        }
+        
+        // Ensure variation is always visible and purchasable in quote mode
+        $variation_data['is_purchasable'] = true;
+        $variation_data['is_in_stock'] = true;
+        $variation_data['is_visible'] = true;
+        
+        return $variation_data;
     }
     
     /**
@@ -3420,6 +3953,254 @@ class ByteMash_Woo_Sync {
         }
         
         return $price_html;
+    }
+    
+    /**
+     * Register custom order status for quote requests
+     */
+    public function register_quote_request_order_status() {
+        register_post_status('wc-quote-request', array(
+            'label' => __('Quote Request', 'bytemash-woo-sync'),
+            'public' => true,
+            'exclude_from_search' => false,
+            'show_in_admin_all_list' => true,
+            'show_in_admin_status_list' => true,
+            'label_count' => _n_noop('Quote Request <span class="count">(%s)</span>', 'Quote Requests <span class="count">(%s)</span>', 'bytemash-woo-sync'),
+        ));
+    }
+    
+    /**
+     * Add quote request status to WooCommerce order statuses
+     */
+    public function add_quote_request_order_status($order_statuses) {
+        $new_order_statuses = array();
+        foreach ($order_statuses as $key => $status) {
+            $new_order_statuses[$key] = $status;
+            if ($key === 'wc-pending') {
+                $new_order_statuses['wc-quote-request'] = __('Quote Request', 'bytemash-woo-sync');
+            }
+        }
+        return $new_order_statuses;
+    }
+    
+    /**
+     * Render quote request button on product page
+     * Always shows for ALL products regardless of settings
+     */
+    public function render_quote_request_button() {
+        // Don't render if quote mode is enabled (quote mode has its own button)
+        if ($this->is_quote_mode_enabled()) {
+            return;
+        }
+        
+        // Get product properly - global $product might not be available
+        $product_id = get_the_ID();
+        $product = wc_get_product($product_id);
+        
+        if (!$product || !is_a($product, 'WC_Product')) {
+            return;
+        }
+        
+        // Show for ALL products - no conditions
+        echo '<div class="bytemash-quote-request-container" style="margin-top: 15px;">';
+        echo '<button type="button" id="bytemash-request-quote-btn" class="button alt" style="width: 100%;">';
+        echo esc_html__('Request Quote', 'bytemash-woo-sync');
+        echo '</button>';
+        echo '<div id="bytemash-quote-request-message" style="margin-top: 10px; display: none;"></div>';
+        echo '</div>';
+    }
+    
+    /**
+     * Fallback method to render quote request button in quote mode
+     * This ensures the button shows even if the add to cart form doesn't render properly
+     */
+    public function render_quote_request_button_fallback() {
+        if (!$this->is_quote_mode_enabled()) {
+            return;
+        }
+        
+        // Always render the button - JavaScript will hide it if the main button already exists
+        echo '<div class="bytemash-quote-request-fallback" style="margin: 20px 0; clear: both;">';
+        echo '<button type="button" id="bytemash-request-quote-btn-fallback" class="button alt" style="width: 100%; padding: 15px; font-size: 16px; display: block !important;">';
+        echo esc_html__('Make Quote Request', 'bytemash-woo-sync');
+        echo '</button>';
+        echo '<div id="bytemash-quote-request-message-fallback" style="margin-top: 10px; display: none;"></div>';
+        echo '</div>';
+        
+        // Add JavaScript to handle the fallback button (map it to the main button functionality)
+        echo '<script type="text/javascript">';
+        echo 'jQuery(document).ready(function($) {';
+        echo '  // Wait a bit for DOM to be ready';
+        echo '  setTimeout(function() {';
+        echo '    // If main button exists, hide fallback. Otherwise, make fallback button work';
+        echo '    if ($("#bytemash-request-quote-btn").length > 0 && $("#bytemash-request-quote-btn").is(":visible")) {';
+        echo '      $(".bytemash-quote-request-fallback").hide();';
+        echo '    } else {';
+        echo '      // Make fallback button work like main button';
+        echo '      $("#bytemash-request-quote-btn-fallback").attr("id", "bytemash-request-quote-btn");';
+        echo '      $("#bytemash-quote-request-message-fallback").attr("id", "bytemash-quote-request-message");';
+        echo '    }';
+        echo '  }, 100);';
+        echo '});';
+        echo '</script>';
+    }
+    
+    /**
+     * Enqueue quote request assets
+     */
+    public function enqueue_quote_request_assets() {
+        if (!is_product()) {
+            return;
+        }
+        
+        wp_enqueue_script('bytemash-quote-request', plugins_url('assets/js/quote-request.js', __FILE__), array('jquery'), BYTEMASH_WOO_SYNC_VERSION, true);
+        
+        // Get product properly - global $product might not be available at this hook point
+        $product_id = get_the_ID();
+        $product = wc_get_product($product_id);
+        
+        // Ensure we have a valid product ID
+        if (!$product || !is_a($product, 'WC_Product')) {
+            $product_id = 0;
+        } else {
+            $product_id = $product->get_id();
+        }
+        
+        wp_localize_script('bytemash-quote-request', 'bytemashQuoteRequest', array(
+            'ajax_url' => admin_url('admin-ajax.php'),
+            'nonce' => wp_create_nonce('bytemash_woo_sync_nonce'),
+            'product_id' => $product_id,
+            'strings' => array(
+                'requesting' => __('Requesting quote...', 'bytemash-woo-sync'),
+                'success' => __('Quote request submitted successfully! We will contact you soon.', 'bytemash-woo-sync'),
+                'error' => __('Failed to submit quote request. Please try again.', 'bytemash-woo-sync'),
+                'select_variation' => __('Please select a variation first.', 'bytemash-woo-sync'),
+            ),
+        ));
+    }
+    
+    /**
+     * AJAX: Submit quote request
+     */
+    public function ajax_submit_quote_request() {
+        check_ajax_referer('bytemash_woo_sync_nonce', 'nonce');
+        
+        $product_id = isset($_POST['product_id']) ? intval($_POST['product_id']) : 0;
+        $variation_id = isset($_POST['variation_id']) ? intval($_POST['variation_id']) : 0;
+        $quantity = isset($_POST['quantity']) ? intval($_POST['quantity']) : 1;
+        $selected_color = isset($_POST['color']) ? sanitize_text_field($_POST['color']) : '';
+        $selected_size = isset($_POST['size']) ? sanitize_text_field($_POST['size']) : '';
+        $brandings = isset($_POST['brandings']) ? $_POST['brandings'] : array();
+        
+        if (!$product_id) {
+            wp_send_json_error(array('message' => __('Invalid product.', 'bytemash-woo-sync')));
+        }
+        
+        $product = wc_get_product($product_id);
+        if (!$product) {
+            wp_send_json_error(array('message' => __('Product not found.', 'bytemash-woo-sync')));
+        }
+        
+        // Get current user info or use guest info
+        $current_user = wp_get_current_user();
+        $customer_email = $current_user->user_email;
+        $customer_name = trim($current_user->first_name . ' ' . $current_user->last_name);
+        
+        if (empty($customer_email)) {
+            // Try to get from POST if guest
+            $customer_email = isset($_POST['email']) ? sanitize_email($_POST['email']) : '';
+            $customer_name = isset($_POST['name']) ? sanitize_text_field($_POST['name']) : '';
+        }
+        
+        if (empty($customer_email)) {
+            wp_send_json_error(array('message' => __('Email address is required.', 'bytemash-woo-sync')));
+        }
+        
+        // Create WooCommerce order for quote request
+        try {
+            $order = wc_create_order();
+            
+            // Set customer
+            if ($current_user->ID > 0) {
+                $order->set_customer_id($current_user->ID);
+            }
+            $order->set_billing_email($customer_email);
+            $order->set_billing_first_name(!empty($customer_name) ? $customer_name : __('Guest', 'bytemash-woo-sync'));
+            
+            // Determine which product to add
+            $product_to_add = $product;
+            if ($variation_id > 0) {
+                $variation = wc_get_product($variation_id);
+                if ($variation && $variation->get_parent_id() == $product_id) {
+                    $product_to_add = $variation;
+                }
+            }
+            
+            // Add product to order
+            $item_id = $order->add_product($product_to_add, $quantity);
+            
+            if (!$item_id) {
+                throw new Exception(__('Failed to add product to order.', 'bytemash-woo-sync'));
+            }
+            
+            // Add variation details as meta
+            if ($variation_id > 0) {
+                $order_item = $order->get_item($item_id);
+                if ($order_item) {
+                    if ($selected_color) {
+                        $order_item->add_meta_data('Color', $selected_color, true);
+                    }
+                    if ($selected_size) {
+                        $order_item->add_meta_data('Size', $selected_size, true);
+                    }
+                    $order_item->save();
+                }
+            }
+            
+            // Add branding options as meta
+            if (!empty($brandings) && is_array($brandings)) {
+                $order_item = $order->get_item($item_id);
+                if ($order_item) {
+                    foreach ($brandings as $pos_code => $codes) {
+                        if (is_array($codes) && !empty($codes)) {
+                            $order_item->add_meta_data('Branding ' . strtoupper(sanitize_text_field($pos_code)), implode(', ', array_map('sanitize_text_field', $codes)), true);
+                        }
+                    }
+                    $order_item->save();
+                }
+            }
+            
+            // Add quote request flag
+            $order->add_meta_data('_bytemash_quote_request', 'yes', true);
+            $order->add_meta_data('_bytemash_quote_request_date', current_time('mysql'), true);
+            
+            // Set order status (use full status name with wc- prefix)
+            $order->set_status('wc-quote-request');
+            
+            // Calculate totals (set to 0 for quote requests)
+            $order->calculate_totals();
+            
+            // Save order
+            $order->save();
+            
+            // Log the quote request
+            $logger = new ByteMash_Logger();
+            $logger->log('info', 'Quote request submitted', array(
+                'order_id' => $order->get_id(),
+                'product_id' => $product_id,
+                'variation_id' => $variation_id,
+                'quantity' => $quantity,
+                'customer_email' => $customer_email,
+            ), 'quote_request');
+            
+            wp_send_json_success(array(
+                'message' => __('Quote request submitted successfully! We will contact you soon.', 'bytemash-woo-sync'),
+                'order_id' => $order->get_id(),
+            ));
+            
+        } catch (Exception $e) {
+            wp_send_json_error(array('message' => $e->getMessage()));
+        }
     }
 }
 
