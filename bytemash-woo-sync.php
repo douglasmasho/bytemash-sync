@@ -125,12 +125,8 @@ class ByteMash_Woo_Sync {
         // Quote Mode - replace normal ordering flow with custom quote form
         add_action('woocommerce_before_add_to_cart_form', array($this, 'maybe_add_quote_mode_wrapper'), 5);
         add_action('woocommerce_before_add_to_cart_button', array($this, 'maybe_hide_add_to_cart_in_quote_mode'), 5);
-        add_action('woocommerce_after_add_to_cart_button', array($this, 'maybe_replace_add_to_cart_with_quote_button'), 5);
-        // Also add button after form to ensure it shows even if add to cart button doesn't render
         add_action('woocommerce_after_add_to_cart_form', array($this, 'maybe_replace_add_to_cart_with_quote_button'), 15);
         add_action('woocommerce_after_add_to_cart_form', array($this, 'maybe_close_quote_mode_wrapper'), 20);
-        // Also add directly to single product summary as final fallback
-        add_action('woocommerce_single_product_summary', array($this, 'maybe_replace_add_to_cart_with_quote_button'), 32);
         
         // In quote mode, ensure all variations are visible (even without prices)
         add_filter('woocommerce_hide_invisible_variations', array($this, 'show_all_variations_in_quote_mode'), 10, 3);
@@ -165,6 +161,7 @@ class ByteMash_Woo_Sync {
         add_action('plugins_loaded', array($this, 'check_dependencies'));
         add_action('init', array($this, 'load_textdomain'));
         add_action('init', array($this, 'init_scheduler'));
+        add_action('init', array($this, 'register_product_flag_taxonomies'));
         add_action('before_woocommerce_init', array($this, 'declare_hpos_compatibility'));
         
         // Hook into WooCommerce product images
@@ -253,6 +250,116 @@ class ByteMash_Woo_Sync {
         // Activation/deactivation hooks
         register_activation_hook(__FILE__, array($this, 'activate'));
         register_deactivation_hook(__FILE__, array($this, 'deactivate'));
+    }
+
+    /**
+     * Register custom taxonomies for product behaviour and promotion flags
+     */
+    public function register_product_flag_taxonomies() {
+        // Behaviour taxonomy
+        if (!taxonomy_exists('amrod_product_behaviour')) {
+            register_taxonomy(
+                'amrod_product_behaviour',
+                array('product'),
+                array(
+                    'labels' => array(
+                        'name' => __('Product Behaviour', 'bytemash-woo-sync'),
+                        'singular_name' => __('Behaviour', 'bytemash-woo-sync'),
+                        'search_items' => __('Search Behaviour Flags', 'bytemash-woo-sync'),
+                        'all_items' => __('All Behaviour Flags', 'bytemash-woo-sync'),
+                        'parent_item' => __('Parent Behaviour', 'bytemash-woo-sync'),
+                        'parent_item_colon' => __('Parent Behaviour:', 'bytemash-woo-sync'),
+                        'edit_item' => __('Edit Behaviour', 'bytemash-woo-sync'),
+                        'update_item' => __('Update Behaviour', 'bytemash-woo-sync'),
+                        'add_new_item' => __('Add New Behaviour', 'bytemash-woo-sync'),
+                        'new_item_name' => __('New Behaviour Name', 'bytemash-woo-sync'),
+                        'menu_name' => __('Product Behaviour', 'bytemash-woo-sync'),
+                    ),
+                    'hierarchical' => true,
+                    'show_ui' => true,
+                    'show_in_menu' => true,
+                    'show_admin_column' => true,
+                    'show_in_nav_menus' => false,
+                    'show_tagcloud' => false,
+                    'show_in_rest' => true,
+                    'query_var' => true,
+                    'rewrite' => array(
+                        'slug' => 'product-behaviour',
+                        'with_front' => false,
+                    ),
+                )
+            );
+        }
+
+        // Promotion taxonomy
+        if (!taxonomy_exists('amrod_product_promotion')) {
+            register_taxonomy(
+                'amrod_product_promotion',
+                array('product'),
+                array(
+                    'labels' => array(
+                        'name' => __('Product Promotion', 'bytemash-woo-sync'),
+                        'singular_name' => __('Promotion', 'bytemash-woo-sync'),
+                        'search_items' => __('Search Promotion Flags', 'bytemash-woo-sync'),
+                        'all_items' => __('All Promotion Flags', 'bytemash-woo-sync'),
+                        'parent_item' => __('Parent Promotion', 'bytemash-woo-sync'),
+                        'parent_item_colon' => __('Parent Promotion:', 'bytemash-woo-sync'),
+                        'edit_item' => __('Edit Promotion', 'bytemash-woo-sync'),
+                        'update_item' => __('Update Promotion', 'bytemash-woo-sync'),
+                        'add_new_item' => __('Add New Promotion', 'bytemash-woo-sync'),
+                        'new_item_name' => __('New Promotion Name', 'bytemash-woo-sync'),
+                        'menu_name' => __('Product Promotion', 'bytemash-woo-sync'),
+                    ),
+                    'hierarchical' => true,
+                    'show_ui' => true,
+                    'show_in_menu' => true,
+                    'show_admin_column' => true,
+                    'show_in_nav_menus' => false,
+                    'show_tagcloud' => false,
+                    'show_in_rest' => true,
+                    'query_var' => true,
+                    'rewrite' => array(
+                        'slug' => 'product-promotion',
+                        'with_front' => false,
+                    ),
+                )
+            );
+        }
+
+        // Ensure default terms exist for behaviour
+        $behaviour_terms = array(
+            '0' => array('slug' => 'normal', 'name' => __('Normal', 'bytemash-woo-sync')),
+            '1' => array('slug' => 'featured', 'name' => __('Featured', 'bytemash-woo-sync')),
+            '2' => array('slug' => 'hidden', 'name' => __('Hidden', 'bytemash-woo-sync')),
+        );
+
+        foreach ($behaviour_terms as $term_data) {
+            if (!term_exists($term_data['slug'], 'amrod_product_behaviour')) {
+                wp_insert_term(
+                    $term_data['name'],
+                    'amrod_product_behaviour',
+                    array('slug' => $term_data['slug'])
+                );
+            }
+        }
+
+        // Ensure default terms exist for promotion
+        $promotion_terms = array(
+            '0' => array('slug' => 'normal', 'name' => __('Normal', 'bytemash-woo-sync')),
+            '1' => array('slug' => 'promotion', 'name' => __('On Promotion', 'bytemash-woo-sync')),
+            '2' => array('slug' => 'new', 'name' => __('New', 'bytemash-woo-sync')),
+            '3' => array('slug' => 'clearance', 'name' => __('Clearance', 'bytemash-woo-sync')),
+        );
+
+        foreach ($promotion_terms as $term_data) {
+            if (!term_exists($term_data['slug'], 'amrod_product_promotion')) {
+                wp_insert_term(
+                    $term_data['name'],
+                    'amrod_product_promotion',
+                    array('slug' => $term_data['slug'])
+                );
+            }
+        }
     }
     
     /**
@@ -464,7 +571,202 @@ class ByteMash_Woo_Sync {
         echo '<div style="border:1px solid #eee; height:700px">';
         echo '<iframe src="' . $safe_url . '#view=FitH" style="width:100%; height:100%" loading="lazy"></iframe>';
         echo '</div>';
+        $this->render_product_dimension_details_section($product_id);
         echo '</div>';
+    }
+
+    /**
+     * Render dimension details section for product tab
+     */
+    private function render_product_dimension_details_section($product_id) {
+        $show_dimensions = get_option('bytemash_show_dimension_details', true);
+        if (!$show_dimensions) {
+            return;
+        }
+
+        $details = get_post_meta($product_id, '_amrod_dimension_details', true);
+        if (empty($details) || !is_array($details)) {
+            return;
+        }
+
+        echo '<div class="bytemash-dimension-details">';
+        echo '<h3>' . esc_html__('Dimension Details', 'bytemash-woo-sync') . '</h3>';
+
+        if (!empty($details['product']) && is_array($details['product'])) {
+            $product_measurements = $this->format_dimension_measurements($details['product']);
+            $product_weight = $this->extract_dimension_weight($details['product']);
+
+            if ($product_measurements || $product_weight !== '') {
+                echo '<div class="bytemash-dimension-block">';
+                echo '<h4>' . esc_html__('Product', 'bytemash-woo-sync') . '</h4>';
+                if ($product_measurements) {
+                    echo '<p>' . esc_html($product_measurements) . '</p>';
+                }
+                if ($product_weight !== '') {
+                    /* translators: %s: Product weight */
+                    echo '<p>' . esc_html(sprintf(__('Weight: %s', 'bytemash-woo-sync'), $product_weight)) . '</p>';
+                }
+                echo '</div>';
+            }
+        }
+
+        if (!empty($details['packaging']) && is_array($details['packaging'])) {
+            $packaging_measurements = $this->format_dimension_measurements($details['packaging']);
+            $packaging_weight = $this->extract_dimension_weight($details['packaging']);
+            $pieces_per_carton = $this->extract_dimension_value($details['packaging'], 'pieces_per_carton');
+
+            if ($packaging_measurements || $packaging_weight !== '' || $pieces_per_carton !== '') {
+                echo '<div class="bytemash-dimension-block">';
+                echo '<h4>' . esc_html__('Packaging', 'bytemash-woo-sync') . '</h4>';
+                if ($packaging_measurements) {
+                    /* translators: %s: packaging measurements */
+                    echo '<p>' . esc_html(sprintf(__('Carton size: %s', 'bytemash-woo-sync'), $packaging_measurements)) . '</p>';
+                }
+                if ($pieces_per_carton !== '') {
+                    /* translators: %s: pieces per carton */
+                    echo '<p>' . esc_html(sprintf(__('Pieces per carton: %s', 'bytemash-woo-sync'), $pieces_per_carton)) . '</p>';
+                }
+                if ($packaging_weight !== '') {
+                    /* translators: %s: packaging weight */
+                    echo '<p>' . esc_html(sprintf(__('Carton weight: %s', 'bytemash-woo-sync'), $packaging_weight)) . '</p>';
+                }
+                echo '</div>';
+            }
+        }
+
+        if (!empty($details['variants']) && is_array($details['variants'])) {
+            $has_variant_dimensions = false;
+            foreach ($details['variants'] as $variant) {
+                if (!empty($variant['product']) || !empty($variant['packaging'])) {
+                    $has_variant_dimensions = true;
+                    break;
+                }
+            }
+
+            if ($has_variant_dimensions) {
+                echo '<div class="bytemash-dimension-block bytemash-dimension-variants">';
+                echo '<h4>' . esc_html__('Variants', 'bytemash-woo-sync') . '</h4>';
+                echo '<div class="bytemash-dimension-table-wrapper">';
+                echo '<table class="bytemash-dimension-table">';
+                echo '<thead><tr>';
+                echo '<th>' . esc_html__('Variant', 'bytemash-woo-sync') . '</th>';
+                echo '<th>' . esc_html__('Product Dimensions', 'bytemash-woo-sync') . '</th>';
+                echo '<th>' . esc_html__('Product Weight', 'bytemash-woo-sync') . '</th>';
+                echo '<th>' . esc_html__('Packaging Dimensions', 'bytemash-woo-sync') . '</th>';
+                echo '<th>' . esc_html__('Pieces/Carton', 'bytemash-woo-sync') . '</th>';
+                echo '<th>' . esc_html__('Carton Weight', 'bytemash-woo-sync') . '</th>';
+                echo '</tr></thead><tbody>';
+
+                foreach ($details['variants'] as $variant) {
+                    if (empty($variant['product']) && empty($variant['packaging'])) {
+                        continue;
+                    }
+
+                    $variant_label = $this->format_variant_label($variant);
+                    $variant_product_measurements = !empty($variant['product']) ? $this->format_dimension_measurements($variant['product']) : '';
+                    $variant_product_weight = !empty($variant['product']) ? $this->extract_dimension_weight($variant['product']) : '';
+                    $variant_packaging_measurements = !empty($variant['packaging']) ? $this->format_dimension_measurements($variant['packaging']) : '';
+                    $variant_pieces = !empty($variant['packaging']) ? $this->extract_dimension_value($variant['packaging'], 'pieces_per_carton') : '';
+                    $variant_carton_weight = !empty($variant['packaging']) ? $this->extract_dimension_weight($variant['packaging']) : '';
+
+                    echo '<tr>';
+                    echo '<td>' . esc_html($variant_label) . '</td>';
+                    echo '<td>' . esc_html($variant_product_measurements !== '' ? $variant_product_measurements : '—') . '</td>';
+                    echo '<td>' . esc_html($variant_product_weight !== '' ? $variant_product_weight : '—') . '</td>';
+                    echo '<td>' . esc_html($variant_packaging_measurements !== '' ? $variant_packaging_measurements : '—') . '</td>';
+                    echo '<td>' . esc_html($variant_pieces !== '' ? $variant_pieces : '—') . '</td>';
+                    echo '<td>' . esc_html($variant_carton_weight !== '' ? $variant_carton_weight : '—') . '</td>';
+                    echo '</tr>';
+                }
+
+                echo '</tbody></table>';
+                echo '</div></div>';
+            }
+        }
+
+        echo '</div>';
+    }
+
+    /**
+     * Build formatted dimension string (Length/Width/Height/Depth)
+     */
+    private function format_dimension_measurements($values) {
+        if (empty($values) || !is_array($values)) {
+            return '';
+        }
+
+        $labels = array(
+            'length' => __('L', 'bytemash-woo-sync'),
+            'width' => __('W', 'bytemash-woo-sync'),
+            'height' => __('H', 'bytemash-woo-sync'),
+            'depth' => __('D', 'bytemash-woo-sync'),
+        );
+
+        $parts = array();
+        foreach ($labels as $key => $label) {
+            if (isset($values[$key]) && $values[$key] !== '') {
+                $parts[] = sprintf('%s: %s', $label, $this->format_dimension_value_for_display($values[$key]));
+            }
+        }
+
+        return !empty($parts) ? implode(' | ', $parts) : '';
+    }
+
+    /**
+     * Extract weight value from dimension array
+     */
+    private function extract_dimension_weight($values) {
+        if (!is_array($values) || !array_key_exists('weight', $values)) {
+            return '';
+        }
+
+        return $this->format_dimension_value_for_display($values['weight']);
+    }
+
+    /**
+     * Extract specific dimension value (e.g. pieces_per_carton)
+     */
+    private function extract_dimension_value($values, $key) {
+        if (!is_array($values) || !array_key_exists($key, $values)) {
+            return '';
+        }
+
+        return $this->format_dimension_value_for_display($values[$key]);
+    }
+
+    /**
+     * Format numeric/string dimension value for display
+     */
+    private function format_dimension_value_for_display($value) {
+        if (is_numeric($value)) {
+            $formatted = number_format((float) $value, 2, '.', '');
+            $formatted = rtrim(rtrim($formatted, '0'), '.');
+            return $formatted;
+        }
+
+        return (string) $value;
+    }
+
+    /**
+     * Build human-readable variant label
+     */
+    private function format_variant_label($variant) {
+        $parts = array();
+
+        if (is_array($variant)) {
+            if (!empty($variant['colour'])) {
+                $parts[] = $variant['colour'];
+            }
+            if (!empty($variant['size'])) {
+                $parts[] = $variant['size'];
+            }
+            if (!empty($variant['code'])) {
+                $code = $variant['code'];
+                $parts[] = sprintf(__('Code: %s', 'bytemash-woo-sync'), $code);
+            }
+        }
+
+        return !empty($parts) ? implode(' | ', array_map('strval', $parts)) : __('Variant', 'bytemash-woo-sync');
     }
 
     /**
@@ -669,6 +971,11 @@ class ByteMash_Woo_Sync {
      * Render branding options as multi-select fields on the product page
      */
     public function render_branding_options_fields() {
+        // Don't render if quote mode is enabled (quote mode has its own rendering)
+        if ($this->is_quote_mode_enabled()) {
+            return;
+        }
+        
         // Prevent duplicate rendering (since we hook to both before_add_to_cart_button and single_product_summary)
         static $branding_options_rendered = false;
         if ($branding_options_rendered) {
@@ -728,11 +1035,12 @@ class ByteMash_Woo_Sync {
             return;
         }
         
-        // Only render if not already rendered (check static flag)
-        static $branding_options_rendered = false;
-        if ($branding_options_rendered) {
+        // Prevent duplicate rendering
+        static $quote_branding_options_rendered = false;
+        if ($quote_branding_options_rendered) {
             return;
         }
+        $quote_branding_options_rendered = true;
         
         // Get product
         $product_id = get_the_ID();
@@ -3747,6 +4055,7 @@ class ByteMash_Woo_Sync {
         echo '.bytemash-quote-mode-active form.cart { display: block !important; }';
         echo '.bytemash-quote-mode-active .variations { display: block !important; }';
         echo '.bytemash-quote-mode-active .variations_form { display: block !important; }';
+        echo '#bytemash-request-quote-btn, #bytemash-request-quote-btn-fallback { display: block !important; visibility: visible !important; }';
         echo '</style>';
         
         // Start wrapper div
@@ -3769,18 +4078,16 @@ class ByteMash_Woo_Sync {
             return;
         }
         
-        // Prevent duplicate rendering using a static flag
+        // Use static flag to prevent duplicate rendering
         static $quote_button_rendered = false;
         if ($quote_button_rendered) {
             return;
         }
-        
-        // Mark as rendered
         $quote_button_rendered = true;
         
         // Add quote request button after the add to cart button (which is hidden by CSS)
-        echo '<div class="bytemash-quote-submit" style="margin: 20px 0; clear: both;">';
-        echo '<button type="button" id="bytemash-request-quote-btn" class="button alt" style="width: 100%; padding: 15px; font-size: 16px; display: block !important;">';
+        echo '<div class="bytemash-quote-submit" style="margin: 20px 0; clear: both; display: block !important;">';
+        echo '<button type="button" id="bytemash-request-quote-btn" class="button alt" style="width: 100%; padding: 15px; font-size: 16px; display: block !important; visibility: visible !important;">';
         echo esc_html__('Make Quote Request', 'bytemash-woo-sync');
         echo '</button>';
         echo '<div id="bytemash-quote-request-message" style="margin-top: 10px; display: none;"></div>';
@@ -4020,29 +4327,12 @@ class ByteMash_Woo_Sync {
         }
         
         // Always render the button - JavaScript will hide it if the main button already exists
-        echo '<div class="bytemash-quote-request-fallback" style="margin: 20px 0; clear: both;">';
-        echo '<button type="button" id="bytemash-request-quote-btn-fallback" class="button alt" style="width: 100%; padding: 15px; font-size: 16px; display: block !important;">';
+        echo '<div class="bytemash-quote-request-fallback" style="margin: 20px 0; clear: both; display: block !important;">';
+        echo '<button type="button" id="bytemash-request-quote-btn-fallback" class="button alt" style="width: 100%; padding: 15px; font-size: 16px; display: block !important; visibility: visible !important;">';
         echo esc_html__('Make Quote Request', 'bytemash-woo-sync');
         echo '</button>';
         echo '<div id="bytemash-quote-request-message-fallback" style="margin-top: 10px; display: none;"></div>';
         echo '</div>';
-        
-        // Add JavaScript to handle the fallback button (map it to the main button functionality)
-        echo '<script type="text/javascript">';
-        echo 'jQuery(document).ready(function($) {';
-        echo '  // Wait a bit for DOM to be ready';
-        echo '  setTimeout(function() {';
-        echo '    // If main button exists, hide fallback. Otherwise, make fallback button work';
-        echo '    if ($("#bytemash-request-quote-btn").length > 0 && $("#bytemash-request-quote-btn").is(":visible")) {';
-        echo '      $(".bytemash-quote-request-fallback").hide();';
-        echo '    } else {';
-        echo '      // Make fallback button work like main button';
-        echo '      $("#bytemash-request-quote-btn-fallback").attr("id", "bytemash-request-quote-btn");';
-        echo '      $("#bytemash-quote-request-message-fallback").attr("id", "bytemash-quote-request-message");';
-        echo '    }';
-        echo '  }, 100);';
-        echo '});';
-        echo '</script>';
     }
     
     /**
@@ -4101,6 +4391,24 @@ class ByteMash_Woo_Sync {
             wp_send_json_error(array('message' => __('Product not found.', 'bytemash-woo-sync')));
         }
         
+        // VALIDATION: Check if variation is required for variable products
+        if ($product->is_type('variable')) {
+            if ($variation_id <= 0) {
+                wp_send_json_error(array('message' => __('Please select a variation (color and size) before submitting your quote request.', 'bytemash-woo-sync')));
+            }
+            
+            // Verify variation belongs to this product
+            $variation = wc_get_product($variation_id);
+            if (!$variation || $variation->get_parent_id() != $product_id) {
+                wp_send_json_error(array('message' => __('Invalid variation selected.', 'bytemash-woo-sync')));
+            }
+        }
+        
+        // VALIDATION: Ensure quantity is valid
+        if ($quantity <= 0) {
+            $quantity = 1;
+        }
+        
         // Get current user info or use guest info
         $current_user = wp_get_current_user();
         $customer_email = $current_user->user_email;
@@ -4136,11 +4444,101 @@ class ByteMash_Woo_Sync {
                 }
             }
             
+            // For quote requests, temporarily allow products without prices
+            // Store original price if it exists
+            $original_price = $product_to_add->get_price();
+            $original_regular_price = $product_to_add->get_regular_price();
+            $product_id_to_modify = $product_to_add->get_id();
+            $has_price = !empty($original_price) && is_numeric($original_price) && floatval($original_price) > 0;
+            
+            // If no price or price is 0, set a temporary price of 0.01 to allow order creation
+            // We'll set it to 0 after adding to order
+            $price_was_changed = false;
+            if (!$has_price) {
+                // Set temporary price directly in meta first
+                update_post_meta($product_id_to_modify, '_price', '0.01');
+                update_post_meta($product_id_to_modify, '_regular_price', '0.01');
+                update_post_meta($product_id_to_modify, '_sale_price', '');
+                
+                // Then update the product object
+                $product_to_add->set_price('0.01');
+                $product_to_add->set_regular_price('0.01');
+                $product_to_add->set_sale_price('');
+                $saved = $product_to_add->save();
+                $price_was_changed = true;
+                
+                if (!$saved) {
+                    // Restore on failure
+                    update_post_meta($product_id_to_modify, '_price', $original_price ?: '');
+                    update_post_meta($product_id_to_modify, '_regular_price', $original_regular_price ?: '');
+                    update_post_meta($product_id_to_modify, '_sale_price', '');
+                    throw new Exception(__('Failed to prepare product for order creation.', 'bytemash-woo-sync'));
+                }
+                
+                // CRITICAL: Reload the product to ensure WooCommerce sees the updated price
+                wc_delete_product_transients($product_id_to_modify);
+                $product_to_add = wc_get_product($product_id_to_modify);
+                
+                // Verify price is set
+                $verify_price = $product_to_add->get_price();
+                if (empty($verify_price) || floatval($verify_price) <= 0) {
+                    // Restore on failure
+                    update_post_meta($product_id_to_modify, '_price', $original_price ?: '');
+                    update_post_meta($product_id_to_modify, '_regular_price', $original_regular_price ?: '');
+                    update_post_meta($product_id_to_modify, '_sale_price', '');
+                    wc_delete_product_transients($product_id_to_modify);
+                    throw new Exception(__('Failed to set product price for order creation.', 'bytemash-woo-sync'));
+                }
+            }
+            
             // Add product to order
-            $item_id = $order->add_product($product_to_add, $quantity);
+            try {
+                $item_id = $order->add_product($product_to_add, $quantity);
+            } catch (Exception $e) {
+                // Restore original price if we changed it
+                if ($price_was_changed) {
+                    update_post_meta($product_id_to_modify, '_price', $original_price ?: '');
+                    update_post_meta($product_id_to_modify, '_regular_price', $original_regular_price ?: '');
+                    update_post_meta($product_id_to_modify, '_sale_price', '');
+                    wc_delete_product_transients($product_id_to_modify);
+                    $restore_product = wc_get_product($product_id_to_modify);
+                    if ($restore_product) {
+                        $restore_product->set_price($original_price ?: '');
+                        $restore_product->set_regular_price($original_regular_price ?: '');
+                        $restore_product->set_sale_price('');
+                        $restore_product->save();
+                    }
+                }
+                throw new Exception(__('Failed to add product to order: ', 'bytemash-woo-sync') . $e->getMessage());
+            }
+            
+            // Restore original price (or remove it) if we changed it
+            if ($price_was_changed) {
+                update_post_meta($product_id_to_modify, '_price', $original_price ?: '');
+                update_post_meta($product_id_to_modify, '_regular_price', $original_regular_price ?: '');
+                update_post_meta($product_id_to_modify, '_sale_price', '');
+                wc_delete_product_transients($product_id_to_modify);
+                $restore_product = wc_get_product($product_id_to_modify);
+                if ($restore_product) {
+                    $restore_product->set_price($original_price ?: '');
+                    $restore_product->set_regular_price($original_regular_price ?: '');
+                    $restore_product->set_sale_price('');
+                    $restore_product->save();
+                }
+            }
             
             if (!$item_id) {
                 throw new Exception(__('Failed to add product to order.', 'bytemash-woo-sync'));
+            }
+            
+            // Set line item price to 0 for quote requests (no price)
+            if (!$has_price) {
+                $order_item = $order->get_item($item_id);
+                if ($order_item) {
+                    $order_item->set_subtotal(0);
+                    $order_item->set_total(0);
+                    $order_item->save();
+                }
             }
             
             // Add variation details as meta
@@ -4157,13 +4555,76 @@ class ByteMash_Woo_Sync {
                 }
             }
             
-            // Add branding options as meta
+            // Add branding options as meta with full text (not just codes)
             if (!empty($brandings) && is_array($brandings)) {
                 $order_item = $order->get_item($item_id);
                 if ($order_item) {
+                    // Get full branding data from product meta to get names
+                    $product_brandings = get_post_meta($product_id, '_amrod_brandings', true);
+                    
                     foreach ($brandings as $pos_code => $codes) {
                         if (is_array($codes) && !empty($codes)) {
-                            $order_item->add_meta_data('Branding ' . strtoupper(sanitize_text_field($pos_code)), implode(', ', array_map('sanitize_text_field', $codes)), true);
+                            // Build display text with full names
+                            $display_items = array();
+                            
+                            // Find position name
+                            $position_name = '';
+                            if (!empty($product_brandings) && is_array($product_brandings)) {
+                                foreach ($product_brandings as $pos) {
+                                    $pos_code_check = $pos['positionCode'] ?? '';
+                                    if ($pos_code_check === $pos_code) {
+                                        $position_name = $pos['positionName'] ?? '';
+                                        break;
+                                    }
+                                }
+                            }
+                            
+                            // For each selected code, find the full branding details
+                            foreach ($codes as $code) {
+                                $code = sanitize_text_field($code);
+                                $branding_text = $code; // Default to code if not found
+                                
+                                // Look up full branding details
+                                if (!empty($product_brandings) && is_array($product_brandings)) {
+                                    foreach ($product_brandings as $pos) {
+                                        if (($pos['positionCode'] ?? '') === $pos_code && !empty($pos['method']) && is_array($pos['method'])) {
+                                            foreach ($pos['method'] as $method) {
+                                                if (($method['brandingCode'] ?? '') === $code) {
+                                                    $name = $method['brandingName'] ?? '';
+                                                    $dept = $method['brandingDepartment'] ?? '';
+                                                    $w = $method['maxPrintingSizeWidth'] ?? '';
+                                                    $h = $method['maxPrintingSizeHeight'] ?? '';
+                                                    
+                                                    // Build full text: "Name (Department, Code) - W x H mm"
+                                                    $branding_text = $name;
+                                                    if ($dept) {
+                                                        $branding_text .= ' (' . $dept;
+                                                        if ($code) {
+                                                            $branding_text .= ', ' . $code;
+                                                        }
+                                                        $branding_text .= ')';
+                                                    } elseif ($code) {
+                                                        $branding_text .= ' (' . $code . ')';
+                                                    }
+                                                    if ($w && $h) {
+                                                        $branding_text .= ' - ' . $w . ' x ' . $h . ' mm';
+                                                    }
+                                                    break 2; // Break out of both loops
+                                                }
+                                            }
+                                        }
+                                    }
+                                }
+                                
+                                $display_items[] = $branding_text;
+                            }
+                            
+                            // Use position name if available, otherwise use position code
+                            $meta_key = !empty($position_name) 
+                                ? 'Branding: ' . sanitize_text_field($position_name)
+                                : 'Branding ' . strtoupper(sanitize_text_field($pos_code));
+                            
+                            $order_item->add_meta_data($meta_key, implode('; ', $display_items), true);
                         }
                     }
                     $order_item->save();
@@ -4177,8 +4638,26 @@ class ByteMash_Woo_Sync {
             // Set order status (use full status name with wc- prefix)
             $order->set_status('wc-quote-request');
             
-            // Calculate totals (set to 0 for quote requests)
+            // For quote requests without prices, set line item totals to 0 BEFORE calculating
+            if (!$has_price) {
+                $order_item = $order->get_item($item_id);
+                if ($order_item) {
+                    $order_item->set_subtotal(0);
+                    $order_item->set_total(0);
+                    $order_item->set_subtotal_tax(0);
+                    $order_item->set_total_tax(0);
+                    $order_item->save();
+                }
+            }
+            
+            // Calculate totals
             $order->calculate_totals();
+            
+            // For quote requests without prices, ensure order total is 0 AFTER calculation
+            if (!$has_price) {
+                // Set order total to 0 (only method available on WC_Order)
+                $order->set_total(0);
+            }
             
             // Save order
             $order->save();
@@ -4199,7 +4678,19 @@ class ByteMash_Woo_Sync {
             ));
             
         } catch (Exception $e) {
-            wp_send_json_error(array('message' => $e->getMessage()));
+            // Log the error for debugging
+            $logger = new ByteMash_Logger();
+            $logger->log('error', 'Quote request failed', array(
+                'product_id' => $product_id,
+                'variation_id' => $variation_id,
+                'error' => $e->getMessage(),
+                'trace' => $e->getTraceAsString(),
+            ), 'quote_request');
+            
+            wp_send_json_error(array(
+                'message' => __('Failed to submit quote request. Please try again.', 'bytemash-woo-sync'),
+                'debug' => $e->getMessage() // Include in response for debugging (remove in production)
+            ));
         }
     }
 }

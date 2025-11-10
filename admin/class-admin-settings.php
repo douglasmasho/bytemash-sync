@@ -29,6 +29,7 @@ class ByteMash_Admin_Settings {
         $api_token = get_option('bytemash_amrod_api_token', '');
         $batch_size = get_option('bytemash_amrod_batch_size', 50);
         $force_buttons = get_option('bytemash_force_product_buttons', false);
+        $show_dimensions = get_option('bytemash_show_dimension_details', true);
         $full_sync_frequency = get_option('bytemash_full_sync_frequency', 'daily_at_0130');
         $incremental_frequency = get_option('bytemash_incremental_sync_frequency', 'every_5_hours');
         
@@ -248,6 +249,20 @@ class ByteMash_Admin_Settings {
                                     </label>
                                     <p class="description">
                                         <?php esc_html_e('If your theme/page builder does not render standard WooCommerce hooks, enable this to append the buttons regardless of theme.', 'bytemash-woo-sync'); ?>
+                                    </p>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row">
+                                    <label for="show_dimension_details"><?php esc_html_e('Show Dimension Details', 'bytemash-woo-sync'); ?></label>
+                                </th>
+                                <td>
+                                    <label>
+                                        <input type="checkbox" name="show_dimension_details" id="show_dimension_details" value="1" <?php checked($show_dimensions, true); ?> />
+                                        <?php esc_html_e('Display Amrod dimension and packaging details within the product tab area.', 'bytemash-woo-sync'); ?>
+                                    </label>
+                                    <p class="description">
+                                        <?php esc_html_e('When enabled, the Branding Guide tab will include product and packaging dimensions sourced from the latest sync response.', 'bytemash-woo-sync'); ?>
                                     </p>
                                 </td>
                             </tr>
@@ -843,6 +858,7 @@ class ByteMash_Admin_Settings {
 
         // Save UI options
         update_option('bytemash_force_product_buttons', isset($_POST['force_buttons']));
+        update_option('bytemash_show_dimension_details', isset($_POST['show_dimension_details']));
         
         // Log the settings update
         $logger = new ByteMash_Logger();

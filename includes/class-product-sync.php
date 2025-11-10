@@ -253,6 +253,13 @@ class ByteMash_Product_Sync {
         $variation_count = 0;
         $variation_errors = 0;
         
+        // Check if variants array is empty or missing
+        if (empty($product_data['variants']) || !is_array($product_data['variants']) || count($product_data['variants']) === 0) {
+            $this->logger->log('warning', 'No variants in product data - will convert to simple product', array(
+                'product_id' => $product_id,
+                'sku' => $parent_sku,
+            ), 'product_sync');
+        } else {
         foreach ($product_data['variants'] as $variant_data) {
             try {
                 $result = $this->create_product_variation($product_id, $variant_data, $product_data);
@@ -268,6 +275,7 @@ class ByteMash_Product_Sync {
                     'variant_sku' => $variant_data['fullCode'] ?? 'unknown',
                     'error' => $e->getMessage(),
                 ), 'product_sync');
+                }
             }
         }
         
@@ -277,6 +285,47 @@ class ByteMash_Product_Sync {
             'variations_created' => $variation_count,
             'variation_errors' => $variation_errors,
         ), 'product_sync');
+        
+        // If no variations were created, convert back to simple product
+        if ($variation_count === 0) {
+            $this->logger->log('warning', 'No variations created - converting variable product back to simple', array(
+                'product_id' => $product_id,
+                'sku' => $parent_sku,
+            ), 'product_sync');
+            
+            // Get product data before deleting
+            $product_name = $product->get_name();
+            $product_sku = $product->get_sku();
+            $product_description = $product->get_description();
+            $category_ids = $product->get_category_ids();
+            $image_ids = $product->get_gallery_image_ids();
+            $meta_data = get_post_meta($product_id);
+            
+            // Delete variable product
+            wp_delete_post($product_id, true);
+            
+            // Create simple product
+            $simple_product = new WC_Product_Simple();
+            $simple_product->set_sku($product_sku);
+            $simple_product->set_name($product_name);
+            $simple_product->set_description($product_description);
+            $simple_product->set_category_ids($category_ids);
+            
+            $new_product_id = $this->save_product_safely($simple_product);
+            
+            // Restore meta data (but exclude branding - it will be synced from API below)
+            foreach ($meta_data as $key => $value) {
+                if (!in_array($key, ['_sku', '_product_attributes', '_default_attributes', '_product_version', '_amrod_brandings'])) {
+                    update_post_meta($new_product_id, $key, $value[0] ?? $value);
+                }
+            }
+            
+            // IMPORTANT: Sync branding from API data after conversion
+            // This ensures branding is always up-to-date from the API response
+            $this->sync_product_meta($new_product_id, $product_data);
+            
+            return array('success' => true, 'product_id' => $new_product_id, 'message' => "Product converted to simple (no variations created)");
+        }
         
         return array('success' => true, 'product_id' => $product_id, 'message' => "Variable product created with {$variation_count} variations");
     }
@@ -493,6 +542,51 @@ class ByteMash_Product_Sync {
         $enable_variable_products = get_option('bytemash_enable_variable_products', true);
         $has_variants = $enable_variable_products && !empty($product_data['variants']) && is_array($product_data['variants']) && count($product_data['variants']) > 0;
         
+        // Check if existing product is variable but should be simple (no variants in API)
+        $product_id = wc_get_product_id_by_sku($sku);
+        if ($product_id && !$has_variants) {
+            $existing_product = wc_get_product($product_id);
+            if ($existing_product && $existing_product->is_type('variable')) {
+                $this->logger->log('info', 'Product was variable but now has no variants - converting to simple', array(
+                    'product_id' => $product_id,
+                    'sku' => $sku,
+                ), 'product_sync');
+                
+                // Get product data before deleting
+                $product_name = $existing_product->get_name();
+                $product_sku = $existing_product->get_sku();
+                $product_description = $existing_product->get_description();
+                $category_ids = $existing_product->get_category_ids();
+                $meta_data = get_post_meta($product_id);
+                
+                // Delete variable product
+                wp_delete_post($product_id, true);
+                
+                // Create simple product
+                $simple_product = new WC_Product_Simple();
+                $simple_product->set_sku($product_sku);
+                $simple_product->set_name($product_name);
+                $simple_product->set_description($product_description);
+                $simple_product->set_category_ids($category_ids);
+                
+                $new_product_id = $this->save_product_safely($simple_product);
+                
+                // Restore meta data (but exclude branding - it will be synced from API below)
+                foreach ($meta_data as $key => $value) {
+                    if (!in_array($key, ['_sku', '_product_attributes', '_default_attributes', '_product_version', '_amrod_brandings'])) {
+                        update_post_meta($new_product_id, $key, $value[0] ?? $value);
+                    }
+                }
+                
+                // Update product_id for the sync below
+                $product_id = $new_product_id;
+                
+                // IMPORTANT: After conversion, sync_product_meta will be called which will sync branding from API
+                // This ensures branding is always up-to-date from the API response
+                // We excluded _amrod_brandings from meta restore above to prevent overwriting fresh API data
+            }
+        }
+        
         $this->logger->log('info', 'Product variant check', array(), 'product_sync');
         
         if ($has_variants) {
@@ -517,7 +611,10 @@ class ByteMash_Product_Sync {
         $this->logger->log('info', 'Routing to simple product sync', array(), 'product_sync');
         
         // Otherwise create/update as Simple Product
-        $product_id = wc_get_product_id_by_sku($sku);
+        // Note: product_id may have been set above if we converted variable to simple
+        if (!isset($product_id)) {
+            $product_id = wc_get_product_id_by_sku($sku);
+        }
         
         if ($product_id && !$force) {
             // Check if product data has changed before updating
@@ -554,7 +651,39 @@ class ByteMash_Product_Sync {
                 }
             }
             
-            if ($is_unchanged && !$needs_brand_update) {
+            // Check if branding options need to be updated even if product is otherwise unchanged
+            $needs_branding_update = false;
+            $existing_brandings = get_post_meta($product_id, '_amrod_brandings', true);
+            $api_brandings = $product_data['brandings'] ?? null;
+            
+            // Need to update branding if: branding meta is missing but API has branding, or branding differs
+            if (empty($existing_brandings) && !empty($api_brandings) && is_array($api_brandings)) {
+                $needs_branding_update = true;
+                $this->logger->log('info', "Branding options missing, update needed for product: {$sku}", array(
+                    'product_id' => $product_id,
+                    'sku' => $sku,
+                ), 'product_sync');
+            } elseif (!empty($existing_brandings) && (empty($api_brandings) || !is_array($api_brandings))) {
+                // API no longer has branding, need to clear it
+                $needs_branding_update = true;
+                $this->logger->log('info', "Branding options need to be cleared for product: {$sku}", array(
+                    'product_id' => $product_id,
+                    'sku' => $sku,
+                ), 'product_sync');
+            } elseif (!empty($existing_brandings) && !empty($api_brandings) && is_array($api_brandings)) {
+                // Compare branding options
+                $existing_normalized = wp_json_encode($existing_brandings);
+                $api_normalized = wp_json_encode($api_brandings);
+                if ($existing_normalized !== $api_normalized) {
+                    $needs_branding_update = true;
+                    $this->logger->log('info', "Branding options changed, update needed for product: {$sku}", array(
+                        'product_id' => $product_id,
+                        'sku' => $sku,
+                    ), 'product_sync');
+                }
+            }
+            
+            if ($is_unchanged && !$needs_brand_update && !$needs_branding_update) {
                 $this->logger->log('info', "Product data unchanged, skipping: {$sku}", array(
                     'sku' => $sku,
                     'product_id' => $product_id,
@@ -710,6 +839,31 @@ class ByteMash_Product_Sync {
         
         if (!$this->are_images_unchanged($existing_images, $api_images)) {
             return false;
+        }
+        
+        // Compare branding options - always update if branding meta is missing but API has branding data
+        $existing_brandings = get_post_meta($existing_product->get_id(), '_amrod_brandings', true);
+        $api_brandings = $api_data['brandings'] ?? null;
+        
+        // If branding meta is missing but API has branding data, consider it changed
+        if (empty($existing_brandings) && !empty($api_brandings) && is_array($api_brandings)) {
+            return false; // Need to update to add branding
+        }
+        
+        // If API has no branding but product has branding, consider it changed (to clear old branding)
+        if (!empty($existing_brandings) && (empty($api_brandings) || !is_array($api_brandings))) {
+            return false; // Need to update to clear branding
+        }
+        
+        // If both exist, compare them (deep comparison)
+        if (!empty($existing_brandings) && !empty($api_brandings) && is_array($api_brandings)) {
+            // Normalize both arrays for comparison
+            $existing_normalized = wp_json_encode($existing_brandings);
+            $api_normalized = wp_json_encode($api_brandings);
+            
+            if ($existing_normalized !== $api_normalized) {
+                return false; // Branding has changed
+            }
         }
         
         // If we get here, no significant changes detected
@@ -1102,9 +1256,83 @@ class ByteMash_Product_Sync {
             update_post_meta($product_id, '_amrod_logo24_branding_guide', esc_url_raw($product_data['logo24BrandingGuide']));
         }
         
-        // Store branding information if available
-        if (!empty($product_data['brandings'])) {
-            update_post_meta($product_id, '_amrod_brandings', $product_data['brandings']);
+        // Store branding information - always check and update
+        // Handle cases where brandings key might be missing, null, empty array, or valid array
+        $api_brandings = $product_data['brandings'] ?? null;
+        
+        if (!empty($api_brandings) && is_array($api_brandings)) {
+            // Validate branding structure before saving
+            $valid_brandings = array();
+            foreach ($api_brandings as $idx => $position) {
+                if (is_array($position)) {
+                    // Accept position if it has positionCode OR positionName (some may only have name)
+                    $has_position_code = !empty($position['positionCode']);
+                    $has_position_name = !empty($position['positionName']);
+                    
+                    if ($has_position_code || $has_position_name) {
+                        // Include position if it has methods OR if it's a valid position structure
+                        // Some positions might not have methods yet, but should still be saved
+                        if (isset($position['method'])) {
+                            // If method exists, it should be an array (even if empty)
+                            if (is_array($position['method'])) {
+                                $valid_brandings[] = $position;
+                            } else {
+                                // Method exists but is not an array - log warning but still include position
+                                $this->logger->log('warning', "Branding position has invalid method type", array(
+                                    'product_id' => $product_id,
+                                    'position_index' => $idx,
+                                    'method_type' => gettype($position['method']),
+                                ), 'product_sync');
+                                // Still include it - might be valid in some cases
+                                $valid_brandings[] = $position;
+                            }
+                        } else {
+                            // No method key - include position anyway (methods might be added later or via separate endpoint)
+                            $valid_brandings[] = $position;
+                        }
+                    } else {
+                        // Log invalid position structure
+                        $this->logger->log('warning', "Invalid branding position structure (missing positionCode and positionName)", array(
+                            'product_id' => $product_id,
+                            'position_index' => $idx,
+                        ), 'product_sync');
+                    }
+                }
+            }
+            
+            if (!empty($valid_brandings)) {
+                update_post_meta($product_id, '_amrod_brandings', $valid_brandings);
+                $this->logger->log('info', "Branding options synced", array(
+                    'product_id' => $product_id,
+                    'branding_count' => count($valid_brandings),
+                    'positions' => array_map(function($b) { return $b['positionCode'] ?? 'unknown'; }, $valid_brandings),
+                ), 'product_sync');
+            } else {
+                // API returned brandings but none were valid - clear existing
+                delete_post_meta($product_id, '_amrod_brandings');
+                $this->logger->log('warning', "Branding options cleared (API returned invalid structure)", array(
+                    'product_id' => $product_id,
+                    'api_brandings_type' => gettype($api_brandings),
+                ), 'product_sync');
+            }
+        } else {
+            // API returned null, empty, or brandings key doesn't exist
+            // Check if product currently has branding - if so, clear it (API is source of truth)
+            $existing_brandings = get_post_meta($product_id, '_amrod_brandings', true);
+            if (empty($existing_brandings)) {
+                // Product never had branding, API doesn't have it - this is fine, just log
+                $this->logger->log('info', "No branding options in API response (product has none)", array(
+                    'product_id' => $product_id,
+                    'api_brandings_type' => $api_brandings !== null ? gettype($api_brandings) : 'missing_key',
+                ), 'product_sync');
+            } else {
+                // Product has branding but API doesn't - clear it (API is source of truth)
+                delete_post_meta($product_id, '_amrod_brandings');
+                $this->logger->log('info', "Branding options cleared (API returned empty/null, product previously had branding)", array(
+                    'product_id' => $product_id,
+                    'api_brandings_type' => $api_brandings !== null ? gettype($api_brandings) : 'missing_key',
+                ), 'product_sync');
+            }
         }
         
         // Store color swatches for future swatch functionality
@@ -1193,9 +1421,257 @@ class ByteMash_Product_Sync {
         if (isset($product_data['promotion'])) {
             update_post_meta($product_id, '_amrod_promotion', $product_data['promotion']);
         }
+
+        $dimension_details = $this->extract_dimension_details($product_data);
+        if (!empty($dimension_details)) {
+            update_post_meta($product_id, '_amrod_dimension_details', $dimension_details);
+        } else {
+            delete_post_meta($product_id, '_amrod_dimension_details');
+        }
+
+        $this->sync_product_flag_terms($product_id, $product_data);
         
         // Store last sync timestamp
         update_post_meta($product_id, '_amrod_last_sync', current_time('mysql'));
+    }
+
+    /**
+     * Build dimension and packaging details structure for storage
+     */
+    private function extract_dimension_details($product_data) {
+        $details = array();
+
+        if (!empty($product_data['productDimension']) && is_array($product_data['productDimension'])) {
+            $product_dimension = $this->sanitize_product_dimension($product_data['productDimension']);
+            if (!empty($product_dimension)) {
+                $details['product'] = $product_dimension;
+            }
+        }
+
+        if (!empty($product_data['packagingAndDimension']) && is_array($product_data['packagingAndDimension'])) {
+            $packaging_dimension = $this->sanitize_packaging_dimension($product_data['packagingAndDimension']);
+            if (!empty($packaging_dimension)) {
+                $details['packaging'] = $packaging_dimension;
+            }
+        }
+
+        if (!empty($product_data['variants']) && is_array($product_data['variants'])) {
+            $variant_details = array();
+
+            foreach ($product_data['variants'] as $variant) {
+                if (!is_array($variant)) {
+                    continue;
+                }
+
+                $variant_entry = array();
+
+                if (!empty($variant['fullCode'])) {
+                    $variant_entry['code'] = sanitize_text_field($variant['fullCode']);
+                } elseif (!empty($variant['simpleCode'])) {
+                    $variant_entry['code'] = sanitize_text_field($variant['simpleCode']);
+                }
+
+                if (!empty($variant['codeSizeName'])) {
+                    $variant_entry['size'] = sanitize_text_field($variant['codeSizeName']);
+                } elseif (!empty($variant['codeSize'])) {
+                    $variant_entry['size'] = sanitize_text_field($variant['codeSize']);
+                }
+
+                if (!empty($variant['codeColourName'])) {
+                    $variant_entry['colour'] = sanitize_text_field($variant['codeColourName']);
+                } elseif (!empty($variant['codeColour'])) {
+                    $variant_entry['colour'] = sanitize_text_field($variant['codeColour']);
+                }
+
+                if (!empty($variant['productDimension']) && is_array($variant['productDimension'])) {
+                    $product_dimension = $this->sanitize_product_dimension($variant['productDimension']);
+                    if (!empty($product_dimension)) {
+                        $variant_entry['product'] = $product_dimension;
+                    }
+                }
+
+                if (!empty($variant['packagingAndDimension']) && is_array($variant['packagingAndDimension'])) {
+                    $packaging_dimension = $this->sanitize_packaging_dimension($variant['packagingAndDimension']);
+                    if (!empty($packaging_dimension)) {
+                        $variant_entry['packaging'] = $packaging_dimension;
+                    }
+                }
+
+                if (!empty($variant_entry)) {
+                    $variant_details[] = $variant_entry;
+                }
+            }
+
+            if (!empty($variant_details)) {
+                $details['variants'] = $variant_details;
+            }
+        }
+
+        return $details;
+    }
+
+    /**
+     * Normalize product dimension values
+     */
+    private function sanitize_product_dimension($dimension_data) {
+        $dimension_map = array(
+            'length' => 'length',
+            'width' => 'width',
+            'height' => 'height',
+            'depth' => 'depth',
+            'weight' => 'weight',
+        );
+
+        return $this->sanitize_dimension_values($dimension_data, $dimension_map);
+    }
+
+    /**
+     * Normalize packaging dimension values
+     */
+    private function sanitize_packaging_dimension($dimension_data) {
+        $dimension_map = array(
+            'cartonSizeDimensionL' => 'length',
+            'cartonSizeDimensionW' => 'width',
+            'cartonSizeDimensionH' => 'height',
+            'cartonWeight' => 'weight',
+        );
+
+        $values = $this->sanitize_dimension_values($dimension_data, $dimension_map);
+
+        if (isset($dimension_data['piecesPerCarton']) && $dimension_data['piecesPerCarton'] !== '') {
+            $values['pieces_per_carton'] = (int) $dimension_data['piecesPerCarton'];
+        }
+
+        return $values;
+    }
+
+    /**
+     * Sanitize individual dimension datasets
+     */
+    private function sanitize_dimension_values($dimension_data, $dimension_map) {
+        $values = array();
+
+        foreach ($dimension_map as $source_key => $target_key) {
+            if (isset($dimension_data[$source_key]) && $dimension_data[$source_key] !== '') {
+                $values[$target_key] = $this->sanitize_dimension_value($dimension_data[$source_key]);
+            }
+        }
+
+        return $values;
+    }
+
+    /**
+     * Sanitize a single numeric dimension value
+     */
+    private function sanitize_dimension_value($value) {
+        if (is_numeric($value)) {
+            return round((float) $value, 4);
+        }
+
+        return sanitize_text_field($value);
+    }
+
+    /**
+     * Sync behaviour and promotion taxonomy terms on the product
+     */
+    private function sync_product_flag_terms($product_id, $product_data) {
+        $behaviour_taxonomy = 'amrod_product_behaviour';
+        $promotion_taxonomy = 'amrod_product_promotion';
+
+        $behaviour_map = array(
+            '0' => array('slug' => 'normal', 'name' => __('Normal', 'bytemash-woo-sync')),
+            '1' => array('slug' => 'featured', 'name' => __('Featured', 'bytemash-woo-sync')),
+            '2' => array('slug' => 'hidden', 'name' => __('Hidden', 'bytemash-woo-sync')),
+        );
+
+        $promotion_map = array(
+            '0' => array('slug' => 'normal', 'name' => __('Normal', 'bytemash-woo-sync')),
+            '1' => array('slug' => 'promotion', 'name' => __('On Promotion', 'bytemash-woo-sync')),
+            '2' => array('slug' => 'new', 'name' => __('New', 'bytemash-woo-sync')),
+            '3' => array('slug' => 'clearance', 'name' => __('Clearance', 'bytemash-woo-sync')),
+        );
+
+        // Handle behaviour term assignment
+        if (taxonomy_exists($behaviour_taxonomy)) {
+            $behaviour_value = isset($product_data['behaviour']) ? (string) $product_data['behaviour'] : '';
+            $term_id = 0;
+
+            if ($behaviour_value !== '' && isset($behaviour_map[$behaviour_value])) {
+                $behaviour_term = $behaviour_map[$behaviour_value];
+                $term = get_term_by('slug', $behaviour_term['slug'], $behaviour_taxonomy);
+
+                if (!$term) {
+                    $created = wp_insert_term($behaviour_term['name'], $behaviour_taxonomy, array('slug' => $behaviour_term['slug']));
+                    if (!is_wp_error($created)) {
+                        $term_id = (int) $created['term_id'];
+                    } else {
+                        $this->logger->log('error', 'Failed to create behaviour term', array(
+                            'product_id' => $product_id,
+                            'slug' => $behaviour_term['slug'],
+                            'error' => $created->get_error_message(),
+                        ), 'product_sync');
+                    }
+                } else {
+                    $term_id = (int) $term->term_id;
+                }
+            } elseif ($behaviour_value !== '' && !isset($behaviour_map[$behaviour_value])) {
+                $this->logger->log('warning', 'Unknown behaviour flag encountered', array(
+                    'product_id' => $product_id,
+                    'behaviour' => $behaviour_value,
+                ), 'product_sync');
+            }
+
+            if ($term_id > 0) {
+                wp_set_object_terms($product_id, array($term_id), $behaviour_taxonomy, false);
+            } else {
+                wp_set_object_terms($product_id, array(), $behaviour_taxonomy);
+            }
+        } else {
+            $this->logger->log('warning', 'Behaviour taxonomy missing; skipping behaviour flag sync', array(
+                'product_id' => $product_id,
+            ), 'product_sync');
+        }
+
+        // Handle promotion term assignment
+        if (taxonomy_exists($promotion_taxonomy)) {
+            $promotion_value = isset($product_data['promotion']) ? (string) $product_data['promotion'] : '';
+            $term_id = 0;
+
+            if ($promotion_value !== '' && isset($promotion_map[$promotion_value])) {
+                $promotion_term = $promotion_map[$promotion_value];
+                $term = get_term_by('slug', $promotion_term['slug'], $promotion_taxonomy);
+
+                if (!$term) {
+                    $created = wp_insert_term($promotion_term['name'], $promotion_taxonomy, array('slug' => $promotion_term['slug']));
+                    if (!is_wp_error($created)) {
+                        $term_id = (int) $created['term_id'];
+                    } else {
+                        $this->logger->log('error', 'Failed to create promotion term', array(
+                            'product_id' => $product_id,
+                            'slug' => $promotion_term['slug'],
+                            'error' => $created->get_error_message(),
+                        ), 'product_sync');
+                    }
+                } else {
+                    $term_id = (int) $term->term_id;
+                }
+            } elseif ($promotion_value !== '' && !isset($promotion_map[$promotion_value])) {
+                $this->logger->log('warning', 'Unknown promotion flag encountered', array(
+                    'product_id' => $product_id,
+                    'promotion' => $promotion_value,
+                ), 'product_sync');
+            }
+
+            if ($term_id > 0) {
+                wp_set_object_terms($product_id, array($term_id), $promotion_taxonomy, false);
+            } else {
+                wp_set_object_terms($product_id, array(), $promotion_taxonomy);
+            }
+        } else {
+            $this->logger->log('warning', 'Promotion taxonomy missing; skipping promotion flag sync', array(
+                'product_id' => $product_id,
+            ), 'product_sync');
+        }
     }
     
     /**
@@ -1577,36 +2053,36 @@ class ByteMash_Product_Sync {
             } else {
                 // Exact match is variable or not found - do pattern matching for variations
                 $product_ids = $exact_match_product_ids;
+        
+        // ALWAYS try pattern matching with simpleCode to catch all variants
+        // Example: Even if "ALT-1603" exists, also update "ALT-1603-Y", "ALT-1603-R", etc.
+        if (!empty($simpleCode)) {
+            global $wpdb;
+            $like_pattern = $wpdb->esc_like($simpleCode) . '%';
+            
+            $matching_products = $wpdb->get_results($wpdb->prepare(
+                "SELECT post_id, meta_value as sku FROM {$wpdb->postmeta} 
+                WHERE meta_key = '_sku' AND meta_value LIKE %s",
+                $like_pattern
+            ));
+            
+            if ($matching_products) {
+                $pattern_matched_count = 0;
+                foreach ($matching_products as $match) {
+                    // Avoid duplicates
+                    if (!in_array($match->post_id, $product_ids)) {
+                        $product_ids[] = $match->post_id;
+                        $pattern_matched_count++;
+                    }
+                }
                 
-                // ALWAYS try pattern matching with simpleCode to catch all variants
-                // Example: Even if "ALT-1603" exists, also update "ALT-1603-Y", "ALT-1603-R", etc.
-                if (!empty($simpleCode)) {
-                    global $wpdb;
-                    $like_pattern = $wpdb->esc_like($simpleCode) . '%';
+                if ($pattern_matched_count > 0) {
+                    $matched_sku = $simpleCode . '*';
+                    $log_msg = $exact_match_found 
+                        ? "✅ Pattern matched {$pattern_matched_count} additional variant(s) with SKU starting with: {$simpleCode}"
+                        : "✅ Pattern matched {$pattern_matched_count} product(s) with SKU starting with: {$simpleCode}";
                     
-                    $matching_products = $wpdb->get_results($wpdb->prepare(
-                        "SELECT post_id, meta_value as sku FROM {$wpdb->postmeta} 
-                        WHERE meta_key = '_sku' AND meta_value LIKE %s",
-                        $like_pattern
-                    ));
-                    
-                    if ($matching_products) {
-                        $pattern_matched_count = 0;
-                        foreach ($matching_products as $match) {
-                            // Avoid duplicates
-                            if (!in_array($match->post_id, $product_ids)) {
-                                $product_ids[] = $match->post_id;
-                                $pattern_matched_count++;
-                            }
-                        }
-                        
-                        if ($pattern_matched_count > 0) {
-                            $matched_sku = $simpleCode . '*';
-                            $log_msg = $exact_match_found 
-                                ? "✅ Pattern matched {$pattern_matched_count} additional variant(s) with SKU starting with: {$simpleCode}"
-                                : "✅ Pattern matched {$pattern_matched_count} product(s) with SKU starting with: {$simpleCode}";
-                            
-                            $this->logger->log('success', $log_msg, array(), 'stock_sync');
+                    $this->logger->log('success', $log_msg, array(), 'stock_sync');
                         }
                     }
                 }
@@ -1719,14 +2195,14 @@ class ByteMash_Product_Sync {
                         // Try to update as variation (existing logic)
                         // Ensure simpleCode is passed correctly to the variation update method
                         $stock_item['simpleCode'] = $simpleCode;
-                        $this->update_variable_product_stock($product, $stock_item, $stock_qty, $reserved_qty, $incoming, $modified, $stock_type);
+                    $this->update_variable_product_stock($product, $stock_item, $stock_qty, $reserved_qty, $incoming, $modified, $stock_type);
                     }
                 } else {
                     // Simple product - update directly
-                    $product->set_manage_stock(true);
-                    $product->set_stock_quantity($stock_qty);
-                    $product->set_stock_status($stock_qty > 0 ? 'instock' : 'outofstock');
-                    $this->save_product_safely($product);
+                $product->set_manage_stock(true);
+                $product->set_stock_quantity($stock_qty);
+                $product->set_stock_status($stock_qty > 0 ? 'instock' : 'outofstock');
+                $this->save_product_safely($product);
                     
                     // Store detailed stock breakdown
                     $detail = array(
@@ -2654,13 +3130,13 @@ class ByteMash_Product_Sync {
                 // If stockType is 0 or fullCode === simpleCode with no colourCode, 
                 // this should have been handled as base product stock earlier
                 if ($stock_type >= 1) {
-                    $this->logger->log('warning', 'Could not find matching variation for stock update', array(
-                        'parent_id' => $product_id,
-                        'full_code' => $full_code,
-                        'simple_code' => $simple_code,
-                        'colour_code' => $colour_code,
+                $this->logger->log('warning', 'Could not find matching variation for stock update', array(
+                    'parent_id' => $product_id,
+                    'full_code' => $full_code,
+                    'simple_code' => $simple_code,
+                    'colour_code' => $colour_code,
                         'stock_type' => $stock_type,
-                    ), 'product_sync');
+                ), 'product_sync');
                 }
             }
         }
