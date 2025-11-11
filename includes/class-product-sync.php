@@ -970,49 +970,28 @@ class ByteMash_Product_Sync {
             }
             
             $cat_name = sanitize_text_field($cat_data['name']);
-            
-            // Try to find existing category by Amrod ID first
-            if (!empty($cat_data['id'])) {
-                $existing = get_terms(array(
-                    'taxonomy' => 'product_cat',
-                    'meta_key' => 'amrod_category_id',
-                    'meta_value' => $cat_data['id'],
-                    'hide_empty' => false,
-                ));
-                
-                if (!empty($existing) && !is_wp_error($existing)) {
-                    $category_ids[] = $existing[0]->term_id;
-                    continue;
-                }
-            }
-            
-            // Find or create by name
-            $term = get_term_by('name', $cat_name, 'product_cat');
-            
-            if (!$term) {
-                $result = wp_insert_term($cat_name, 'product_cat', array(
-                    'description' => $cat_data['path'] ?? '',
-                ));
-                
-                if (!is_wp_error($result)) {
-                    $term_id = $result['term_id'];
-                    
-                    // Store Amrod category metadata
-                    if (!empty($cat_data['id'])) {
-                        update_term_meta($term_id, 'amrod_category_id', $cat_data['id']);
-                    }
-                    if (!empty($cat_data['code'])) {
-                        update_term_meta($term_id, 'amrod_category_code', $cat_data['code']);
-                    }
-                    
-                    $category_ids[] = $term_id;
-                }
+            $cat_path = isset($cat_data['path']) && $cat_data['path'] !== '' ? $cat_data['path'] : $cat_name;
+
+            $meta = array(
+                'id' => $cat_data['id'] ?? '',
+                'code' => $cat_data['code'] ?? '',
+                'image' => $cat_data['image'] ?? '',
+            );
+
+            $result = $this->ensure_category_hierarchy($cat_path, $cat_name, $meta);
+
+            if ($result['success']) {
+                $category_ids[] = $result['term_id'];
             } else {
-                $category_ids[] = $term->term_id;
+                $this->logger->log('error', 'Failed to ensure category hierarchy', array(
+                    'category' => $cat_name,
+                    'path' => $cat_path,
+                    'message' => $result['message'],
+                ), 'category_sync');
             }
         }
         
-        return $category_ids;
+        return array_unique(array_filter($category_ids));
     }
     
     /**
@@ -3012,6 +2991,226 @@ class ByteMash_Product_Sync {
     }
     
     /**
+     * Normalize category path for consistent lookups
+     *
+     * @param string $path Original path
+     * @return string Normalized path
+     */
+    private function normalize_category_path($path) {
+        if ($path === null) {
+            return '';
+        }
+
+        $normalized = trim((string) $path);
+
+        if ($normalized === '') {
+            return '';
+        }
+
+        // Lowercase and collapse whitespace for consistent matching
+        $normalized = strtolower($normalized);
+        $normalized = preg_replace('/\s+/', ' ', $normalized);
+
+        return $normalized;
+    }
+
+    /**
+     * Locate an existing WooCommerce category by Amrod path metadata
+     *
+     * @param string $path Original category path
+     * @return WP_Term|null
+     */
+    private function get_category_term_by_path($path) {
+        $normalized_path = $this->normalize_category_path($path);
+
+        if ($normalized_path === '') {
+            return null;
+        }
+
+        $terms = get_terms(array(
+            'taxonomy' => 'product_cat',
+            'hide_empty' => false,
+            'number' => 1,
+            'meta_key' => '_amrod_category_path_normalized',
+            'meta_value' => $normalized_path,
+        ));
+
+        if (!empty($terms) && !is_wp_error($terms)) {
+            return $terms[0];
+        }
+
+        // Fallback for legacy data that only stored the raw path meta
+        $terms = get_terms(array(
+            'taxonomy' => 'product_cat',
+            'hide_empty' => false,
+            'number' => 1,
+            'meta_key' => '_amrod_category_path',
+            'meta_value' => $path,
+        ));
+
+        if (!empty($terms) && !is_wp_error($terms)) {
+            return $terms[0];
+        }
+
+        return null;
+    }
+
+    /**
+     * Best-effort formatting for intermediate category segment names
+     *
+     * @param string $segment Path segment
+     * @return string Human-friendly name
+     */
+    private function format_category_segment_name($segment) {
+        $segment = trim((string) $segment);
+
+        if ($segment === '') {
+            return '';
+        }
+
+        // If the segment already contains uppercase characters, respect the casing
+        if ($segment !== strtolower($segment)) {
+            return preg_replace('/\s+/', ' ', $segment);
+        }
+
+        // Preserve hyphenated words while capitalising each word
+        $segment = str_replace('-', ' - ', $segment);
+        $segment = ucwords($segment);
+        $segment = str_replace(' - ', '-', $segment);
+
+        return preg_replace('/\s+/', ' ', $segment);
+    }
+
+    /**
+     * Ensure full category hierarchy exists for a given path
+     *
+     * @param string $path Full category path from Amrod
+     * @param string $final_name Display name for the terminal category
+     * @param array  $meta Additional metadata (code, id, image)
+     * @return array { success: bool, term_id?: int, message?: string }
+     */
+    private function ensure_category_hierarchy($path, $final_name, $meta = array()) {
+        $path = trim((string) ($path ?: $final_name));
+        $final_name = trim((string) ($final_name ?: $path));
+
+        $segments = array_values(array_filter(array_map('trim', explode('/', $path)), 'strlen'));
+
+        if (empty($segments)) {
+            $segments[] = $final_name;
+        }
+
+        $parent_id = 0;
+        $current_segments = array();
+        $last_term_id = 0;
+
+        foreach ($segments as $index => $segment) {
+            $current_segments[] = $segment;
+            $current_path = implode('/', $current_segments);
+            $normalized_path = $this->normalize_category_path($current_path);
+            $is_last_segment = ($index === count($segments) - 1);
+
+            $display_name = $is_last_segment ? $final_name : $this->format_category_segment_name($segment);
+            if ($display_name === '') {
+                $display_name = $this->format_category_segment_name($segment);
+            }
+
+            $existing_term = $this->get_category_term_by_path($current_path);
+
+            if ($existing_term instanceof WP_Term) {
+                $term_id = (int) $existing_term->term_id;
+
+                // Correct parent if it changed
+                if ((int) $existing_term->parent !== (int) $parent_id) {
+                    wp_update_term($term_id, 'product_cat', array('parent' => $parent_id));
+                }
+
+                // Refresh name if API casing changed
+                if ($display_name && $existing_term->name !== $display_name) {
+                    wp_update_term($term_id, 'product_cat', array('name' => $display_name));
+                }
+            } else {
+                $slug = sanitize_title($display_name);
+
+                // Prevent slug collisions when identical names exist under different parents
+                if ($slug && term_exists($slug, 'product_cat')) {
+                    $slug = $slug . '-' . substr(md5($normalized_path), 0, 6);
+                }
+
+                $args = array('parent' => $parent_id);
+                if ($slug) {
+                    $args['slug'] = $slug;
+                }
+
+                $created = wp_insert_term($display_name ?: $segment, 'product_cat', $args);
+
+                if (is_wp_error($created)) {
+                    if ($created->get_error_code() === 'term_exists') {
+                        $existing_id = $created->get_error_data('term_exists');
+                        $maybe_term = get_term($existing_id, 'product_cat');
+
+                        if ($maybe_term instanceof WP_Term) {
+                            $term_id = (int) $maybe_term->term_id;
+
+                            if ((int) $maybe_term->parent !== (int) $parent_id) {
+                                wp_update_term($term_id, 'product_cat', array('parent' => $parent_id));
+                            }
+                        } else {
+                            return array(
+                                'success' => false,
+                                'message' => $created->get_error_message(),
+                            );
+                        }
+                    } else {
+                        return array(
+                            'success' => false,
+                            'message' => $created->get_error_message(),
+                        );
+                    }
+                } else {
+                    $term_id = (int) $created['term_id'];
+                }
+            }
+
+            if (empty($term_id)) {
+                return array(
+                    'success' => false,
+                    'message' => 'Unable to create category path segment',
+                );
+            }
+
+            update_term_meta($term_id, '_amrod_category_path', $current_path);
+            update_term_meta($term_id, '_amrod_category_path_normalized', $normalized_path);
+
+            if ($is_last_segment) {
+                if (!empty($meta['code'])) {
+                    update_term_meta($term_id, '_amrod_category_code', sanitize_text_field($meta['code']));
+                }
+                if (!empty($meta['image'])) {
+                    update_term_meta($term_id, '_amrod_category_image', esc_url_raw($meta['image']));
+                }
+                if (!empty($meta['id'])) {
+                    update_term_meta($term_id, 'amrod_category_id', sanitize_text_field($meta['id']));
+                }
+            }
+
+            $parent_id = $term_id;
+            $last_term_id = $term_id;
+        }
+
+        if (!$last_term_id) {
+            return array(
+                'success' => false,
+                'message' => 'Failed to determine category ID',
+            );
+        }
+
+        return array(
+            'success' => true,
+            'term_id' => $last_term_id,
+        );
+    }
+
+    /**
      * Flatten hierarchical category structure
      * Recursively extracts all categories and their children into a flat array
      * 
@@ -3116,7 +3315,6 @@ class ByteMash_Product_Sync {
         $category_path = $category_data['categoryPath'] ?? '';
         $category_code = $category_data['categoryCode'] ?? '';
         $category_image = $category_data['categoryImage'] ?? '';
-        $parent_path = $category_data['_parent_path'] ?? '';
         
         if (empty($category_name)) {
             $this->logger->log('error', 'Category missing name', array(
@@ -3124,70 +3322,31 @@ class ByteMash_Product_Sync {
             ), 'category_sync');
             return array('success' => false, 'message' => 'Category missing name');
         }
-        
+
+        $meta = array(
+            'id' => $category_data['id'] ?? '',
+            'code' => $category_code,
+            'image' => $category_image,
+        );
+
         try {
-            // Find parent category ID if this is a child category
-            $parent_id = 0;
-            if (!empty($parent_path)) {
-                // Try to find parent by its path
-                $parent_terms = get_terms(array(
-                    'taxonomy' => 'product_cat',
-                    'meta_key' => '_amrod_category_path',
-                    'meta_value' => $parent_path,
-                    'hide_empty' => false,
-                    'number' => 1,
-                ));
-                
-                if (!empty($parent_terms) && !is_wp_error($parent_terms)) {
-                    $parent_id = $parent_terms[0]->term_id;
-                    $this->logger->log('info', "Found parent category for: {$category_name}", array(), 'category_sync');
-                }
+            $result = $this->ensure_category_hierarchy($category_path, $category_name, $meta);
+
+            if (!$result['success']) {
+                $this->logger->log('error', "Failed to sync category: {$category_name}", array(
+                    'category_path' => $category_path,
+                    'error' => $result['message'],
+                ), 'category_sync');
+
+                return $result;
             }
-            
-            // Create or update category
-            $term = term_exists($category_name, 'product_cat');
-            
-            if ($term) {
-                // Update existing
-                $term_id = $term['term_id'];
-                
-                // Update parent if needed
-                if ($parent_id > 0) {
-                    wp_update_term($term_id, 'product_cat', array('parent' => $parent_id));
-                }
-                
-                $this->logger->log('info', "Category already exists: {$category_name}", array(), 'category_sync');
-            } else {
-                // Create new with parent
-                $args = array('slug' => sanitize_title($category_name));
-                if ($parent_id > 0) {
-                    $args['parent'] = $parent_id;
-                }
-                
-                $result = wp_insert_term($category_name, 'product_cat', $args);
-                
-                if (is_wp_error($result)) {
-                    $this->logger->log('error', "Failed to create category: {$category_name}", array(
-                        'error' => $result->get_error_message(),
-                        'error_code' => $result->get_error_code(),
-                        'category_data' => $category_data,
-                        'parent_id' => $parent_id,
-                    ), 'category_sync');
-                    return array('success' => false, 'message' => 'Failed to create category: ' . $result->get_error_message());
-                }
-                
-                $term_id = $result['term_id'];
-            }
-            
-            // Store Amrod metadata
-            update_term_meta($term_id, '_amrod_category_path', $category_path);
-            update_term_meta($term_id, '_amrod_category_code', $category_code);
-            
-            if (!empty($category_image)) {
-                update_term_meta($term_id, '_amrod_category_image', esc_url_raw($category_image));
-            }
-            
-            $this->logger->log('success', "Category synced: {$category_name}", array(), 'category_sync');
+
+            $term_id = $result['term_id'];
+
+            $this->logger->log('success', "Category synced: {$category_name}", array(
+                'term_id' => $term_id,
+                'category_path' => $category_path,
+            ), 'category_sync');
             
             return array('success' => true, 'term_id' => $term_id, 'name' => $category_name);
         } catch (Exception $e) {
