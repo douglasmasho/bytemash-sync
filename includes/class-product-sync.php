@@ -1672,6 +1672,139 @@ class ByteMash_Product_Sync {
                 'product_id' => $product_id,
             ), 'product_sync');
         }
+
+        // Sync gender taxonomy
+        $gender_value = '';
+        if (!empty($product_data['gender'])) {
+            $gender_value = sanitize_text_field($product_data['gender']);
+        } else {
+            $gender_value = sanitize_text_field(get_post_meta($product_id, '_amrod_gender', true));
+        }
+        $this->assign_taxonomy_terms($product_id, 'amrod_product_gender', $gender_value ? array($gender_value) : array());
+
+        // Sync colour taxonomy
+        $colour_names = array();
+        if (!empty($product_data['variants']) && is_array($product_data['variants'])) {
+            foreach ($product_data['variants'] as $variant) {
+                if (!is_array($variant)) {
+                    continue;
+                }
+                if (!empty($variant['codeColourName'])) {
+                    $colour_names[] = $variant['codeColourName'];
+                } elseif (!empty($variant['codeColour'])) {
+                    $colour_names[] = $variant['codeColour'];
+                }
+            }
+        }
+        if (empty($colour_names) && !empty($product_data['colourImages']) && is_array($product_data['colourImages'])) {
+            foreach ($product_data['colourImages'] as $colour) {
+                if (is_array($colour) && !empty($colour['name'])) {
+                    $colour_names[] = $colour['name'];
+                }
+            }
+        }
+        if (empty($colour_names)) {
+            $color_mapping = get_post_meta($product_id, '_amrod_color_mapping', true);
+            if (is_array($color_mapping)) {
+                $colour_names = array_keys($color_mapping);
+            }
+        }
+        $this->assign_taxonomy_terms($product_id, 'amrod_product_color', $colour_names);
+
+        // Sync size taxonomy
+        $size_names = array();
+        if (!empty($product_data['variants']) && is_array($product_data['variants'])) {
+            foreach ($product_data['variants'] as $variant) {
+                if (!is_array($variant)) {
+                    continue;
+                }
+                if (!empty($variant['codeSizeName'])) {
+                    $size_names[] = $variant['codeSizeName'];
+                } elseif (!empty($variant['codeSize'])) {
+                    $size_names[] = $variant['codeSize'];
+                }
+            }
+        }
+        if (empty($size_names)) {
+            $dimension_details = get_post_meta($product_id, '_amrod_dimension_details', true);
+            if (is_array($dimension_details) && !empty($dimension_details['variants'])) {
+                foreach ($dimension_details['variants'] as $variant_detail) {
+                    if (is_array($variant_detail) && !empty($variant_detail['size'])) {
+                        $size_names[] = $variant_detail['size'];
+                    }
+                }
+            }
+        }
+        $this->assign_taxonomy_terms($product_id, 'amrod_product_size', $size_names);
+    }
+
+    /**
+     * Ensure taxonomy terms exist and are assigned to product
+     *
+     * @param int    $product_id Product ID
+     * @param string $taxonomy   Taxonomy name
+     * @param array  $names      Array of term names (strings)
+     */
+    private function assign_taxonomy_terms($product_id, $taxonomy, $names) {
+        if (!taxonomy_exists($taxonomy)) {
+            return;
+        }
+
+        $unique_terms = array();
+        foreach ((array) $names as $name) {
+            $clean_name = trim(wp_strip_all_tags($name));
+            if ($clean_name === '') {
+                continue;
+            }
+            $key = strtolower($clean_name);
+            if (!isset($unique_terms[$key])) {
+                $unique_terms[$key] = $clean_name;
+            }
+        }
+
+        if (empty($unique_terms)) {
+            wp_set_object_terms($product_id, array(), $taxonomy);
+            return;
+        }
+
+        $term_ids = array();
+        foreach ($unique_terms as $clean_name) {
+            $slug = sanitize_title($clean_name);
+            if ($slug === '') {
+                continue;
+            }
+
+            $term = term_exists($slug, $taxonomy);
+
+            if (!$term) {
+                $created = wp_insert_term($clean_name, $taxonomy, array('slug' => $slug));
+                if (is_wp_error($created)) {
+                    if ($created->get_error_code() === 'term_exists') {
+                        $existing_id = $created->get_error_data('term_exists');
+                        if ($existing_id) {
+                            $term_ids[] = (int) $existing_id;
+                        }
+                    } else {
+                        $this->logger->log('error', 'Failed to create taxonomy term', array(
+                            'taxonomy' => $taxonomy,
+                            'name' => $clean_name,
+                            'error' => $created->get_error_message(),
+                        ), 'product_sync');
+                    }
+                    continue;
+                }
+                $term_ids[] = (int) $created['term_id'];
+            } else {
+                $term_ids[] = (int) (is_array($term) ? $term['term_id'] : $term);
+            }
+        }
+
+        if (empty($term_ids)) {
+            wp_set_object_terms($product_id, array(), $taxonomy);
+            return;
+        }
+
+        wp_set_object_terms($product_id, $term_ids, $taxonomy);
     }
     
     /**

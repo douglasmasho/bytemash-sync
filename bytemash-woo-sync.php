@@ -326,6 +326,105 @@ class ByteMash_Woo_Sync {
             );
         }
 
+        // Gender taxonomy
+        if (!taxonomy_exists('amrod_product_gender')) {
+            register_taxonomy(
+                'amrod_product_gender',
+                array('product'),
+                array(
+                    'labels' => array(
+                        'name' => __('Product Gender', 'bytemash-woo-sync'),
+                        'singular_name' => __('Gender', 'bytemash-woo-sync'),
+                        'search_items' => __('Search Genders', 'bytemash-woo-sync'),
+                        'all_items' => __('All Genders', 'bytemash-woo-sync'),
+                        'edit_item' => __('Edit Gender', 'bytemash-woo-sync'),
+                        'update_item' => __('Update Gender', 'bytemash-woo-sync'),
+                        'add_new_item' => __('Add New Gender', 'bytemash-woo-sync'),
+                        'new_item_name' => __('New Gender Name', 'bytemash-woo-sync'),
+                        'menu_name' => __('Product Gender', 'bytemash-woo-sync'),
+                    ),
+                    'hierarchical' => false,
+                    'show_ui' => true,
+                    'show_in_menu' => true,
+                    'show_admin_column' => true,
+                    'show_in_nav_menus' => false,
+                    'show_tagcloud' => false,
+                    'show_in_rest' => true,
+                    'query_var' => true,
+                    'rewrite' => array(
+                        'slug' => 'product-gender',
+                        'with_front' => false,
+                    ),
+                )
+            );
+        }
+
+        // Colour taxonomy
+        if (!taxonomy_exists('amrod_product_color')) {
+            register_taxonomy(
+                'amrod_product_color',
+                array('product'),
+                array(
+                    'labels' => array(
+                        'name' => __('Product Colours', 'bytemash-woo-sync'),
+                        'singular_name' => __('Colour', 'bytemash-woo-sync'),
+                        'search_items' => __('Search Colours', 'bytemash-woo-sync'),
+                        'all_items' => __('All Colours', 'bytemash-woo-sync'),
+                        'edit_item' => __('Edit Colour', 'bytemash-woo-sync'),
+                        'update_item' => __('Update Colour', 'bytemash-woo-sync'),
+                        'add_new_item' => __('Add New Colour', 'bytemash-woo-sync'),
+                        'new_item_name' => __('New Colour Name', 'bytemash-woo-sync'),
+                        'menu_name' => __('Product Colours', 'bytemash-woo-sync'),
+                    ),
+                    'hierarchical' => false,
+                    'show_ui' => true,
+                    'show_in_menu' => true,
+                    'show_admin_column' => true,
+                    'show_in_nav_menus' => false,
+                    'show_tagcloud' => false,
+                    'show_in_rest' => true,
+                    'query_var' => true,
+                    'rewrite' => array(
+                        'slug' => 'product-colour',
+                        'with_front' => false,
+                    ),
+                )
+            );
+        }
+
+        // Size taxonomy
+        if (!taxonomy_exists('amrod_product_size')) {
+            register_taxonomy(
+                'amrod_product_size',
+                array('product'),
+                array(
+                    'labels' => array(
+                        'name' => __('Product Sizes', 'bytemash-woo-sync'),
+                        'singular_name' => __('Size', 'bytemash-woo-sync'),
+                        'search_items' => __('Search Sizes', 'bytemash-woo-sync'),
+                        'all_items' => __('All Sizes', 'bytemash-woo-sync'),
+                        'edit_item' => __('Edit Size', 'bytemash-woo-sync'),
+                        'update_item' => __('Update Size', 'bytemash-woo-sync'),
+                        'add_new_item' => __('Add New Size', 'bytemash-woo-sync'),
+                        'new_item_name' => __('New Size Name', 'bytemash-woo-sync'),
+                        'menu_name' => __('Product Sizes', 'bytemash-woo-sync'),
+                    ),
+                    'hierarchical' => false,
+                    'show_ui' => true,
+                    'show_in_menu' => true,
+                    'show_admin_column' => true,
+                    'show_in_nav_menus' => false,
+                    'show_tagcloud' => false,
+                    'show_in_rest' => true,
+                    'query_var' => true,
+                    'rewrite' => array(
+                        'slug' => 'product-size',
+                        'with_front' => false,
+                    ),
+                )
+            );
+        }
+
         // Ensure default terms exist for behaviour
         $behaviour_terms = array(
             '0' => array('slug' => 'normal', 'name' => __('Normal', 'bytemash-woo-sync')),

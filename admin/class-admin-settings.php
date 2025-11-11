@@ -313,6 +313,63 @@ class ByteMash_Admin_Settings {
                 </div>
                 
                 <div class="bytemash-settings-section">
+                    <h2><?php esc_html_e('Product Behaviour & Promotion Flags', 'bytemash-woo-sync'); ?></h2>
+                    <p class="description">
+                        <?php esc_html_e('Each sync updates two dedicated taxonomies so you can target Amrod flags without touching categories.', 'bytemash-woo-sync'); ?>
+                    </p>
+                    <ul>
+                        <li><?php esc_html_e('Go to Products -> Product Behaviour to review the automatically synced flags (Normal, Featured, Hidden).', 'bytemash-woo-sync'); ?></li>
+                        <li><?php esc_html_e('Visit Products -> Product Promotion to see which products are tagged as Normal, On Promotion, New, or Clearance.', 'bytemash-woo-sync'); ?></li>
+                        <li><?php esc_html_e('Use the Behaviour and Promotion columns on the Products -> All Products screen to quickly filter or bulk edit store merchandising.', 'bytemash-woo-sync'); ?></li>
+                        <li>
+                            <?php
+                            echo wp_kses(
+                                sprintf(
+                                    /* translators: %s is a WooCommerce shortcode example. */
+                                    __('Build storefront sections with the WooCommerce [products] shortcode, for example %s to list items currently on promotion.', 'bytemash-woo-sync'),
+                                    '<code>[products taxonomy="amrod_product_promotion" terms="promotion" limit="8"]</code>'
+                                ),
+                                array(
+                                    'code' => array(),
+                                )
+                            );
+                            ?>
+                        </li>
+                    </ul>
+                    <p class="description">
+                        <?php esc_html_e('These taxonomies support menus, widgets, REST API queries, and theme builders. Any changes you make in WordPress will be respected until the next Amrod update rewrites the flags.', 'bytemash-woo-sync'); ?>
+                    </p>
+                </div>
+                
+                <div class="bytemash-settings-section">
+                    <h2><?php esc_html_e('Product Meta Reference (Size, Gender, Colour)', 'bytemash-woo-sync'); ?></h2>
+                    <p class="description">
+                        <?php esc_html_e('Use these keys and helpers to surface Amrod product details anywhere in your store or theme builder.', 'bytemash-woo-sync'); ?>
+                    </p>
+                    <ul>
+                        <li><?php esc_html_e('Sizes: stored as the standard WooCommerce product attribute named "size". Inspect via Product Data -> Attributes or call $product->get_attribute(\'size\') inside templates.', 'bytemash-woo-sync'); ?></li>
+                        <li><?php esc_html_e('Gender: saved in post meta "_amrod_gender". Retrieve with get_post_meta( $product_id, \'_amrod_gender\', true ) or drop the [amrod_gender] shortcode into any content block.', 'bytemash-woo-sync'); ?></li>
+                        <li><?php esc_html_e('Colour options: stored in "_amrod_color_mapping" (name to code map) and "_amrod_color_swatches" (full payload). Use get_post_meta to pull raw data, or display swatches instantly with the [amrod_color_swatches] shortcode.', 'bytemash-woo-sync'); ?></li>
+                        <li><?php esc_html_e('Variant matrix & dimensions: the "_amrod_dimension_details" meta contains per-variant size/colour and measurement data for custom templates or developer integrations.', 'bytemash-woo-sync'); ?></li>
+                        <li><?php esc_html_e('Prefer taxonomy filters? We mirror gender, colour, and size into the amrod_product_gender, amrod_product_color, and amrod_product_size taxonomies for easy use in menus, archives, and page builders.', 'bytemash-woo-sync'); ?></li>
+                    </ul>
+                    <p class="description">
+                        <?php esc_html_e('All meta values are refreshed on every sync. If you customise output in code, cache results per request so they stay in step with incoming Amrod updates.', 'bytemash-woo-sync'); ?>
+                    </p>
+                    <div class="notice notice-info" style="margin-top: 20px;">
+                        <p style="margin: 0;">
+                            <strong><?php esc_html_e('Bricks Builder tips:', 'bytemash-woo-sync'); ?></strong>
+                            <?php esc_html_e('Use the Shortcode element for [amrod_color_swatches] or [amrod_gender], add {post_meta:_amrod_gender} / {post_meta:_amrod_dimension_details} as dynamic tags, and configure Query Loop filters with amrod_product_behaviour, amrod_product_promotion, amrod_product_gender, amrod_product_color, or amrod_product_size to build curated product grids.', 'bytemash-woo-sync'); ?>
+                        </p>
+                        <ul style="margin-left: 20px; list-style: disc;">
+                            <li><?php esc_html_e('To expose gender filters, either add a Query Loop Condition -> Meta Query targeting "_amrod_gender" or bind the Bricks Filter element to the amrod_product_gender taxonomy.', 'bytemash-woo-sync'); ?></li>
+                            <li><?php esc_html_e('Colour filtering works via both the WooCommerce "color" attribute and the amrod_product_color taxonomy—choose whichever fits your layout or filter stack.', 'bytemash-woo-sync'); ?></li>
+                            <li><?php esc_html_e('Sizes surface through the "size" attribute and the amrod_product_size taxonomy, so you can drive Query Loops, archive widgets, and filter elements without custom code.', 'bytemash-woo-sync'); ?></li>
+                        </ul>
+                    </div>
+                </div>
+                
+                <div class="bytemash-settings-section">
                     <h2><?php esc_html_e('Sync Configuration', 'bytemash-woo-sync'); ?></h2>
                     
                     <table class="form-table" role="presentation">
