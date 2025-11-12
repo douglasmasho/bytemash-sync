@@ -177,22 +177,8 @@ class ByteMash_Product_Sync {
         try {
             $this->logger->log('info', 'Creating/updating variable product with variations', array(), 'product_sync');
             
-            // Check if parent product exists by simpleCode SKU
+            // Check if parent product exists
             $product_id = wc_get_product_id_by_sku($parent_sku);
-            
-            // If not found, check if product exists with fullCode SKU (migration case)
-            if (!$product_id && !empty($product_data['fullCode']) && $product_data['fullCode'] !== $parent_sku) {
-                $product_id = wc_get_product_id_by_sku($product_data['fullCode']);
-                if ($product_id) {
-                    $this->logger->log('info', 'Found product with fullCode SKU, will migrate to simpleCode SKU', array(
-                        'old_sku' => $product_data['fullCode'],
-                        'new_sku' => $parent_sku,
-                    ), 'product_sync');
-                    // Delete the old product so we can recreate with correct SKU
-                    wp_delete_post($product_id, true);
-                    $product_id = null;
-                }
-            }
             
             if ($product_id) {
                 $product = wc_get_product($product_id);
@@ -255,11 +241,6 @@ class ByteMash_Product_Sync {
         
         // Store parent metadata
         $this->sync_product_meta($product_id, $product_data);
-        
-        // Store variants array for later reference (to check if products should be variations)
-        if (!empty($product_data['variants']) && is_array($product_data['variants'])) {
-            update_post_meta($product_id, '_amrod_variants_data', $product_data['variants']);
-        }
         
         // Create product attributes (Size and Color)
         $attribute_data = $this->create_product_attributes($product_data['variants']);
@@ -430,27 +411,8 @@ class ByteMash_Product_Sync {
         $variation_id = wc_get_product_id_by_sku($variant_sku);
         
         if ($variation_id) {
-            $existing_product = wc_get_product($variation_id);
-            
-            // If it's a standalone simple product, delete it and create as variation
-            if ($existing_product && !$existing_product->is_type('variation')) {
-                $this->logger->log('info', 'Found standalone product with variation SKU, converting to variation', array(
-                    'product_id' => $variation_id,
-                    'sku' => $variant_sku,
-                ), 'product_sync');
-                wp_delete_post($variation_id, true);
-                $variation_id = null;
-            }
-        }
-        
-        if ($variation_id) {
             $this->logger->log('info', 'Updating existing variation', array(), 'product_sync');
             $variation = new WC_Product_Variation($variation_id);
-            
-            // Ensure parent is correct
-            if ($variation->get_parent_id() !== $parent_id) {
-                $variation->set_parent_id($parent_id);
-            }
         } else {
             $this->logger->log('info', 'Creating new variation', array(), 'product_sync');
             $variation = new WC_Product_Variation();
@@ -527,97 +489,62 @@ class ByteMash_Product_Sync {
         }
         
         // Set variation image from colourImages if available
-        // Match by color code (codeColour) and color name (codeColourName) - case insensitive
         $variation_gallery = array();
         $variation_image = '';
         
-        if (!empty($parent_data['colourImages']) && is_array($parent_data['colourImages'])) {
-            $variant_color_code = strtoupper(trim($variant_data['codeColour'] ?? ''));
-            $variant_color_name = trim($variant_data['codeColourName'] ?? '');
+        if (!empty($parent_data['colourImages'])) {
+            $colour_map = $this->build_colour_gallery_map($parent_data['colourImages']);
             
-            $this->logger->log('info', 'Matching variation to colourImages', array(
-                'variation_sku' => $variant_sku,
-                'variant_color_code' => $variant_color_code,
-                'variant_color_name' => $variant_color_name,
-                'colour_images_count' => count($parent_data['colourImages']),
-            ), 'image_sync');
+            $key_candidates = array_filter(array(
+                strtolower($variant_data['codeColour'] ?? ''),
+                strtolower($variant_data['codeColourName'] ?? ''),
+                sanitize_title($variant_data['codeColourName'] ?? ''),
+            ));
             
-            // Find matching colourImages entry by code or name (case-insensitive)
-            $matching_colour_entry = null;
-            foreach ($parent_data['colourImages'] as $colour_entry) {
-                $entry_code = strtoupper(trim($colour_entry['code'] ?? ''));
-                $entry_name = trim($colour_entry['name'] ?? '');
-                
-                // Match by code (exact match, case-insensitive)
-                if (!empty($variant_color_code) && $entry_code === $variant_color_code) {
-                    $matching_colour_entry = $colour_entry;
-                    $this->logger->log('info', 'Matched variation to colourImages by code', array(
-                        'variation_sku' => $variant_sku,
-                        'matched_code' => $entry_code,
-                        'matched_name' => $entry_name,
-                        'images_count' => count($colour_entry['images'] ?? array()),
-                    ), 'image_sync');
+            $colour_entry = null;
+            foreach ($key_candidates as $candidate) {
+                if ($candidate && isset($colour_map[$candidate])) {
+                    $colour_entry = $colour_map[$candidate];
                     break;
                 }
-                
-                // Match by name (case-insensitive)
-                if (!empty($variant_color_name) && !empty($entry_name)) {
-                    if (strcasecmp($variant_color_name, $entry_name) === 0) {
-                        $matching_colour_entry = $colour_entry;
-                        $this->logger->log('info', 'Matched variation to colourImages by name', array(
-                            'variation_sku' => $variant_sku,
-                            'matched_code' => $entry_code,
-                            'matched_name' => $entry_name,
-                            'images_count' => count($colour_entry['images'] ?? array()),
-                        ), 'image_sync');
-                        break;
-                    }
-                }
             }
             
-            if (!$matching_colour_entry) {
-                $this->logger->log('warning', 'No matching colourImages entry found for variation', array(
-                    'variation_sku' => $variant_sku,
-                    'variant_color_code' => $variant_color_code,
-                    'variant_color_name' => $variant_color_name,
-                    'available_codes' => array_map(function($e) {
-                        return array(
-                            'code' => strtoupper(trim($e['code'] ?? '')),
-                            'name' => trim($e['name'] ?? ''),
-                        );
-                    }, $parent_data['colourImages']),
-                ), 'image_sync');
-            }
-            
-            // Extract all images from the matching colour entry
-            if ($matching_colour_entry && !empty($matching_colour_entry['images']) && is_array($matching_colour_entry['images'])) {
-                foreach ($matching_colour_entry['images'] as $image_entry) {
-                    if (empty($image_entry['urls']) || !is_array($image_entry['urls'])) {
-                        continue;
-                    }
-                    
-                    $url = $this->get_highest_resolution_url($image_entry['urls']);
-                    if (empty($url) || in_array($url, $variation_gallery, true)) {
+            if ($colour_entry && !empty($colour_entry['images'])) {
+                foreach ($colour_entry['images'] as $image_meta) {
+                    $url = $image_meta['url'] ?? '';
+                    if (!$url || in_array($url, $variation_gallery, true)) {
                         continue;
                     }
                     
                     $variation_gallery[] = $url;
                     
-                    // Set as variation image if it's default and has no logo
-                    if (!$variation_image && !empty($image_entry['isDefault']) && empty($image_entry['hasLogo'])) {
+                    if (!$variation_image && !empty($image_meta['isDefault']) && empty($image_meta['hasLogo'])) {
                         $variation_image = $url;
                     }
                 }
-                
-                $this->logger->log('info', 'Extracted images from colourImages for variation', array(
-                    'variation_sku' => $variant_sku,
-                    'gallery_count' => count($variation_gallery),
-                    'variation_image_set' => !empty($variation_image),
-                ), 'image_sync');
+            }
+        }
+
+        if (empty($variation_gallery) && !empty($parent_data['colourImages']) && !empty($variant_data['codeColour'])) {
+            $color_code = $variant_data['codeColour'];
+            foreach ($parent_data['colourImages'] as $color_data) {
+                if (($color_data['code'] ?? '') !== $color_code || empty($color_data['images']) || !is_array($color_data['images'])) {
+                    continue;
+                }
+                foreach ($color_data['images'] as $image_entry) {
+                    $url = $this->get_highest_resolution_url($image_entry['urls'] ?? array());
+                    if (!$url || in_array($url, $variation_gallery, true)) {
+                        continue;
+                    }
+                    $variation_gallery[] = $url;
+                    if (!$variation_image) {
+                        $variation_image = $url;
+                    }
+                }
+                break;
             }
         }
         
-        // Fallback: if no image selected yet, use first gallery image
         if (!$variation_image && !empty($variation_gallery)) {
             $variation_image = $variation_gallery[0];
         }
@@ -645,18 +572,8 @@ class ByteMash_Product_Sync {
      * Sync single product (handles Amrod's data structure)
      */
     public function sync_single_product($product_data, $force = false) {
-        // For variable products, use simpleCode as the parent SKU
-        // For simple products, use simpleCode if available, otherwise fullCode
-        $parent_simple_code = $product_data['simpleCode'] ?? '';
-        $has_variants_data = !empty($product_data['variants']) && is_array($product_data['variants']) && count($product_data['variants']) > 0;
-        
-        // If product has variants, prefer simpleCode for parent SKU
-        // Otherwise, use simpleCode if available, fallback to fullCode
-        if ($has_variants_data && !empty($parent_simple_code)) {
-            $sku = $parent_simple_code;
-        } else {
-            $sku = $product_data['simpleCode'] ?? $product_data['fullCode'] ?? null;
-        }
+        // Amrod uses 'simpleCode' or 'fullCode' as SKU
+        $sku = $product_data['simpleCode'] ?? $product_data['fullCode'] ?? null;
         
         if (!$sku) {
             $this->logger->log('error', 'Product missing SKU', array(), 'product_sync');
@@ -665,219 +582,13 @@ class ByteMash_Product_Sync {
         
         $sku = sanitize_text_field($sku);
         
-        // Check if product has variants (sizes/colors) that belong to this product
-        // Variants must have the same simpleCode as the parent to be considered variations
+        // Check if product has variants (sizes/colors)
+        // TEMPORARY: Can disable variable products via option for testing
         $enable_variable_products = get_option('bytemash_enable_variable_products', true);
-        $has_variants = false;
-        
-        if ($enable_variable_products && !empty($product_data['variants']) && is_array($product_data['variants']) && count($product_data['variants']) > 0) {
-            // Verify all variants share the same simpleCode as the parent
-            $all_variants_match = true;
-            foreach ($product_data['variants'] as $variant) {
-                $variant_simple_code = $variant['simpleCode'] ?? '';
-                if (empty($variant_simple_code) || $variant_simple_code !== $parent_simple_code) {
-                    $all_variants_match = false;
-                    $this->logger->log('info', 'Variant does not match parent simpleCode', array(
-                        'parent_simple_code' => $parent_simple_code,
-                        'variant_simple_code' => $variant_simple_code,
-                        'variant_full_code' => $variant['fullCode'] ?? '',
-                    ), 'product_sync');
-                    break;
-                }
-            }
-            
-            if ($all_variants_match && !empty($parent_simple_code)) {
-                $has_variants = true;
-                $this->logger->log('info', 'Product has valid variants for variable product', array(
-                    'parent_simple_code' => $parent_simple_code,
-                    'variant_count' => count($product_data['variants']),
-                ), 'product_sync');
-            }
-        }
-        
-        // CRITICAL: Check if this product is actually a variation of another product
-        // This prevents creating standalone products when they should be variations
-        // Check 1: If product's simpleCode matches an existing variable product
-        // Check 2: If product's fullCode appears in any variable product's variants array
-        if (!$has_variants && !empty($parent_simple_code) && !empty($product_data['fullCode'])) {
-            $variation_sku = $product_data['fullCode'];
-            $parent_product_id = null;
-            $parent_product = null;
-            
-            // First check: Does a variable product exist with this simpleCode as SKU?
-            $potential_parent_id = wc_get_product_id_by_sku($parent_simple_code);
-            if ($potential_parent_id) {
-                $potential_parent = wc_get_product($potential_parent_id);
-                if ($potential_parent && $potential_parent->is_type('variable')) {
-                    $parent_product_id = $potential_parent_id;
-                    $parent_product = $potential_parent;
-                }
-            }
-            
-            // Second check: Does this fullCode appear in any variable product's variants array?
-            // This is the definitive check - if a variant array contains this fullCode, it's a variation
-            if (!$parent_product_id) {
-                // Search all variable products to see if any have this fullCode in their variants
-                $all_variable_products = wc_get_products(array(
-                    'type' => 'variable',
-                    'limit' => -1,
-                    'return' => 'ids',
-                ));
-                
-                foreach ($all_variable_products as $var_product_id) {
-                    $var_product = wc_get_product($var_product_id);
-                    if (!$var_product) {
-                        continue;
-                    }
-                    
-                    // Get the variants array from product meta (stored during sync)
-                    $variants_meta = get_post_meta($var_product_id, '_amrod_variants_data', true);
-                    
-                    // Also check variations directly
-                    $variations = $var_product->get_children();
-                    
-                    // Check if any variation has this fullCode as SKU
-                    foreach ($variations as $variation_id) {
-                        $variation = wc_get_product($variation_id);
-                        if ($variation && $variation->get_sku() === $variation_sku) {
-                            // Found it! This product is already a variation
-                            $parent_product_id = $var_product_id;
-                            $parent_product = $var_product;
-                            break 2; // Break out of both loops
-                        }
-                    }
-                    
-                    // Check stored variants data if available
-                    if (!empty($variants_meta) && is_array($variants_meta)) {
-                        foreach ($variants_meta as $variant) {
-                            $variant_full_code = $variant['fullCode'] ?? '';
-                            if ($variant_full_code === $variation_sku) {
-                                // This fullCode is in this variable product's variants array
-                                $parent_product_id = $var_product_id;
-                                $parent_product = $var_product;
-                                break 2; // Break out of both loops
-                            }
-                        }
-                    }
-                }
-            }
-            
-            // If we found a parent variable product, create/update as variation
-            if ($parent_product_id && $parent_product) {
-                $existing_variation_id = wc_get_product_id_by_sku($variation_sku);
-                
-                if ($existing_variation_id) {
-                    // Variation exists, update it
-                    $this->logger->log('info', 'Product is a variation of existing variable product - updating variation', array(
-                        'parent_sku' => $parent_product->get_sku(),
-                        'variation_sku' => $variation_sku,
-                        'variation_id' => $existing_variation_id,
-                    ), 'product_sync');
-                    
-                    // Convert product data to variation format and update
-                    $variant_data = array(
-                        'fullCode' => $variation_sku,
-                        'simpleCode' => $parent_product->get_sku(),
-                        'codeColour' => $product_data['codeColour'] ?? '',
-                        'codeColourName' => $product_data['codeColourName'] ?? '',
-                        'codeSize' => $product_data['codeSize'] ?? '',
-                        'codeSizeName' => $product_data['codeSizeName'] ?? '',
-                        'categorisedAttribute' => $product_data['categorisedAttribute'] ?? array(),
-                        'packagingAndDimension' => $product_data['packagingAndDimension'] ?? array(),
-                        'productDimension' => $product_data['productDimension'] ?? array(),
-                    );
-                    
-                    $result = $this->create_product_variation($parent_product_id, $variant_data, $product_data);
-                    if ($result) {
-                        return array('success' => true, 'product_id' => $result, 'message' => 'Updated existing variation');
-                    }
-                } else {
-                    // Variation doesn't exist yet, create it
-                    $this->logger->log('info', 'Product is a variation of existing variable product - creating variation', array(
-                        'parent_sku' => $parent_product->get_sku(),
-                        'variation_sku' => $variation_sku,
-                    ), 'product_sync');
-                    
-                    // Convert product data to variation format
-                    $variant_data = array(
-                        'fullCode' => $variation_sku,
-                        'simpleCode' => $parent_product->get_sku(),
-                        'codeColour' => $product_data['codeColour'] ?? '',
-                        'codeColourName' => $product_data['codeColourName'] ?? '',
-                        'codeSize' => $product_data['codeSize'] ?? '',
-                        'codeSizeName' => $product_data['codeSizeName'] ?? '',
-                        'categorisedAttribute' => $product_data['categorisedAttribute'] ?? array(),
-                        'packagingAndDimension' => $product_data['packagingAndDimension'] ?? array(),
-                        'productDimension' => $product_data['productDimension'] ?? array(),
-                    );
-                    
-                    $result = $this->create_product_variation($parent_product_id, $variant_data, $product_data);
-                    if ($result) {
-                        return array('success' => true, 'product_id' => $result, 'message' => 'Created new variation');
-                    }
-                }
-            }
-        }
-        
-        // Check for existing product - try both simpleCode and fullCode as SKU
-        $product_id = wc_get_product_id_by_sku($sku);
-        if (!$product_id && !empty($product_data['fullCode']) && $product_data['fullCode'] !== $sku) {
-            // Try finding by fullCode if simpleCode didn't match
-            $product_id = wc_get_product_id_by_sku($product_data['fullCode']);
-            if ($product_id) {
-                $existing_product = wc_get_product($product_id);
-                
-                // If this is a standalone simple product but should be a variation
-                if ($existing_product && $existing_product->is_type('simple') && !$has_variants && !empty($parent_simple_code)) {
-                    // Check if parent variable product exists
-                    $parent_product_id = wc_get_product_id_by_sku($parent_simple_code);
-                    if ($parent_product_id) {
-                        $parent_product = wc_get_product($parent_product_id);
-                        if ($parent_product && $parent_product->is_type('variable')) {
-                            // Convert this simple product to a variation
-                            $this->logger->log('info', 'Converting standalone simple product to variation', array(
-                                'simple_product_id' => $product_id,
-                                'simple_product_sku' => $product_data['fullCode'],
-                                'parent_sku' => $parent_simple_code,
-                            ), 'product_sync');
-                            
-                            // Delete the standalone product
-                            wp_delete_post($product_id, true);
-                            $product_id = null;
-                            
-                            // Create as variation instead
-                            $variant_data = array(
-                                'fullCode' => $product_data['fullCode'],
-                                'simpleCode' => $parent_simple_code,
-                                'codeColour' => $product_data['codeColour'] ?? '',
-                                'codeColourName' => $product_data['codeColourName'] ?? '',
-                                'codeSize' => $product_data['codeSize'] ?? '',
-                                'codeSizeName' => $product_data['codeSizeName'] ?? '',
-                                'categorisedAttribute' => $product_data['categorisedAttribute'] ?? array(),
-                                'packagingAndDimension' => $product_data['packagingAndDimension'] ?? array(),
-                                'productDimension' => $product_data['productDimension'] ?? array(),
-                            );
-                            
-                            $result = $this->create_product_variation($parent_product_id, $variant_data, $product_data);
-                            if ($result) {
-                                return array('success' => true, 'product_id' => $result, 'message' => 'Converted simple product to variation');
-                            }
-                        }
-                    }
-                }
-                
-                if ($has_variants) {
-                    // Product exists with fullCode SKU but should be variable with simpleCode SKU
-                    // We'll let sync_variable_product handle the conversion
-                    $this->logger->log('info', 'Product exists with fullCode SKU but should be variable with simpleCode', array(
-                        'existing_sku' => $product_data['fullCode'],
-                        'new_sku' => $sku,
-                    ), 'product_sync');
-                }
-            }
-        }
+        $has_variants = $enable_variable_products && !empty($product_data['variants']) && is_array($product_data['variants']) && count($product_data['variants']) > 0;
         
         // Check if existing product is variable but should be simple (no variants in API)
+        $product_id = wc_get_product_id_by_sku($sku);
         if ($product_id && !$has_variants) {
             $existing_product = wc_get_product($product_id);
             if ($existing_product && $existing_product->is_type('variable')) {
@@ -1376,48 +1087,32 @@ class ByteMash_Product_Sync {
             
             if (!empty($image_data['isDefault']) && !$featured_image) {
                 $featured_image = $image_url;
-                } else {
+            } else {
                 $add_gallery($image_url);
             }
         }
         
-        // Process colourImages directly to ensure all images are included
-        // Each colourImages entry contains images for a specific color code
-        if (!empty($colour_images) && is_array($colour_images)) {
-            foreach ($colour_images as $colour_entry) {
-                if (empty($colour_entry['images']) || !is_array($colour_entry['images'])) {
+        $colour_gallery_map = $this->build_colour_gallery_map($colour_images);
+        
+        foreach ($colour_gallery_map as $entry) {
+            if (empty($entry['images']) || !is_array($entry['images'])) {
+                continue;
+            }
+            
+            foreach ($entry['images'] as $image_meta) {
+                $url = $image_meta['url'] ?? '';
+                if (!$url) {
                     continue;
                 }
+                $add_all($url);
                 
-                $colour_code = strtoupper(trim($colour_entry['code'] ?? ''));
-                $colour_name = trim($colour_entry['name'] ?? '');
-                
-                foreach ($colour_entry['images'] as $image_entry) {
-                    if (empty($image_entry['urls']) || !is_array($image_entry['urls'])) {
-                        continue;
-                    }
-                    
-                    $url = $this->get_highest_resolution_url($image_entry['urls']);
-                    if (empty($url)) {
-                        continue;
-                    }
-                    
-                    // Add to all images collection
-                    $add_all($url);
-                    
-                    // Add to gallery if not default or has logo
-                    if (empty($image_entry['isDefault']) || !empty($image_entry['hasLogo'])) {
-                        $add_gallery($url);
-                    } elseif (!$featured_image) {
-                        // Use as featured if it's default and no logo
-                        $featured_image = $url;
-                    }
+                if (empty($image_meta['isDefault']) || !empty($image_meta['hasLogo'])) {
+                    $add_gallery($url);
+                } elseif (!$featured_image) {
+                    $featured_image = $url;
                 }
             }
         }
-        
-        // Build colour gallery map for reference (used by variations)
-        $colour_gallery_map = $this->build_colour_gallery_map($colour_images);
         
         if (!$featured_image && !empty($all_images)) {
             $featured_image = $all_images[0];
@@ -3741,7 +3436,7 @@ class ByteMash_Product_Sync {
 
         return $map;
     }
-    
+
     /**
      * Flatten hierarchical category structure
      * Recursively extracts all categories and their children into a flat array
@@ -3878,7 +3573,7 @@ class ByteMash_Product_Sync {
             $this->logger->log('success', "Category synced: {$category_name}", array(
                 'term_id' => $term_id,
                 'category_path' => $category_path,
-                    ), 'category_sync');
+            ), 'category_sync');
             
             return array('success' => true, 'term_id' => $term_id, 'name' => $category_name);
         } catch (Exception $e) {
