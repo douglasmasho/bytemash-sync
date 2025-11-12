@@ -133,6 +133,7 @@ class ByteMash_Woo_Sync {
         add_filter('woocommerce_product_get_children', array($this, 'include_all_variations_in_quote_mode'), 10, 2);
         add_filter('woocommerce_product_variation_get_visibility', array($this, 'make_all_variations_visible_in_quote_mode'), 10, 2);
         add_filter('woocommerce_available_variation', array($this, 'include_all_variations_in_available_data'), 10, 3);
+        add_filter('woocommerce_available_variation', array($this, 'inject_external_variation_images'), 20, 3);
         add_filter('woocommerce_variation_is_visible', array($this, 'make_all_variations_visible_in_quote_mode_visibility'), 10, 4);
     }
 
@@ -4288,6 +4289,78 @@ class ByteMash_Woo_Sync {
         $variation_data['is_visible'] = true;
         
         return $variation_data;
+    }
+
+    /**
+     * Inject external image data for variations so swatches update gallery correctly
+     */
+    public function inject_external_variation_images($variation_data, $product, $variation) {
+        if (!$variation || !is_a($variation, 'WC_Product_Variation')) {
+            return $variation_data;
+        }
+
+        $variation_id = $variation->get_id();
+
+        $external_url = get_post_meta($variation_id, '_thumbnail_external_url', true);
+        if (empty($external_url)) {
+            $external_url = get_post_meta($variation_id, '_amrod_variation_image', true);
+        }
+
+        if (!empty($external_url)) {
+            $image_payload = $this->build_external_image_payload($external_url, $variation_id, $variation);
+            if (!is_array($variation_data)) {
+                $variation_data = array();
+            }
+
+            $variation_data['image'] = array_merge(
+                isset($variation_data['image']) && is_array($variation_data['image']) ? $variation_data['image'] : array(),
+                $image_payload
+            );
+            $variation_data['image_id'] = $image_payload['id'];
+        }
+
+        $gallery = get_post_meta($variation_id, '_amrod_variation_gallery', true);
+        if (is_array($gallery) && !empty($gallery)) {
+            $variation_data['bytemash_variation_gallery'] = array_values(array_unique($gallery));
+        } else {
+            unset($variation_data['bytemash_variation_gallery']);
+        }
+
+        return $variation_data;
+    }
+
+    /**
+     * Build WooCommerce-compatible image payload for external variation images
+     */
+    private function build_external_image_payload($url, $variation_id, $variation = null) {
+        $safe_url = esc_url($url);
+        $alt = $variation ? $variation->get_name() : '';
+        if (empty($alt)) {
+            $alt = get_the_title($variation_id);
+        }
+
+        $id = 'external_var_' . $variation_id;
+
+        return array(
+            'id' => $id,
+            'src' => $safe_url,
+            'url' => $safe_url,
+            'thumb_src' => $safe_url,
+            'full_src' => $safe_url,
+            'gallery_thumbnail_src' => $safe_url,
+            'src_w' => 1024,
+            'src_h' => 1024,
+            'full_src_w' => 1024,
+            'full_src_h' => 1024,
+            'gallery_thumbnail_src_w' => 300,
+            'gallery_thumbnail_src_h' => 300,
+            'srcset' => $safe_url,
+            'full_srcset' => $safe_url,
+            'sizes' => '(max-width: 1024px) 100vw, 1024px',
+            'full_sizes' => '(max-width: 1024px) 100vw, 1024px',
+            'alt' => esc_attr($alt),
+            'name' => $alt,
+        );
     }
     
     /**

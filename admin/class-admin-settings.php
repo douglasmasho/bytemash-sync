@@ -20,6 +20,11 @@ class ByteMash_Admin_Settings {
             self::save_settings();
         }
         
+        // Delete Amrod categories if requested
+        if (isset($_POST['bytemash_delete_categories'])) {
+            self::delete_amrod_categories();
+        }
+        
         // Handle logout
         if (isset($_POST['bytemash_logout'])) {
             self::logout();
@@ -48,6 +53,12 @@ class ByteMash_Admin_Settings {
             <?php if (isset($_GET['settings-updated']) && $_GET['settings-updated'] === 'true') : ?>
                 <div class="notice notice-success is-dismissible">
                     <p><?php esc_html_e('Settings saved successfully!', 'bytemash-woo-sync'); ?></p>
+                </div>
+            <?php endif; ?>
+            
+            <?php if (isset($_GET['categories-deleted']) && $_GET['categories-deleted'] === 'true') : ?>
+                <div class="notice notice-warning is-dismissible">
+                    <p><?php esc_html_e('All Amrod-synced categories have been deleted.', 'bytemash-woo-sync'); ?></p>
                 </div>
             <?php endif; ?>
             
@@ -230,6 +241,22 @@ class ByteMash_Admin_Settings {
                     </div>
                 </div>
             
+                <div class="bytemash-settings-section" style="margin-bottom: 30px; background: #fff; padding: 20px; border: 1px solid #ccd0d4; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
+                    <h2 style="margin-top: 0;"><?php esc_html_e('🗂 Category Maintenance', 'bytemash-woo-sync'); ?></h2>
+                    <p class="description">
+                        <?php esc_html_e('Use this tool to remove all WooCommerce categories that were created by the Amrod sync (identified by Amrod category metadata). This is helpful when you need to clear duplicates before running a fresh sync.', 'bytemash-woo-sync'); ?>
+                    </p>
+                    <form method="post" action="" onsubmit="return confirm('<?php echo esc_js(__('This will delete all synced Amrod categories and detach them from products. Continue?', 'bytemash-woo-sync')); ?>');">
+                        <?php wp_nonce_field('bytemash_delete_categories_action', 'bytemash_delete_categories_nonce'); ?>
+                        <p class="submit">
+                            <button type="submit" name="bytemash_delete_categories" class="button button-secondary" style="background: #dc3545; border-color: #dc3545; color: #fff;">
+                                <span class="dashicons dashicons-trash"></span>
+                                <?php esc_html_e('Delete Synced Categories', 'bytemash-woo-sync'); ?>
+                            </button>
+                        </p>
+                    </form>
+                </div>
+
             <form method="post" action="" class="bytemash-settings-form">
                 <?php wp_nonce_field('bytemash_settings_action', 'bytemash_settings_nonce'); ?>
                 
@@ -799,6 +826,52 @@ class ByteMash_Admin_Settings {
             <?php endif; ?>
         </div>
         <?php
+    }
+    
+    /**
+     * Delete all categories synced from Amrod
+     */
+    private static function delete_amrod_categories() {
+        if (!isset($_POST['bytemash_delete_categories_nonce']) ||
+            !wp_verify_nonce($_POST['bytemash_delete_categories_nonce'], 'bytemash_delete_categories_action')) {
+            wp_die(esc_html__('Security check failed', 'bytemash-woo-sync'));
+        }
+
+        if (!current_user_can('manage_woocommerce')) {
+            wp_die(esc_html__('Insufficient permissions', 'bytemash-woo-sync'));
+        }
+
+        $terms = get_terms(array(
+            'taxonomy' => 'product_cat',
+            'hide_empty' => false,
+            'fields' => 'ids',
+            'meta_query' => array(
+                array(
+                    'key' => '_amrod_category_path',
+                    'compare' => 'EXISTS',
+                ),
+            ),
+        ));
+
+        $deleted = 0;
+
+        if (!is_wp_error($terms) && !empty($terms)) {
+            foreach ($terms as $term_id) {
+                $result = wp_delete_term((int) $term_id, 'product_cat');
+                if (!is_wp_error($result)) {
+                    $deleted++;
+                }
+            }
+        }
+
+        $logger = new ByteMash_Logger();
+        $logger->log('warning', 'Amrod categories deleted via settings action', array(
+            'deleted' => $deleted,
+            'user' => get_current_user_id(),
+        ), 'settings');
+
+        wp_redirect(add_query_arg('categories-deleted', 'true', admin_url('admin.php?page=bytemash-amrod-settings')));
+        exit;
     }
     
     /**

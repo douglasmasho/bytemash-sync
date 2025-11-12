@@ -227,7 +227,10 @@ class ByteMash_Product_Sync {
         // Sync parent images
         if (!empty($product_data['images']) && is_array($product_data['images'])) {
             try {
-                $this->sync_product_images($product_id, $product_data['images']);
+                $colour_images = isset($product_data['colourImages']) && is_array($product_data['colourImages'])
+                    ? $product_data['colourImages']
+                    : array();
+                $this->sync_product_images($product_id, $product_data['images'], $colour_images);
             } catch (Exception $e) {
                 $this->logger->log('warning', 'Parent image sync failed', array(
                     'product_id' => $product_id,
@@ -486,33 +489,75 @@ class ByteMash_Product_Sync {
         }
         
         // Set variation image from colourImages if available
-        if (!empty($parent_data['colourImages']) && !empty($variant_data['codeColour'])) {
-            $color_code = $variant_data['codeColour'];
+        $variation_gallery = array();
+        $variation_image = '';
+        
+        if (!empty($parent_data['colourImages'])) {
+            $colour_map = $this->build_colour_gallery_map($parent_data['colourImages']);
             
-            foreach ($parent_data['colourImages'] as $color_data) {
-                if ($color_data['code'] === $color_code && !empty($color_data['images'])) {
-                    // Get the first image for this color
-                    $color_image = $color_data['images'][0] ?? null;
-                    if ($color_image && !empty($color_image['urls'])) {
-                        // Get highest res URL
-                        $highest_res = null;
-                        $max_width = 0;
-                        foreach ($color_image['urls'] as $url_data) {
-                            $width = $url_data['width'] ?? 0;
-                            if ($width > $max_width && !empty($url_data['url'])) {
-                                $highest_res = $url_data['url'];
-                                $max_width = $width;
-                            }
-                        }
-                        
-                        if ($highest_res) {
-                            update_post_meta($variation_id, '_thumbnail_external_url', $highest_res);
-                            update_post_meta($variation_id, '_amrod_variation_image', $highest_res);
-                        }
-                    }
+            $key_candidates = array_filter(array(
+                strtolower($variant_data['codeColour'] ?? ''),
+                strtolower($variant_data['codeColourName'] ?? ''),
+                sanitize_title($variant_data['codeColourName'] ?? ''),
+            ));
+            
+            $colour_entry = null;
+            foreach ($key_candidates as $candidate) {
+                if ($candidate && isset($colour_map[$candidate])) {
+                    $colour_entry = $colour_map[$candidate];
                     break;
                 }
             }
+            
+            if ($colour_entry && !empty($colour_entry['images'])) {
+                foreach ($colour_entry['images'] as $image_meta) {
+                    $url = $image_meta['url'] ?? '';
+                    if (!$url || in_array($url, $variation_gallery, true)) {
+                        continue;
+                    }
+                    
+                    $variation_gallery[] = $url;
+                    
+                    if (!$variation_image && !empty($image_meta['isDefault']) && empty($image_meta['hasLogo'])) {
+                        $variation_image = $url;
+                    }
+                }
+            }
+        }
+
+        if (empty($variation_gallery) && !empty($parent_data['colourImages']) && !empty($variant_data['codeColour'])) {
+            $color_code = $variant_data['codeColour'];
+            foreach ($parent_data['colourImages'] as $color_data) {
+                if (($color_data['code'] ?? '') !== $color_code || empty($color_data['images']) || !is_array($color_data['images'])) {
+                    continue;
+                }
+                foreach ($color_data['images'] as $image_entry) {
+                    $url = $this->get_highest_resolution_url($image_entry['urls'] ?? array());
+                    if (!$url || in_array($url, $variation_gallery, true)) {
+                        continue;
+                    }
+                    $variation_gallery[] = $url;
+                    if (!$variation_image) {
+                        $variation_image = $url;
+                    }
+                }
+                break;
+            }
+        }
+        
+        if (!$variation_image && !empty($variation_gallery)) {
+            $variation_image = $variation_gallery[0];
+        }
+        
+        if ($variation_image) {
+            update_post_meta($variation_id, '_thumbnail_external_url', $variation_image);
+            update_post_meta($variation_id, '_amrod_variation_image', $variation_image);
+        }
+        
+        if (!empty($variation_gallery)) {
+            update_post_meta($variation_id, '_amrod_variation_gallery', $variation_gallery);
+        } else {
+            delete_post_meta($variation_id, '_amrod_variation_gallery');
         }
         
         // Store variant-specific metadata
@@ -725,7 +770,10 @@ class ByteMash_Product_Sync {
             // Images are optional - if they fail, product still syncs
             if (!empty($product_data['images']) && is_array($product_data['images'])) {
                 try {
-                $this->sync_product_images($product_id, $product_data['images']);
+                    $colour_images = isset($product_data['colourImages']) && is_array($product_data['colourImages'])
+                        ? $product_data['colourImages']
+                        : array();
+                    $this->sync_product_images($product_id, $product_data['images'], $colour_images);
                 } catch (Exception $e) {
                     $this->logger->log('warning', 'Image sync failed but product created', array(
                         'product_id' => $product_id,
@@ -997,61 +1045,108 @@ class ByteMash_Product_Sync {
     /**
      * Sync product images from Amrod format
      */
-    private function sync_product_images($product_id, $images) {
-        $image_ids = array();
-        $default_image_id = null;
+    private function sync_product_images($product_id, $images, $colour_images = array()) {
+        $featured_image = null;
+        $gallery_images = array();
+        $gallery_seen = array();
+        $all_images = array();
+        $all_seen = array();
         
         $this->logger->log('info', 'Starting image sync', array(), 'image_sync');
         
-        foreach ($images as $image_data) {
+        $add_all = function($url) use (&$all_images, &$all_seen) {
+            if (empty($url) || isset($all_seen[$url])) {
+                return;
+            }
+            $all_seen[$url] = true;
+            $all_images[] = $url;
+        };
+        
+        $add_gallery = function($url) use (&$gallery_images, &$gallery_seen) {
+            if (empty($url) || isset($gallery_seen[$url])) {
+                return;
+            }
+            $gallery_seen[$url] = true;
+            $gallery_images[] = $url;
+        };
+        
+        foreach ((array) $images as $image_data) {
             if (empty($image_data['urls']) || !is_array($image_data['urls'])) {
                 $this->logger->log('warning', 'Skipping image - no urls array', array(), 'image_sync');
                 continue;
             }
             
-            // Get the highest resolution image
-            $image_url = '';
-            $max_width = 0;
-            
-            foreach ($image_data['urls'] as $url_data) {
-                if (!empty($url_data['url']) && $url_data['width'] > $max_width) {
-                    $image_url = $url_data['url'];
-                    $max_width = $url_data['width'];
-                }
-            }
+            $image_url = $this->get_highest_resolution_url($image_data['urls']);
             
             if (empty($image_url)) {
                 $this->logger->log('warning', 'Skipping image - no URL found', array(), 'image_sync');
                 continue;
             }
             
-            // Store image URL (don't download - use Amrod CDN directly!)
-                if (!empty($image_data['isDefault'])) {
-                $default_image_id = $image_url; // Store URL, not attachment ID
-                } else {
-                $image_ids[] = $image_url; // Store URL, not attachment ID
+            $add_all($image_url);
+            
+            if (!empty($image_data['isDefault']) && !$featured_image) {
+                $featured_image = $image_url;
+            } else {
+                $add_gallery($image_url);
             }
         }
         
-        // Store image URLs as meta (not WordPress attachments)
-        if ($default_image_id) {
-            update_post_meta($product_id, '_thumbnail_external_url', $default_image_id);
-            update_post_meta($product_id, '_amrod_featured_image', $default_image_id);
-        } else if (!empty($image_ids)) {
-            // If no default image specified, use the first image as featured
-            $first_image = $image_ids[0];
-            update_post_meta($product_id, '_thumbnail_external_url', $first_image);
-            update_post_meta($product_id, '_amrod_featured_image', $first_image);
+        $colour_gallery_map = $this->build_colour_gallery_map($colour_images);
+        
+        foreach ($colour_gallery_map as $entry) {
+            if (empty($entry['images']) || !is_array($entry['images'])) {
+                continue;
+            }
+            
+            foreach ($entry['images'] as $image_meta) {
+                $url = $image_meta['url'] ?? '';
+                if (!$url) {
+                    continue;
+                }
+                $add_all($url);
+                
+                if (empty($image_meta['isDefault']) || !empty($image_meta['hasLogo'])) {
+                    $add_gallery($url);
+                } elseif (!$featured_image) {
+                    $featured_image = $url;
+                }
+            }
         }
         
-        if (!empty($image_ids)) {
-            update_post_meta($product_id, '_amrod_gallery_images', $image_ids);
+        if (!$featured_image && !empty($all_images)) {
+            $featured_image = $all_images[0];
         }
         
-        // Store all image URLs together
-        $all_images = $default_image_id ? array_merge(array($default_image_id), $image_ids) : $image_ids;
+        if ($featured_image) {
+            update_post_meta($product_id, '_thumbnail_external_url', $featured_image);
+            update_post_meta($product_id, '_amrod_featured_image', $featured_image);
+            
+            if (($key = array_search($featured_image, $gallery_images, true)) !== false) {
+                unset($gallery_images[$key]);
+                $gallery_images = array_values($gallery_images);
+            }
+        } else {
+            delete_post_meta($product_id, '_thumbnail_external_url');
+            delete_post_meta($product_id, '_amrod_featured_image');
+        }
+        
+        if (!empty($gallery_images)) {
+            update_post_meta($product_id, '_amrod_gallery_images', $gallery_images);
+        } else {
+            delete_post_meta($product_id, '_amrod_gallery_images');
+        }
+        
         if (!empty($all_images)) {
             update_post_meta($product_id, '_amrod_all_images', $all_images);
+        } else {
+            delete_post_meta($product_id, '_amrod_all_images');
+        }
+        
+        if (!empty($colour_gallery_map)) {
+            update_post_meta($product_id, '_amrod_colour_gallery_map', $colour_gallery_map);
+        } else {
+            delete_post_meta($product_id, '_amrod_colour_gallery_map');
         }
         
         $this->logger->log('success', 'Image URLs stored (using Amrod CDN)', array(), 'image_sync');
@@ -1318,20 +1413,23 @@ class ByteMash_Product_Sync {
         if (!empty($product_data['colourImages'])) {
             update_post_meta($product_id, '_amrod_colour_images', $product_data['colourImages']);
             
+            $normalized_colour_map = $this->build_colour_gallery_map($product_data['colourImages']);
+            if (!empty($normalized_colour_map)) {
+                update_post_meta($product_id, '_amrod_colour_gallery_map', $normalized_colour_map);
+            } else {
+                delete_post_meta($product_id, '_amrod_colour_gallery_map');
+            }
+            
             // Extract simplified swatch data
             $swatches = array();
-            foreach ($product_data['colourImages'] as $color) {
+            foreach ((array) $product_data['colourImages'] as $color) {
                 $swatch_images = array();
                 
                 if (!empty($color['images']) && is_array($color['images'])) {
                     foreach ($color['images'] as $img) {
-                        if (!empty($img['urls']) && is_array($img['urls'])) {
-                            foreach ($img['urls'] as $url_data) {
-                                if (!empty($url_data['url'])) {
-                                    $swatch_images[] = $url_data['url'];
-                                    break;
-                                }
-                            }
+                        $url = $this->get_highest_resolution_url($img['urls'] ?? array());
+                        if ($url && !in_array($url, $swatch_images, true)) {
+                            $swatch_images[] = $url;
                         }
                     }
                 }
@@ -1345,7 +1443,13 @@ class ByteMash_Product_Sync {
             
             if (!empty($swatches)) {
                 update_post_meta($product_id, '_amrod_color_swatches', $swatches);
+            } else {
+                delete_post_meta($product_id, '_amrod_color_swatches');
             }
+        } else {
+            delete_post_meta($product_id, '_amrod_colour_images');
+            delete_post_meta($product_id, '_amrod_colour_gallery_map');
+            delete_post_meta($product_id, '_amrod_color_swatches');
         }
         
         // Store inventory type and behavior
@@ -3116,6 +3220,40 @@ class ByteMash_Product_Sync {
 
             $existing_term = $this->get_category_term_by_path($current_path);
 
+            $slug = sanitize_title($display_name ?: $segment);
+
+            if (!$existing_term instanceof WP_Term) {
+                // Try to find by slug with parent context first
+                if ($slug !== '') {
+                    $term_lookup = term_exists($slug, 'product_cat', $parent_id);
+                    if ($term_lookup) {
+                        $term_object = get_term(is_array($term_lookup) ? $term_lookup['term_id'] : $term_lookup, 'product_cat');
+                        if ($term_object instanceof WP_Term) {
+                            $existing_term = $term_object;
+                        }
+                    }
+                }
+
+                // If still not found, try global slug match and then reassign parent
+                if (!$existing_term && $slug !== '') {
+                    $term_lookup = term_exists($slug, 'product_cat');
+                    if ($term_lookup) {
+                        $term_object = get_term(is_array($term_lookup) ? $term_lookup['term_id'] : $term_lookup, 'product_cat');
+                        if ($term_object instanceof WP_Term) {
+                            $existing_term = $term_object;
+                        }
+                    }
+                }
+
+                // Finally, check by exact display name
+                if (!$existing_term && $display_name) {
+                    $term_object = get_term_by('name', $display_name, 'product_cat');
+                    if ($term_object instanceof WP_Term) {
+                        $existing_term = $term_object;
+                    }
+                }
+            }
+
             if ($existing_term instanceof WP_Term) {
                 $term_id = (int) $existing_term->term_id;
 
@@ -3129,13 +3267,6 @@ class ByteMash_Product_Sync {
                     wp_update_term($term_id, 'product_cat', array('name' => $display_name));
                 }
             } else {
-                $slug = sanitize_title($display_name);
-
-                // Prevent slug collisions when identical names exist under different parents
-                if ($slug && term_exists($slug, 'product_cat')) {
-                    $slug = $slug . '-' . substr(md5($normalized_path), 0, 6);
-                }
-
                 $args = array('parent' => $parent_id);
                 if ($slug) {
                     $args['slug'] = $slug;
@@ -3208,6 +3339,102 @@ class ByteMash_Product_Sync {
             'success' => true,
             'term_id' => $last_term_id,
         );
+    }
+
+    /**
+     * Extract highest resolution URL from Amrod image data
+     *
+     * @param array $urls
+     * @return string
+     */
+    private function get_highest_resolution_url($urls) {
+        $best_url = '';
+        $best_width = -1;
+
+        foreach ((array) $urls as $url_data) {
+            if (empty($url_data['url'])) {
+                continue;
+            }
+            $width = isset($url_data['width']) && is_numeric($url_data['width'])
+                ? (int) $url_data['width']
+                : 0;
+            if ($width > $best_width) {
+                $best_width = $width;
+                $best_url = $url_data['url'];
+            }
+        }
+
+        if (!$best_url && !empty($urls[0]['url'])) {
+            $best_url = $urls[0]['url'];
+        }
+
+        return $best_url ? esc_url_raw($best_url) : '';
+    }
+
+    /**
+     * Normalize colour image payload into consistent map for galleries/variations
+     *
+     * @param array $colour_images
+     * @return array
+     */
+    private function build_colour_gallery_map($colour_images) {
+        $map = array();
+
+        foreach ((array) $colour_images as $colour) {
+            if (empty($colour['images']) || !is_array($colour['images'])) {
+                continue;
+            }
+
+            $code = isset($colour['code']) ? (string) $colour['code'] : '';
+            $name = isset($colour['name']) ? (string) $colour['name'] : '';
+
+            $key_candidates = array_filter(array(
+                strtolower($code),
+                strtolower($name),
+                sanitize_title($name),
+            ));
+
+            if (empty($key_candidates)) {
+                continue;
+            }
+
+            $images = array();
+
+            foreach ($colour['images'] as $image_entry) {
+                $url = $this->get_highest_resolution_url($image_entry['urls'] ?? array());
+
+                if (!$url) {
+                    continue;
+                }
+
+                $images[] = array(
+                    'url' => $url,
+                    'isDefault' => !empty($image_entry['isDefault']),
+                    'hasLogo' => !empty($image_entry['hasLogo']),
+                    'type' => $image_entry['type'] ?? '',
+                    'name' => $image_entry['name'] ?? '',
+                );
+            }
+
+            if (empty($images)) {
+                continue;
+            }
+
+            $entry = array(
+                'code' => $code,
+                'name' => $name,
+                'images' => $images,
+            );
+
+            foreach (array_unique($key_candidates) as $candidate) {
+                if ($candidate === '') {
+                    continue;
+                }
+                $map[$candidate] = $entry;
+            }
+        }
+
+        return $map;
     }
 
     /**
