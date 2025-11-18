@@ -712,10 +712,10 @@ class ByteMash_Action_Scheduler_Sync {
         }
         
         $total = count($prices_data);
-        $batches = array_chunk($prices_data, 100);
+        $batches = array_chunk($prices_data, 500);
         $batch_count = count($batches);
         
-        $this->logger->log('info', "Scheduling {$batch_count} price batches with Action Scheduler", array(
+        $this->logger->log('info', "⚡ Scheduling {$batch_count} OPTIMIZED price batches with Action Scheduler", array(
             'sync_id' => $sync_id,
             'total' => $total,
             'batch_count' => $batch_count,

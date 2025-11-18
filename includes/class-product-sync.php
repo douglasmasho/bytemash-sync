@@ -582,6 +582,16 @@ class ByteMash_Product_Sync {
         
         $sku = sanitize_text_field($sku);
         
+        // Check if product is decoupled (sold separately from grouped base)
+        $is_decoupled = isset($product_data['decoupled']) && $product_data['decoupled'] === true;
+        
+        if ($is_decoupled) {
+            $this->logger->log('info', 'Product is decoupled - will be treated as standalone product', array(
+                'sku' => $sku,
+                'product_name' => $product_data['productName'] ?? '',
+            ), 'product_sync');
+        }
+        
         // Check if product has variants (sizes/colors)
         // TEMPORARY: Can disable variable products via option for testing
         $enable_variable_products = get_option('bytemash_enable_variable_products', true);
@@ -1120,6 +1130,7 @@ class ByteMash_Product_Sync {
         
         if ($featured_image) {
             update_post_meta($product_id, '_thumbnail_external_url', $featured_image);
+            update_post_meta($product_id, '_external_image_url', $featured_image); // For Gutenberg blocks
             update_post_meta($product_id, '_amrod_featured_image', $featured_image);
             
             if (($key = array_search($featured_image, $gallery_images, true)) !== false) {
@@ -1128,6 +1139,7 @@ class ByteMash_Product_Sync {
             }
         } else {
             delete_post_meta($product_id, '_thumbnail_external_url');
+            delete_post_meta($product_id, '_external_image_url');
             delete_post_meta($product_id, '_amrod_featured_image');
         }
         
@@ -1321,6 +1333,20 @@ class ByteMash_Product_Sync {
             update_post_meta($product_id, '_amrod_full_code', sanitize_text_field($product_data['fullCode']));
         }
         
+        // Store decoupled flag - indicates this product is sold separately from the main grouped base
+        // Decoupled products are their own standalone products (e.g., end of life, clearance, specials)
+        $is_decoupled = isset($product_data['decoupled']) && $product_data['decoupled'] === true;
+        if ($is_decoupled) {
+            update_post_meta($product_id, '_amrod_decoupled', 1);
+            $this->logger->log('info', 'Product marked as decoupled (standalone product)', array(
+                'product_id' => $product_id,
+                'sku' => $product_data['simpleCode'] ?? '',
+            ), 'product_sync');
+        } else {
+            // Ensure the meta is removed if product is no longer decoupled
+            delete_post_meta($product_id, '_amrod_decoupled');
+        }
+        
         // Store branding guides (important for customer downloads!)
         if (!empty($product_data['fullBrandingGuide'])) {
             update_post_meta($product_id, '_amrod_full_branding_guide', esc_url_raw($product_data['fullBrandingGuide']));
@@ -1492,12 +1518,23 @@ class ByteMash_Product_Sync {
         }
         
         // Store related/companion codes
+        // Note: For decoupled products, these relationships are still maintained
+        // as they may reference other products that are also decoupled or separately available
         if (!empty($product_data['companionCodes'])) {
             update_post_meta($product_id, '_amrod_companion_codes', $product_data['companionCodes']);
         }
         
         if (!empty($product_data['relatedCodes'])) {
             update_post_meta($product_id, '_amrod_related_codes', $product_data['relatedCodes']);
+        }
+        
+        // Store grouping codes - used for product variations and sets
+        if (!empty($product_data['groupingCodes'])) {
+            update_post_meta($product_id, '_amrod_grouping_codes', $product_data['groupingCodes']);
+        }
+        
+        if (!empty($product_data['matchingCodes'])) {
+            update_post_meta($product_id, '_amrod_matching_codes', $product_data['matchingCodes']);
         }
         
         // Store promotion flag
@@ -2024,8 +2061,8 @@ class ByteMash_Product_Sync {
         $total = count($prices_data);
         $sync_id = 'prices_' . time() . '_' . wp_generate_password(8, false);
         
-        // Split into batches (larger batches for prices - simpler data)
-        $batches = array_chunk($prices_data, 100);
+        // Split into batches (OPTIMIZED: 500 items per batch for lightning-fast performance)
+        $batches = array_chunk($prices_data, 500);
         $batch_count = count($batches);
         
         $this->logger->log('info', "Split into {$batch_count} batches", array(), 'price_sync');
@@ -2035,7 +2072,7 @@ class ByteMash_Product_Sync {
             'type' => 'prices',
             'total' => $total,
             'batch_count' => $batch_count,
-            'batch_size' => 100,
+            'batch_size' => 500,
             'current_batch' => 0,
             'processed' => 0,
             'errors' => 0,
@@ -2077,8 +2114,8 @@ class ByteMash_Product_Sync {
         $total = count($prices_data);
         $sync_id = 'prices_update_' . time() . '_' . wp_generate_password(8, false);
         
-        // Split into batches (same as full price sync)
-        $batches = array_chunk($prices_data, 100);
+        // Split into batches (OPTIMIZED: 500 items per batch for lightning-fast performance)
+        $batches = array_chunk($prices_data, 500);
         $batch_count = count($batches);
         
         $this->logger->log('info', "Split into {$batch_count} batches", array(), 'price_sync');
@@ -2088,7 +2125,7 @@ class ByteMash_Product_Sync {
             'type' => 'prices',
             'total' => $total,
             'batch_count' => $batch_count,
-            'batch_size' => 100,
+            'batch_size' => 500,
             'current_batch' => 0,
             'processed' => 0,
             'errors' => 0,

@@ -76,16 +76,17 @@
     width: 40px;
     height: 40px;
     border-radius: 50%;
-    border: 2px solid #ddd;
+    border: 2px solid #000;
     cursor: pointer;
     transition: all 0.2s ease;
-    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+    box-shadow: 0 2px 4px rgba(0,0,0,0.15);
 }
 
 .bytemash-color-swatch:hover {
     transform: scale(1.1);
-    border-color: #999;
-    box-shadow: 0 3px 8px rgba(0,0,0,0.2);
+    border-color: #000;
+    border-width: 3px;
+    box-shadow: 0 3px 8px rgba(0,0,0,0.25);
 }
 
 /* Selected state */
@@ -116,7 +117,8 @@
 
 .bytemash-color-swatch.disabled:hover {
     transform: none;
-    border-color: #ddd;
+    border-color: #000;
+    border-width: 2px;
 }
 
 /* Tooltip on hover */
@@ -255,6 +257,25 @@
     color: #000;
 }
 
+/* Shop page color swatches (from [amrod_color_swatches] shortcode) */
+.amrod-color-swatch-circle {
+    position: relative;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: 2px solid #000 !important;
+    cursor: pointer;
+    display: inline-block;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.15) !important;
+}
+
+.amrod-color-swatch-circle:hover {
+    transform: scale(1.15);
+    box-shadow: 0 3px 8px rgba(0,0,0,0.25) !important;
+    border-width: 3px !important;
+}
+
 /* Mobile responsive */
 @media (max-width: 768px) {
     .bytemash-color-swatch {
@@ -275,6 +296,11 @@
     
     .bytemash-size-buttons {
         gap: 6px;
+    }
+    
+    .amrod-color-swatch-circle {
+        width: 28px;
+        height: 28px;
     }
 }
 

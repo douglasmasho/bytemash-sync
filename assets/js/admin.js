@@ -1389,6 +1389,48 @@
         });
         
         /**
+         * Cleanup zero prices (YITH compatibility)
+         */
+        $('#cleanup_zero_prices').on('click', function() {
+            if (!confirm('Remove all fake \'0\' prices from products?\n\nThis will allow YITH Request a Quote to work correctly.')) {
+                return;
+            }
+            
+            const $button = $(this);
+            const $result = $('#cleanup_zero_prices_result');
+            
+            $button.prop('disabled', true).text('Cleaning...');
+            $result.html('');
+            
+            $.ajax({
+                url: bytemashWooSync.ajax_url,
+                type: 'POST',
+                data: {
+                    action: 'bytemash_cleanup_zero_prices',
+                    nonce: bytemashWooSync.nonce
+                },
+                success: function(response) {
+                    if (response.success) {
+                        $result.html('<div class="notice notice-success inline"><p>' + response.data.message + '</p></div>');
+                        showNotice('success', response.data.message);
+                    } else {
+                        $result.html('<div class="notice notice-error inline"><p>' + response.data.message + '</p></div>');
+                        showNotice('error', response.data.message);
+                    }
+                    $button.prop('disabled', false).text('Remove Fake Zero Prices');
+                },
+                error: function(xhr) {
+                    const message = xhr.responseJSON && xhr.responseJSON.data && xhr.responseJSON.data.message 
+                        ? xhr.responseJSON.data.message 
+                        : 'Failed to cleanup prices. Please try again.';
+                    $result.html('<div class="notice notice-error inline"><p>' + message + '</p></div>');
+                    showNotice('error', message);
+                    $button.prop('disabled', false).text('Remove Fake Zero Prices');
+                }
+            });
+        });
+        
+        /**
          * View log details modal
          */
         $(document).on('click', '.bytemash-view-details', function() {

@@ -240,6 +240,65 @@ class ByteMash_Admin_Settings {
                         </p>
                     </div>
                 </div>
+
+                                <!-- Shortcodes Section - Only visible when authenticated -->
+                                <div class="bytemash-settings-section" style="margin-bottom: 30px; background: #fff; padding: 20px; border: 1px solid #ccd0d4; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
+                    <h2 style="margin-top: 0;"><?php esc_html_e('📋 Available Shortcodes', 'bytemash-woo-sync'); ?></h2>
+                    <p class="description">
+                        <?php esc_html_e('Use these shortcodes in your product pages, widgets, or any content area to display Amrod product information.', 'bytemash-woo-sync'); ?>
+                    </p>
+                    
+                    <table class="form-table" style="margin-top: 15px;">
+                        <tbody>
+                            <tr>
+                                <th scope="row" style="width: 200px;">
+                                    <code style="background: #f0f0f1; padding: 5px 10px; border-radius: 3px; font-size: 14px;">[amrod_brand_logo]</code>
+                                </th>
+                                <td>
+                                    <p style="margin: 5px 0;"><strong><?php esc_html_e('Brand Logo:', 'bytemash-woo-sync'); ?></strong> <?php esc_html_e('Displays the brand logo for the current product. The logo is fetched from the brand sync data.', 'bytemash-woo-sync'); ?></p>
+                                    <p style="margin: 5px 0; color: #646970;"><em><?php esc_html_e('Auto-displayed on product pages by default.', 'bytemash-woo-sync'); ?></em></p>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row">
+                                    <code style="background: #f0f0f1; padding: 5px 10px; border-radius: 3px; font-size: 14px;">[amrod_color_swatches]</code>
+                                </th>
+                                <td>
+                                    <p style="margin: 5px 0;"><strong><?php esc_html_e('Color Swatches:', 'bytemash-woo-sync'); ?></strong> <?php esc_html_e('Displays a row of color swatch circles showing all available colors for the product. Colors are displayed using hex values from the color swatches sync.', 'bytemash-woo-sync'); ?></p>
+                                    <p style="margin: 5px 0; color: #646970;"><em><?php esc_html_e('Auto-displayed on product pages by default.', 'bytemash-woo-sync'); ?></em></p>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row">
+                                    <code style="background: #f0f0f1; padding: 5px 10px; border-radius: 3px; font-size: 14px;">[amrod_gender]</code>
+                                </th>
+                                <td>
+                                    <p style="margin: 5px 0;"><strong><?php esc_html_e('Product Gender:', 'bytemash-woo-sync'); ?></strong> <?php esc_html_e('Displays the product gender (e.g., Men, Women, Unisex).', 'bytemash-woo-sync'); ?></p>
+                                    <p style="margin: 5px 0; color: #646970;"><em><?php esc_html_e('Auto-displayed on product pages by default.', 'bytemash-woo-sync'); ?></em></p>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row">
+                                    <code style="background: #f0f0f1; padding: 5px 10px; border-radius: 3px; font-size: 14px;">[amrod_total_stock]</code>
+                                </th>
+                                <td>
+                                    <p style="margin: 5px 0;"><strong><?php esc_html_e('Total Stock:', 'bytemash-woo-sync'); ?></strong> <?php esc_html_e('Displays the total stock quantity (sum of all variations) and total incoming stock for the product. Only shows if stock data is available.', 'bytemash-woo-sync'); ?></p>
+                                    <p style="margin: 5px 0; color: #646970;"><em><?php esc_html_e('Auto-displayed on product pages by default. For variable products, calculates the sum of stock from all variations.', 'bytemash-woo-sync'); ?></em></p>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row">
+                                    <code style="background: #f0f0f1; padding: 5px 10px; border-radius: 3px; font-size: 14px;">[amrod_before_title]</code>
+                                </th>
+                                <td>
+                                    <p style="margin: 5px 0;"><strong><?php esc_html_e('WooCommerce Hook:', 'bytemash-woo-sync'); ?></strong> <?php esc_html_e('Outputs WooCommerce hook content for use in page builders like Bricks.', 'bytemash-woo-sync'); ?></p>
+                                </td>
+                            </tr>
+                        </tbody>
+                    </table>
+                    
+                  
+                </div>
             
                 <div class="bytemash-settings-section" style="margin-bottom: 30px; background: #fff; padding: 20px; border: 1px solid #ccd0d4; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
                     <h2 style="margin-top: 0;"><?php esc_html_e('🗂 Category Maintenance', 'bytemash-woo-sync'); ?></h2>
@@ -760,7 +819,7 @@ class ByteMash_Admin_Settings {
                                 </th>
                                 <td>
                                     <?php 
-                                    $purchasability_mode = get_option('bytemash_allow_orders_without_price', 'force_with_stock');
+                                    $purchasability_mode = get_option('bytemash_allow_orders_without_price', 'default');
                                     ?>
                                     <select name="allow_orders_without_price" id="allow_orders_without_price" style="width: 100%; max-width: 400px;">
                                         <option value="default" <?php selected($purchasability_mode, 'default'); ?>>
@@ -809,6 +868,21 @@ class ByteMash_Admin_Settings {
                                     <p class="description">
                                         <?php esc_html_e('Permanently delete all sync logs. This cannot be undone.', 'bytemash-woo-sync'); ?>
                                     </p>
+                                </td>
+                            </tr>
+                            
+                            <tr>
+                                <th scope="row">
+                                    <label><?php esc_html_e('YITH Compatibility', 'bytemash-woo-sync'); ?></label>
+                                </th>
+                                <td>
+                                    <button type="button" class="button button-secondary" id="cleanup_zero_prices">
+                                        <?php esc_html_e('Remove Fake Zero Prices', 'bytemash-woo-sync'); ?>
+                                    </button>
+                                    <p class="description">
+                                        <?php esc_html_e('Removes fake \'0\' prices that interfere with YITH Request a Quote. Run this if YITH quote button is not showing.', 'bytemash-woo-sync'); ?>
+                                    </p>
+                                    <div id="cleanup_zero_prices_result" style="margin-top: 10px;"></div>
                                 </td>
                             </tr>
                         </tbody>

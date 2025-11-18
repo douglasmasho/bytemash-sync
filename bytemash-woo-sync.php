@@ -94,6 +94,9 @@ class ByteMash_Woo_Sync {
         
         // Public AJAX for brandings modal
         add_action('wp_ajax_bytemash_get_product_brandings', array($this, 'ajax_get_product_brandings'));
+        
+        // AJAX for product count test page
+        add_action('wp_ajax_bytemash_get_product_counts', array($this, 'ajax_get_product_counts'));
         add_action('wp_ajax_nopriv_bytemash_get_product_brandings', array($this, 'ajax_get_product_brandings'));
 
         // Branding selection as product options
@@ -109,32 +112,37 @@ class ByteMash_Woo_Sync {
         add_action('woocommerce_checkout_create_order_line_item', array($this, 'add_branding_to_order_items'), 10, 4);
         add_action('wp_ajax_nopriv_bytemash_get_product_stock_table', array($this, 'ajax_get_product_stock_table'));
         
-        // Quote request system - show button when NOT in quote mode OR as fallback in quote mode
-        if (!$this->is_quote_mode_enabled()) {
-            add_action('woocommerce_single_product_summary', array($this, 'render_quote_request_button'), 30);
-        } else {
-            // In quote mode, add button as fallback to woocommerce_single_product_summary (after form)
+        // Quote Mode - ONLY activate when quote mode is enabled
+        // When quote mode is OFF, use normal WooCommerce ordering without any quote interference
+        if ($this->is_quote_mode_enabled()) {
+            // Quote mode is ON - activate full quote system
+            add_action('wp_enqueue_scripts', array($this, 'enqueue_quote_request_assets'));
+            add_action('wp_ajax_bytemash_submit_quote_request', array($this, 'ajax_submit_quote_request'));
+            add_action('wp_ajax_nopriv_bytemash_submit_quote_request', array($this, 'ajax_submit_quote_request'));
+            add_action('init', array($this, 'register_quote_request_order_status'));
+            add_filter('wc_order_statuses', array($this, 'add_quote_request_order_status'));
+            
+            // Render quote button as fallback after form
             add_action('woocommerce_single_product_summary', array($this, 'render_quote_request_button_fallback'), 35);
+            
+            // Replace normal ordering flow with custom quote form
+            add_action('woocommerce_before_add_to_cart_form', array($this, 'maybe_add_quote_mode_wrapper'), 5);
+            add_action('woocommerce_before_add_to_cart_button', array($this, 'maybe_hide_add_to_cart_in_quote_mode'), 5);
+            add_action('woocommerce_after_add_to_cart_form', array($this, 'maybe_replace_add_to_cart_with_quote_button'), 15);
+            add_action('woocommerce_after_add_to_cart_form', array($this, 'maybe_close_quote_mode_wrapper'), 20);
+            
+            // In quote mode, ensure all variations are visible (even without prices)
+            add_filter('woocommerce_hide_invisible_variations', array($this, 'show_all_variations_in_quote_mode'), 10, 3);
+            add_filter('woocommerce_product_get_children', array($this, 'include_all_variations_in_quote_mode'), 10, 2);
+            add_filter('woocommerce_product_variation_get_visibility', array($this, 'make_all_variations_visible_in_quote_mode'), 10, 2);
+            add_filter('woocommerce_available_variation', array($this, 'include_all_variations_in_available_data'), 10, 3);
+            add_filter('woocommerce_variation_is_visible', array($this, 'make_all_variations_visible_in_quote_mode_visibility'), 10, 4);
         }
-        add_action('wp_enqueue_scripts', array($this, 'enqueue_quote_request_assets'));
-        add_action('wp_ajax_bytemash_submit_quote_request', array($this, 'ajax_submit_quote_request'));
-        add_action('wp_ajax_nopriv_bytemash_submit_quote_request', array($this, 'ajax_submit_quote_request'));
-        add_action('init', array($this, 'register_quote_request_order_status'));
-        add_filter('wc_order_statuses', array($this, 'add_quote_request_order_status'));
+        // When quote mode is OFF: No quote buttons, no quote hooks - just normal WooCommerce
         
-        // Quote Mode - replace normal ordering flow with custom quote form
-        add_action('woocommerce_before_add_to_cart_form', array($this, 'maybe_add_quote_mode_wrapper'), 5);
-        add_action('woocommerce_before_add_to_cart_button', array($this, 'maybe_hide_add_to_cart_in_quote_mode'), 5);
-        add_action('woocommerce_after_add_to_cart_form', array($this, 'maybe_replace_add_to_cart_with_quote_button'), 15);
-        add_action('woocommerce_after_add_to_cart_form', array($this, 'maybe_close_quote_mode_wrapper'), 20);
-        
-        // In quote mode, ensure all variations are visible (even without prices)
-        add_filter('woocommerce_hide_invisible_variations', array($this, 'show_all_variations_in_quote_mode'), 10, 3);
-        add_filter('woocommerce_product_get_children', array($this, 'include_all_variations_in_quote_mode'), 10, 2);
-        add_filter('woocommerce_product_variation_get_visibility', array($this, 'make_all_variations_visible_in_quote_mode'), 10, 2);
-        add_filter('woocommerce_available_variation', array($this, 'include_all_variations_in_available_data'), 10, 3);
+        // CRITICAL: Always inject external variation images for color swatches to work
+        // This is needed for normal product display, not just quote mode
         add_filter('woocommerce_available_variation', array($this, 'inject_external_variation_images'), 20, 3);
-        add_filter('woocommerce_variation_is_visible', array($this, 'make_all_variations_visible_in_quote_mode_visibility'), 10, 4);
     }
 
     /**
@@ -164,6 +172,9 @@ class ByteMash_Woo_Sync {
         add_action('init', array($this, 'init_scheduler'));
         add_action('init', array($this, 'register_product_flag_taxonomies'));
         add_action('before_woocommerce_init', array($this, 'declare_hpos_compatibility'));
+        
+        // Include child category products when viewing parent categories
+        add_action('pre_get_posts', array($this, 'include_child_category_products'));
         
         // Hook into WooCommerce product images
         add_filter('woocommerce_product_get_image_id', array($this, 'use_external_image_url'), 10, 2);
@@ -197,17 +208,25 @@ class ByteMash_Woo_Sync {
 		// Force-inject buttons only if theme didn't render them (optional via settings)
 		add_action('wp_footer', array($this, 'maybe_force_product_buttons'), 5);
         
-        // Allow products to be purchasable even without prices
-        add_filter('woocommerce_is_purchasable', array($this, 'make_products_purchasable_without_price'), 10, 2);
-        add_filter('woocommerce_variation_is_purchasable', array($this, 'make_variations_purchasable_without_price'), 10, 2);
-        add_filter('woocommerce_product_is_in_stock', array($this, 'force_in_stock_when_has_stock'), 10, 2);
-        add_filter('woocommerce_product_get_stock_status', array($this, 'force_stock_status_when_has_stock'), 10, 2);
-        add_filter('woocommerce_variation_get_stock_status', array($this, 'force_stock_status_when_has_stock'), 10, 2);
-        // Hide the out of stock message for products that should allow quote requests
-        add_filter('woocommerce_get_stock_html', array($this, 'hide_out_of_stock_message_for_quote_requests'), 10, 2);
-        add_filter('woocommerce_product_get_price', array($this, 'set_default_price_for_amrod_products'), 10, 2);
-        add_action('woocommerce_before_add_to_cart_button', array($this, 'maybe_set_product_price'));
-        add_filter('woocommerce_get_price_html', array($this, 'hide_zero_price_display'), 10, 2);
+        // Only override purchasability and stock status if NOT in default mode
+        // When in default mode, use standard WooCommerce behavior without any interference
+        $purchasability_mode = get_option('bytemash_allow_orders_without_price', 'default');
+        if ($purchasability_mode !== 'default') {
+            // Allow products to be purchasable even without prices
+            add_filter('woocommerce_is_purchasable', array($this, 'make_products_purchasable_without_price'), 10, 2);
+            add_filter('woocommerce_variation_is_purchasable', array($this, 'make_variations_purchasable_without_price'), 10, 2);
+            add_filter('woocommerce_product_is_in_stock', array($this, 'force_in_stock_when_has_stock'), 10, 2);
+            add_filter('woocommerce_product_get_stock_status', array($this, 'force_stock_status_when_has_stock'), 10, 2);
+            add_filter('woocommerce_variation_get_stock_status', array($this, 'force_stock_status_when_has_stock'), 10, 2);
+            // Hide the out of stock message for products that should allow quote requests
+            add_filter('woocommerce_get_stock_html', array($this, 'hide_out_of_stock_message_for_quote_requests'), 10, 2);
+        }
+        // DISABLED: These interfere with YITH Request a Quote and other quote plugins
+        // They set fake '0' prices which breaks quote button detection
+        // add_filter('woocommerce_product_get_price', array($this, 'set_default_price_for_amrod_products'), 10, 2);
+        // add_action('woocommerce_before_add_to_cart_button', array($this, 'maybe_set_product_price'));
+        // Removed: Don't override WooCommerce price display for normal ordering flow
+        // add_filter('woocommerce_get_price_html', array($this, 'hide_zero_price_display'), 10, 2);
         
         // Admin hooks
         if (is_admin()) {
@@ -236,6 +255,7 @@ class ByteMash_Woo_Sync {
             add_action('wp_ajax_bytemash_sync_inclusive_brandings', array($this, 'ajax_sync_inclusive_brandings'));
             add_action('wp_ajax_bytemash_process_batch', array($this, 'ajax_process_batch'));
             add_action('wp_ajax_bytemash_get_batch', array($this, 'ajax_get_batch'));
+            add_action('wp_ajax_bytemash_cleanup_zero_prices', array($this, 'ajax_cleanup_zero_prices'));
             
             // Cron manager AJAX handlers
             add_action('wp_ajax_bytemash_toggle_test_mode', array($this, 'ajax_toggle_test_mode'));
@@ -472,6 +492,65 @@ class ByteMash_Woo_Sync {
     }
     
     /**
+     * Include products from child categories when viewing a parent category
+     * This ensures that when viewing a major category, all products from subcategories are displayed
+     */
+    public function include_child_category_products($query) {
+        // Only run on frontend product category archives, not in admin
+        if (is_admin() || !$query->is_main_query()) {
+            return;
+        }
+        
+        // Check if this is a product category archive
+        if (!is_tax('product_cat')) {
+            return;
+        }
+        
+        // Get the current category
+        $category = get_queried_object();
+        
+        if (!$category || !isset($category->term_id)) {
+            return;
+        }
+        
+        // Get all child category IDs (recursive)
+        $child_categories = get_term_children($category->term_id, 'product_cat');
+        
+        if (empty($child_categories) || is_wp_error($child_categories)) {
+            return;
+        }
+        
+        // Include the parent category and all child categories in the query
+        $category_ids = array_merge(array($category->term_id), $child_categories);
+        
+        // Modify the tax_query to include all categories
+        $tax_query = $query->get('tax_query') ?: array();
+        
+        // Find and modify the product_cat query
+        $found_product_cat = false;
+        foreach ($tax_query as $key => $tax) {
+            if (isset($tax['taxonomy']) && $tax['taxonomy'] === 'product_cat') {
+                $tax_query[$key]['terms'] = $category_ids;
+                $tax_query[$key]['operator'] = 'IN';
+                $found_product_cat = true;
+                break;
+            }
+        }
+        
+        // If no product_cat tax query exists, add one
+        if (!$found_product_cat) {
+            $tax_query[] = array(
+                'taxonomy' => 'product_cat',
+                'field' => 'term_id',
+                'terms' => $category_ids,
+                'operator' => 'IN',
+            );
+        }
+        
+        $query->set('tax_query', $tax_query);
+    }
+    
+    /**
      * Initialize scheduler after all dependencies are loaded
      */
     public function init_scheduler() {
@@ -560,6 +639,136 @@ class ByteMash_Woo_Sync {
             'bytemash-amrod-tools',
             array('ByteMash_Admin_Tools', 'render')
         );
+        
+        // Add Product Count Test page
+        add_submenu_page(
+            'bytemash-amrod-sync',
+            __('Product Count Test', 'bytemash-woo-sync'),
+            __('Product Count Test', 'bytemash-woo-sync'),
+            'manage_woocommerce',
+            'bytemash-product-count-test',
+            array($this, 'render_product_count_test_page')
+        );
+    }
+    
+    /**
+     * Render Product Count Test Page
+     */
+    public function render_product_count_test_page() {
+        // Check if WP_DEBUG is enabled
+        $debug_enabled = defined('WP_DEBUG') && WP_DEBUG;
+        $debug_log_enabled = defined('WP_DEBUG_LOG') && WP_DEBUG_LOG;
+        
+        ?>
+        <div class="wrap">
+            <h1><?php echo esc_html__('Product Count Test', 'bytemash-woo-sync'); ?></h1>
+            <p><?php echo esc_html__('This page shows raw product counts from the Amrod API and category product counts in WooCommerce.', 'bytemash-woo-sync'); ?></p>
+            
+            <?php if (!$debug_enabled || !$debug_log_enabled): ?>
+            <div class="notice notice-warning" style="margin-top: 20px;">
+                <p><strong><?php echo esc_html__('Debug Logging is NOT Enabled', 'bytemash-woo-sync'); ?></strong></p>
+                <p><?php echo esc_html__('To see detailed error logs, add these lines to your wp-config.php:', 'bytemash-woo-sync'); ?></p>
+                <pre style="background: #f5f5f5; padding: 10px; border: 1px solid #ddd;">define('WP_DEBUG', true);
+define('WP_DEBUG_LOG', true);
+define('WP_DEBUG_DISPLAY', false);</pre>
+                <p><?php echo esc_html__('Debug logs will be saved to: wp-content/debug.log', 'bytemash-woo-sync'); ?></p>
+            </div>
+            <?php else: ?>
+            <div class="notice notice-success" style="margin-top: 20px;">
+                <p><strong><?php echo esc_html__('Debug Logging is Enabled ✓', 'bytemash-woo-sync'); ?></strong></p>
+                <p><?php echo esc_html__('All operations are being logged to:', 'bytemash-woo-sync'); ?> <code><?php echo esc_html(WP_CONTENT_DIR . '/debug.log'); ?></code></p>
+                <p><?php echo esc_html__('Look for lines starting with "ByteMash Product Count Test:"', 'bytemash-woo-sync'); ?></p>
+            </div>
+            <?php endif; ?>
+            
+            <div id="product-count-results" style="margin-top: 20px;">
+                <button type="button" class="button button-primary" id="run-product-count-test">
+                    <?php echo esc_html__('Run Product Count Test', 'bytemash-woo-sync'); ?>
+                </button>
+                <span class="spinner" style="float: none; margin: 0 10px;"></span>
+                <div id="count-results" style="margin-top: 20px;"></div>
+            </div>
+        </div>
+        
+        <script type="text/javascript">
+        jQuery(document).ready(function($) {
+            $('#run-product-count-test').on('click', function() {
+                var button = $(this);
+                var spinner = button.next('.spinner');
+                var resultsDiv = $('#count-results');
+                
+                button.prop('disabled', true);
+                spinner.addClass('is-active');
+                resultsDiv.html('<p>Loading product counts...</p>');
+                
+                $.ajax({
+                    url: ajaxurl,
+                    type: 'POST',
+                    data: {
+                        action: 'bytemash_get_product_counts',
+                        nonce: '<?php echo wp_create_nonce('bytemash_product_counts'); ?>'
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            var html = '<div style="background: #fff; padding: 20px; border: 1px solid #ccc; border-radius: 4px;">';
+                            
+                            // API Product Count
+                            html += '<h2 style="margin-top: 0;">API Product Count</h2>';
+                            html += '<p style="font-size: 18px;"><strong>Total Products from API:</strong> ' + response.data.api_count + '</p>';
+                            html += '<div style="margin-left: 20px; padding: 10px; background: #f9f9f9; border-left: 3px solid #2271b1;">';
+                            html += '<p style="margin: 5px 0;"><strong>Regular Products:</strong> ' + response.data.api_regular_count + '</p>';
+                            html += '<p style="margin: 5px 0;"><strong>Decoupled Products:</strong> ' + response.data.api_decoupled_count + ' <em style="color: #666;">(standalone, sold separately)</em></p>';
+                            html += '</div>';
+                            
+                            // WooCommerce Product Count
+                            html += '<h2>WooCommerce Product Count</h2>';
+                            html += '<p style="font-size: 18px;"><strong>Total Products in WooCommerce:</strong> ' + response.data.wc_total + '</p>';
+                            html += '<div style="margin-left: 20px; padding: 10px; background: #f9f9f9; border-left: 3px solid #2271b1;">';
+                            html += '<p style="margin: 5px 0;"><strong>Regular Products:</strong> ' + response.data.wc_regular_count + '</p>';
+                            html += '<p style="margin: 5px 0;"><strong>Decoupled Products:</strong> ' + response.data.wc_decoupled_count + ' <em style="color: #666;">(marked with _amrod_decoupled meta)</em></p>';
+                            html += '</div>';
+                            
+                            // Category Counts
+                            html += '<h2>Category Product Counts</h2>';
+                            html += '<table class="wp-list-table widefat fixed striped" style="margin-top: 10px;">';
+                            html += '<thead><tr>';
+                            html += '<th style="padding: 10px;">Category Name</th>';
+                            html += '<th style="padding: 10px;">Category Slug</th>';
+                            html += '<th style="padding: 10px;">Direct Products</th>';
+                            html += '<th style="padding: 10px;">Total Products (with children)</th>';
+                            html += '<th style="padding: 10px;">Parent</th>';
+                            html += '</tr></thead><tbody>';
+                            
+                            $.each(response.data.categories, function(index, category) {
+                                html += '<tr>';
+                                html += '<td style="padding: 10px;">' + category.name + '</td>';
+                                html += '<td style="padding: 10px;"><code>' + category.slug + '</code></td>';
+                                html += '<td style="padding: 10px; text-align: center;"><strong>' + category.direct_count + '</strong></td>';
+                                html += '<td style="padding: 10px; text-align: center;"><strong style="color: #0073aa;">' + category.total_count + '</strong></td>';
+                                html += '<td style="padding: 10px;">' + (category.parent || '-') + '</td>';
+                                html += '</tr>';
+                            });
+                            
+                            html += '</tbody></table>';
+                            html += '</div>';
+                            
+                            resultsDiv.html(html);
+                        } else {
+                            resultsDiv.html('<div class="notice notice-error"><p>' + response.data + '</p></div>');
+                        }
+                    },
+                    error: function() {
+                        resultsDiv.html('<div class="notice notice-error"><p>An error occurred while fetching product counts.</p></div>');
+                    },
+                    complete: function() {
+                        button.prop('disabled', false);
+                        spinner.removeClass('is-active');
+                    }
+                });
+            });
+        });
+        </script>
+        <?php
     }
     
     /**
@@ -649,6 +858,7 @@ class ByteMash_Woo_Sync {
 
     /**
      * Render the Branding Guide tab content
+     * Uses lazy-loading and multiple embedding methods to prevent Firefox auto-download
      */
     public function render_branding_guide_tab_content() {
         global $product;
@@ -658,21 +868,157 @@ class ByteMash_Woo_Sync {
         $product_id = $product->get_id();
         $full = get_post_meta($product_id, '_amrod_full_branding_guide', true);
         $logo24 = get_post_meta($product_id, '_amrod_logo24_branding_guide', true);
-        $guide_url = $full ?: $logo24;
-        if (empty($guide_url)) {
-            echo '<p>' . esc_html__('Branding guide not available for this product.', 'bytemash-woo-sync') . '</p>';
-            return;
-        }
-
-        // Prefer inline PDF viewer when possible, fallback to download link
-        $safe_url = esc_url($guide_url);
+        
         echo '<div class="bytemash-branding-guide-tab">';
-        echo '<p><a href="' . $safe_url . '" target="_blank" rel="noopener">' . esc_html__('Open Branding Guide in new tab', 'bytemash-woo-sync') . '</a></p>';
-        echo '<div style="border:1px solid #eee; height:700px">';
-        echo '<iframe src="' . $safe_url . '#view=FitH" style="width:100%; height:100%" loading="lazy"></iframe>';
-        echo '</div>';
+        
+        // Show both guides if available
+        if (!empty($full)) {
+            $this->render_single_branding_guide($full, __('Full Branding Guide', 'bytemash-woo-sync'), 'full');
+        }
+        
+        if (!empty($logo24)) {
+            $this->render_single_branding_guide($logo24, __('Logo24 Branding Guide', 'bytemash-woo-sync'), 'logo24');
+        }
+        
+        if (empty($full) && empty($logo24)) {
+            echo '<p>' . esc_html__('Branding guide not available for this product.', 'bytemash-woo-sync') . '</p>';
+        }
+        
         $this->render_product_dimension_details_section($product_id);
         echo '</div>';
+    }
+    
+    /**
+     * Render a single branding guide with lazy-loading to prevent auto-download
+     */
+    private function render_single_branding_guide($guide_url, $title, $id_suffix) {
+        $safe_url = esc_url($guide_url);
+        $container_id = 'bytemash-pdf-container-' . $id_suffix;
+        $button_id = 'bytemash-pdf-toggle-' . $id_suffix;
+        
+        ?>
+        <div class="bytemash-branding-guide-item" style="margin-bottom: 30px;">
+            <h4 style="margin: 0 0 10px 0; color: #333;"><?php echo esc_html($title); ?></h4>
+            
+            <!-- Quick action buttons -->
+            <div style="margin-bottom: 15px; display: flex; gap: 10px; flex-wrap: wrap;">
+                <a href="<?php echo $safe_url; ?>" 
+                   target="_blank" 
+                   rel="noopener noreferrer" 
+                   class="button button-primary"
+                   style="text-decoration: none;">
+                     <?php esc_html_e('Open in New Tab', 'bytemash-woo-sync'); ?>
+                </a>
+                
+                <button type="button" 
+                        id="<?php echo esc_attr($button_id); ?>" 
+                        class="button"
+                        data-pdf-url="<?php echo esc_attr($safe_url); ?>"
+                        data-container-id="<?php echo esc_attr($container_id); ?>">
+                    <?php esc_html_e('View Here', 'bytemash-woo-sync'); ?>
+                </button>
+            </div>
+            
+            <!-- PDF container (hidden by default, loads on click) -->
+            <div id="<?php echo esc_attr($container_id); ?>" 
+                 style="display: none; border: 1px solid #ddd; border-radius: 4px; overflow: hidden; background: #f5f5f5; min-height: 600px;">
+                <div style="padding: 10px; background: #fff; border-bottom: 1px solid #ddd; display: flex; justify-content: space-between; align-items: center;">
+                    <span style="font-weight: 600;"><?php echo esc_html($title); ?></span>
+                    <button type="button" 
+                            class="button button-small" 
+                            onclick="document.getElementById('<?php echo esc_js($container_id); ?>').style.display='none';"
+                            style="padding: 5px 10px;">
+                        ✕ <?php esc_html_e('Close', 'bytemash-woo-sync'); ?>
+                    </button>
+                </div>
+                <div style="position: relative; height: 600px; width: 100%;">
+                    <!-- Use object tag first (better Firefox compatibility) -->
+                    <object id="<?php echo esc_attr($container_id); ?>-object" 
+                            data="" 
+                            type="application/pdf" 
+                            width="100%" 
+                            height="100%"
+                            style="display: none;">
+                        <iframe id="<?php echo esc_attr($container_id); ?>-iframe" 
+                                src="" 
+                                width="100%" 
+                                height="100%" 
+                                style="border: none; display: none;"
+                                loading="lazy">
+                            <p style="padding: 20px; text-align: center;">
+                                <?php esc_html_e('Your browser does not support PDF viewing.', 'bytemash-woo-sync'); ?>
+                                <a href="<?php echo $safe_url; ?>" target="_blank"><?php esc_html_e('Download PDF', 'bytemash-woo-sync'); ?></a>
+                            </p>
+                        </iframe>
+                    </object>
+                    <div id="<?php echo esc_attr($container_id); ?>-loading" 
+                         style="position: absolute; top: 50%; left: 50%; transform: translate(-50%, -50%); text-align: center;">
+                        <div class="spinner" style="border: 4px solid #f3f3f3; border-top: 4px solid #3498db; border-radius: 50%; width: 40px; height: 40px; animation: spin 1s linear infinite; margin: 0 auto 10px;"></div>
+                        <p><?php esc_html_e('Loading PDF...', 'bytemash-woo-sync'); ?></p>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <style>
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+        </style>
+        
+        <script>
+        (function() {
+            var button = document.getElementById('<?php echo esc_js($button_id); ?>');
+            var container = document.getElementById('<?php echo esc_js($container_id); ?>');
+            var objectEl = document.getElementById('<?php echo esc_js($container_id); ?>-object');
+            var iframeEl = document.getElementById('<?php echo esc_js($container_id); ?>-iframe');
+            var loadingEl = document.getElementById('<?php echo esc_js($container_id); ?>-loading');
+            var pdfUrl = '<?php echo esc_js($safe_url); ?>';
+            var loaded = false;
+            
+            if (!button || !container) return;
+            
+            button.addEventListener('click', function() {
+                if (container.style.display === 'none') {
+                    // Show container
+                    container.style.display = 'block';
+                    
+                    // Load PDF only on first click (prevents auto-download on page load)
+                    if (!loaded) {
+                        loadingEl.style.display = 'block';
+                        
+                        // Try object tag first (better Firefox support)
+                        objectEl.data = pdfUrl + '#view=FitH';
+                        objectEl.style.display = 'block';
+                        
+                        // Fallback to iframe if object fails
+                        objectEl.onerror = function() {
+                            objectEl.style.display = 'none';
+                            iframeEl.src = pdfUrl + '#view=FitH';
+                            iframeEl.style.display = 'block';
+                        };
+                        
+                        // Hide loading when PDF loads
+                        setTimeout(function() {
+                            loadingEl.style.display = 'none';
+                        }, 1000);
+                        
+                        loaded = true;
+                    } else {
+                        loadingEl.style.display = 'none';
+                    }
+                    
+                    button.textContent = ' <?php echo esc_js(__('Hide Inline View', 'bytemash-woo-sync')); ?>';
+                } else {
+                    // Hide container
+                    container.style.display = 'none';
+                    button.textContent = ' <?php echo esc_js(__('View Inline', 'bytemash-woo-sync')); ?>';
+                }
+            });
+        })();
+        </script>
+        <?php
     }
 
     /**
@@ -1065,6 +1411,187 @@ class ByteMash_Woo_Sync {
         echo '</div>';
         $html = ob_get_clean();
         wp_send_json_success(array('html' => $html));
+    }
+    
+    /**
+     * AJAX handler for product count test page
+     */
+    public function ajax_get_product_counts() {
+        try {
+            error_log('ByteMash Product Count Test: Starting product count test');
+            
+            check_ajax_referer('bytemash_product_counts', 'nonce');
+            
+            error_log('ByteMash Product Count Test: Nonce verified');
+            
+            // Initialize handlers
+            $api_client = new ByteMash_Amrod_API_Client();
+            $logger = new ByteMash_Logger();
+            
+            error_log('ByteMash Product Count Test: Handlers initialized');
+            
+            // Get API product count
+            error_log('ByteMash Product Count Test: Fetching products from API...');
+            $api_products = $api_client->get_products_with_branding();
+            
+            if (is_wp_error($api_products)) {
+                error_log('ByteMash Product Count Test ERROR: API returned WP_Error - ' . $api_products->get_error_message());
+                wp_send_json_error('API Error: ' . $api_products->get_error_message());
+                return;
+            }
+            
+            $api_count = is_array($api_products) ? count($api_products) : 0;
+            error_log('ByteMash Product Count Test: API product count = ' . $api_count);
+            
+            // Count decoupled vs regular products
+            $decoupled_count = 0;
+            $regular_count = 0;
+            
+            if (is_array($api_products)) {
+                foreach ($api_products as $product) {
+                    if (isset($product['decoupled']) && $product['decoupled'] === true) {
+                        $decoupled_count++;
+                    } else {
+                        $regular_count++;
+                    }
+                }
+            }
+            
+            error_log('ByteMash Product Count Test: Regular products = ' . $regular_count . ', Decoupled products = ' . $decoupled_count);
+            
+            // Get WooCommerce product count
+            error_log('ByteMash Product Count Test: Counting WooCommerce products...');
+            $wc_args = array(
+                'post_type' => 'product',
+                'post_status' => 'publish',
+                'posts_per_page' => -1,
+                'fields' => 'ids'
+            );
+            $wc_products = get_posts($wc_args);
+            $wc_total = count($wc_products);
+            error_log('ByteMash Product Count Test: WooCommerce product count = ' . $wc_total);
+            
+            // Count WooCommerce decoupled products
+            $wc_decoupled_count = 0;
+            $wc_regular_count = 0;
+            
+            foreach ($wc_products as $product_id) {
+                $is_decoupled = get_post_meta($product_id, '_amrod_decoupled', true);
+                if ($is_decoupled) {
+                    $wc_decoupled_count++;
+                } else {
+                    $wc_regular_count++;
+                }
+            }
+            
+            error_log('ByteMash Product Count Test: WooCommerce Regular = ' . $wc_regular_count . ', Decoupled = ' . $wc_decoupled_count);
+            
+            // Get category counts
+            error_log('ByteMash Product Count Test: Fetching categories...');
+            $categories = get_terms(array(
+                'taxonomy' => 'product_cat',
+                'hide_empty' => false,
+                'orderby' => 'name',
+                'order' => 'ASC'
+            ));
+            
+            if (is_wp_error($categories)) {
+                error_log('ByteMash Product Count Test ERROR: get_terms returned WP_Error - ' . $categories->get_error_message());
+                wp_send_json_error('Category Error: ' . $categories->get_error_message());
+                return;
+            }
+            
+            error_log('ByteMash Product Count Test: Found ' . count($categories) . ' categories');
+            
+            $category_data = array();
+            $category_count = 0;
+            
+            foreach ($categories as $category) {
+                $category_count++;
+                
+                try {
+                    // Get direct product count (products directly in this category, not children)
+                    $direct_args = array(
+                        'post_type' => 'product',
+                        'post_status' => 'publish',
+                        'posts_per_page' => -1,
+                        'fields' => 'ids',
+                        'tax_query' => array(
+                            array(
+                                'taxonomy' => 'product_cat',
+                                'field' => 'term_id',
+                                'terms' => $category->term_id,
+                                'include_children' => false
+                            )
+                        )
+                    );
+                    $direct_products = get_posts($direct_args);
+                    $direct_count = count($direct_products);
+                    
+                    // Get total count (including child categories)
+                    $total_args = array(
+                        'post_type' => 'product',
+                        'post_status' => 'publish',
+                        'posts_per_page' => -1,
+                        'fields' => 'ids',
+                        'tax_query' => array(
+                            array(
+                                'taxonomy' => 'product_cat',
+                                'field' => 'term_id',
+                                'terms' => $category->term_id,
+                                'include_children' => true
+                            )
+                        )
+                    );
+                    $total_products = get_posts($total_args);
+                    $total_count = count($total_products);
+                    
+                    // Get parent category name
+                    $parent_name = '';
+                    if ($category->parent > 0) {
+                        $parent = get_term($category->parent, 'product_cat');
+                        if ($parent && !is_wp_error($parent)) {
+                            $parent_name = $parent->name;
+                        }
+                    }
+                    
+                    $category_data[] = array(
+                        'name' => $category->name,
+                        'slug' => $category->slug,
+                        'direct_count' => $direct_count,
+                        'total_count' => $total_count,
+                        'parent' => $parent_name
+                    );
+                    
+                    error_log('ByteMash Product Count Test: Category "' . $category->name . '" - Direct: ' . $direct_count . ', Total: ' . $total_count);
+                    
+                } catch (Exception $e) {
+                    error_log('ByteMash Product Count Test ERROR: Failed to process category "' . $category->name . '" - ' . $e->getMessage());
+                    error_log('ByteMash Product Count Test ERROR: Stack trace - ' . $e->getTraceAsString());
+                    // Continue with other categories
+                }
+            }
+            
+            error_log('ByteMash Product Count Test: Successfully processed all categories');
+            error_log('ByteMash Product Count Test: Sending response - API: ' . $api_count . ', WC: ' . $wc_total . ', Categories: ' . count($category_data));
+            
+            wp_send_json_success(array(
+                'api_count' => $api_count,
+                'api_regular_count' => $regular_count,
+                'api_decoupled_count' => $decoupled_count,
+                'wc_total' => $wc_total,
+                'wc_regular_count' => $wc_regular_count,
+                'wc_decoupled_count' => $wc_decoupled_count,
+                'categories' => $category_data
+            ));
+            
+        } catch (Exception $e) {
+            error_log('ByteMash Product Count Test FATAL ERROR: ' . $e->getMessage());
+            error_log('ByteMash Product Count Test FATAL ERROR: File - ' . $e->getFile() . ' Line - ' . $e->getLine());
+            error_log('ByteMash Product Count Test FATAL ERROR: Stack trace - ' . $e->getTraceAsString());
+            
+            wp_send_json_error('An error occurred: ' . $e->getMessage() . ' (Check debug.log for details)');
+        }
     }
 
     /**
@@ -1763,6 +2290,84 @@ class ByteMash_Woo_Sync {
         
         wp_send_json_success(array(
             'message' => __('Logs cleared successfully', 'bytemash-woo-sync')
+        ));
+    }
+    
+    /**
+     * AJAX: Cleanup zero prices (YITH compatibility)
+     */
+    public function ajax_cleanup_zero_prices() {
+        // Check nonce
+        check_ajax_referer('bytemash_woo_sync_nonce', 'nonce');
+        
+        // Check permissions
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(array('message' => __('Insufficient permissions', 'bytemash-woo-sync')));
+        }
+        
+        global $wpdb;
+        
+        // Count before cleanup
+        $count_before = $wpdb->get_var("
+            SELECT COUNT(*)
+            FROM {$wpdb->postmeta}
+            WHERE meta_key IN ('_price', '_regular_price')
+            AND meta_value = '0'
+        ");
+        
+        // Get affected products for logging
+        $affected_products = $wpdb->get_col("
+            SELECT DISTINCT post_id
+            FROM {$wpdb->postmeta}
+            WHERE meta_key IN ('_price', '_regular_price')
+            AND meta_value = '0'
+        ");
+        
+        $product_count = count($affected_products);
+        
+        if ($product_count === 0) {
+            wp_send_json_success(array(
+                'message' => __('✅ No fake zero prices found. Your products are clean!', 'bytemash-woo-sync'),
+                'count' => 0,
+                'products' => 0
+            ));
+            return;
+        }
+        
+        // Delete the meta entries
+        $deleted = $wpdb->query("
+            DELETE FROM {$wpdb->postmeta}
+            WHERE meta_key IN ('_price', '_regular_price')
+            AND meta_value = '0'
+        ");
+        
+        if ($deleted === false) {
+            wp_send_json_error(array(
+                'message' => __('❌ Database error occurred during cleanup.', 'bytemash-woo-sync')
+            ));
+            return;
+        }
+        
+        // Clear WooCommerce transients for affected products
+        foreach ($affected_products as $product_id) {
+            delete_transient('wc_product_children_' . $product_id);
+            delete_transient('wc_var_prices_' . $product_id);
+            wc_delete_product_transients($product_id);
+        }
+        
+        // Clear WooCommerce cache
+        if (function_exists('wc_delete_shop_order_transients')) {
+            wc_delete_shop_order_transients();
+        }
+        
+        wp_send_json_success(array(
+            'message' => sprintf(
+                __('✅ Successfully removed %d fake price entries from %d products. Clear your cache and check YITH now!', 'bytemash-woo-sync'),
+                $deleted,
+                $product_count
+            ),
+            'count' => $deleted,
+            'products' => $product_count
         ));
     }
     
@@ -3343,10 +3948,10 @@ class ByteMash_Woo_Sync {
 
         $guide_html = '';
         if (!empty($full_guide)) {
-            $guide_html .= '<a href="' . esc_url($full_guide) . '" target="_blank" class="button" style="background:#0073aa;color:#fff;padding:6px 12px;border-radius:3px;text-decoration:none;">Full Branding Guide</a>';
+            $guide_html .= '<a href="' . esc_url($full_guide) . '" target="_blank" class="bm-branding-guide-button button">Full Branding Guide</a>';
         }
         if (!empty($logo24_guide)) {
-            $guide_html .= '<a href="' . esc_url($logo24_guide) . '" target="_blank" class="button" style="background:#28a745;color:#fff;padding:6px 12px;border-radius:3px;text-decoration:none;">Logo24 Branding Guide</a>';
+            $guide_html .= '<a href="' . esc_url($logo24_guide) . '" target="_blank" class="bm-logo24-guide-button button" style="background:#28a745;color:#fff;padding:6px 12px;border-radius:3px;text-decoration:none;">Logo24 Branding Guide</a>';
         }
         $inline_html = $guide_html . '<button type="button" class="button" id="bytemash-inline-stock" style="background:#6c757d;color:#fff;padding:6px 12px;border-radius:3px;">View Stock</button>';
 
@@ -3523,25 +4128,54 @@ class ByteMash_Woo_Sync {
      * Gets brand code/name from product meta, then looks up logo URL from synced brands data
      */
     public function shortcode_brand_logo($atts = array()) {
-        // Try to get product from global first
-        global $product;
+        // Parse attributes
+        $atts = shortcode_atts(array(
+            'product_id' => 0,
+            'debug' => false,
+        ), $atts, 'amrod_brand_logo');
         
-        // If no product in global, try to get from current post
-        if (!$product && is_singular('product')) {
+        $debug_info = array();
+        
+        // Try to get product from global first
+        global $product, $post;
+        
+        $debug_info['initial_global_product'] = is_object($product) ? $product->get_id() : 'none';
+        $debug_info['initial_global_post'] = !empty($post) ? $post->ID . ' (' . $post->post_type . ')' : 'none';
+        $debug_info['get_the_ID'] = get_the_ID();
+        
+        // If no product in global, try multiple fallback methods
+        if (!$product || !is_object($product) || !method_exists($product, 'get_id')) {
+            // Method 1: Try from current post (works in loops and singular pages)
             $product_id = get_the_ID();
-            if ($product_id) {
+            if ($product_id && get_post_type($product_id) === 'product') {
                 $product = wc_get_product($product_id);
+                $debug_info['method'] = 'get_the_ID';
             }
+            
+            // Method 2: Try from global $post (works in some loop contexts)
+            if ((!$product || !is_object($product)) && !empty($post) && $post->post_type === 'product') {
+                $product = wc_get_product($post->ID);
+                $debug_info['method'] = 'global_post';
+            }
+        } else {
+            $debug_info['method'] = 'global_product';
         }
         
         // If still no product and shortcode is called with product_id attribute
-        if (!$product && !empty($atts['product_id'])) {
+        if ((!$product || !is_object($product)) && !empty($atts['product_id'])) {
             $product = wc_get_product(intval($atts['product_id']));
+            $debug_info['method'] = 'attribute';
         }
         
-        if (!$product) {
+        if (!$product || !is_object($product) || !method_exists($product, 'get_id')) {
+            // Return debug info if requested
+            if ($atts['debug']) {
+                return '<!-- DEBUG: No product found. Info: ' . wp_json_encode($debug_info) . ' -->';
+            }
             return '';
         }
+        
+        $debug_info['product_found'] = $product->get_id();
         
         $product_id = $product->get_id();
         $logo_url = '';
@@ -3599,17 +4233,33 @@ class ByteMash_Woo_Sync {
             }
         }
         
+        $debug_info['brand_code'] = $brand_code ?? 'none';
+        $debug_info['logo_url'] = $logo_url ?? 'none';
+        
         if (empty($logo_url)) {
+            if ($atts['debug']) {
+                return '<!-- DEBUG: No logo found. Info: ' . wp_json_encode($debug_info) . ' --><div style="border: 2px dashed red; padding: 10px; margin: 10px 0;">No brand logo (debug mode)</div>';
+            }
             return '';
         }
         
         ob_start();
+        
+        // Show debug info if requested
+        if ($atts['debug']) {
+            echo '<!-- DEBUG: Brand Logo Info: ' . wp_json_encode($debug_info) . ' -->';
+        }
         ?>
         <div class="amrod-brand-logo" style="margin: 15px 0;">
             <?php if ($brand_name): ?>
                 <img src="<?php echo esc_url($logo_url); ?>" alt="<?php echo esc_attr($brand_name); ?>" style="max-height: 60px; max-width: 200px; object-fit: contain;">
             <?php else: ?>
                 <img src="<?php echo esc_url($logo_url); ?>" alt="Brand Logo" style="max-height: 60px; max-width: 200px; object-fit: contain;">
+            <?php endif; ?>
+            <?php if ($atts['debug']): ?>
+                <div style="font-size: 11px; color: #666; margin-top: 5px;">
+                    Product ID: <?php echo $product_id; ?> | Brand: <?php echo esc_html($brand_name ?: 'N/A'); ?>
+                </div>
             <?php endif; ?>
         </div>
         <?php
@@ -3630,9 +4280,25 @@ class ByteMash_Woo_Sync {
     /**
      * Shortcode: [amrod_color_swatches] - Display color swatches
      */
-    public function shortcode_color_swatches() {
-        global $product;
-        if (!$product) {
+    public function shortcode_color_swatches($atts = array()) {
+        global $product, $post;
+        
+        // Try to get product using multiple methods
+        if (!$product || !is_object($product) || !method_exists($product, 'get_id')) {
+            $product_id = get_the_ID();
+            if ($product_id && get_post_type($product_id) === 'product') {
+                $product = wc_get_product($product_id);
+            }
+            if ((!$product || !is_object($product)) && !empty($post) && $post->post_type === 'product') {
+                $product = wc_get_product($post->ID);
+            }
+        }
+        
+        if ((!$product || !is_object($product)) && !empty($atts['product_id'])) {
+            $product = wc_get_product(intval($atts['product_id']));
+        }
+        
+        if (!$product || !is_object($product) || !method_exists($product, 'get_id')) {
             return '';
         }
         
@@ -3668,7 +4334,7 @@ class ByteMash_Woo_Sync {
             <div style="display: flex; align-items: center; gap: 10px; flex-wrap: wrap;">
                 <?php foreach ($swatches as $swatch): ?>
                     <div class="amrod-color-swatch-circle" 
-                         style="width: 30px; height: 30px; border-radius: 50%; background-color: <?php echo esc_attr($swatch['hex']); ?>; border: 2px solid #ddd; cursor: pointer; display: inline-block;"
+                         style="width: 30px; height: 30px; border-radius: 50%; background-color: <?php echo esc_attr($swatch['hex']); ?>; border: 2px solid #000; cursor: pointer; display: inline-block; box-shadow: 0 2px 4px rgba(0,0,0,0.15);"
                          title="<?php echo esc_attr($swatch['name']); ?>">
                     </div>
                 <?php endforeach; ?>
@@ -3692,9 +4358,25 @@ class ByteMash_Woo_Sync {
     /**
      * Shortcode: [amrod_gender] - Display product gender
      */
-    public function shortcode_gender() {
-        global $product;
-        if (!$product) {
+    public function shortcode_gender($atts = array()) {
+        global $product, $post;
+        
+        // Try to get product using multiple methods
+        if (!$product || !is_object($product) || !method_exists($product, 'get_id')) {
+            $product_id = get_the_ID();
+            if ($product_id && get_post_type($product_id) === 'product') {
+                $product = wc_get_product($product_id);
+            }
+            if ((!$product || !is_object($product)) && !empty($post) && $post->post_type === 'product') {
+                $product = wc_get_product($post->ID);
+            }
+        }
+        
+        if ((!$product || !is_object($product)) && !empty($atts['product_id'])) {
+            $product = wc_get_product(intval($atts['product_id']));
+        }
+        
+        if (!$product || !is_object($product) || !method_exists($product, 'get_id')) {
             return '';
         }
         
@@ -3730,9 +4412,25 @@ class ByteMash_Woo_Sync {
     /**
      * Shortcode: [amrod_total_stock] - Display total stock and incoming stock
      */
-    public function shortcode_total_stock() {
-        global $product;
-        if (!$product) {
+    public function shortcode_total_stock($atts = array()) {
+        global $product, $post;
+        
+        // Try to get product using multiple methods
+        if (!$product || !is_object($product) || !method_exists($product, 'get_id')) {
+            $product_id = get_the_ID();
+            if ($product_id && get_post_type($product_id) === 'product') {
+                $product = wc_get_product($product_id);
+            }
+            if ((!$product || !is_object($product)) && !empty($post) && $post->post_type === 'product') {
+                $product = wc_get_product($post->ID);
+            }
+        }
+        
+        if ((!$product || !is_object($product)) && !empty($atts['product_id'])) {
+            $product = wc_get_product(intval($atts['product_id']));
+        }
+        
+        if (!$product || !is_object($product) || !method_exists($product, 'get_id')) {
             return '';
         }
         
@@ -3812,8 +4510,8 @@ class ByteMash_Woo_Sync {
             return $purchasable;
         }
         
-        // Get purchasability mode setting (default: force_with_stock for backward compatibility)
-        $purchasability_mode = get_option('bytemash_allow_orders_without_price', 'force_with_stock');
+        // Get purchasability mode setting (default: standard WooCommerce behavior)
+        $purchasability_mode = get_option('bytemash_allow_orders_without_price', 'default');
         
         // Default mode: only allow if price exists (standard WooCommerce behavior)
         if ($purchasability_mode === 'default') {
@@ -3867,8 +4565,8 @@ class ByteMash_Woo_Sync {
             return $purchasable;
         }
         
-        // Get purchasability mode setting (default: force_with_stock for backward compatibility)
-        $purchasability_mode = get_option('bytemash_allow_orders_without_price', 'force_with_stock');
+        // Get purchasability mode setting (default: standard WooCommerce behavior)
+        $purchasability_mode = get_option('bytemash_allow_orders_without_price', 'default');
         
         // Default mode: only allow if price exists (standard WooCommerce behavior)
         if ($purchasability_mode === 'default') {
@@ -3914,20 +4612,20 @@ class ByteMash_Woo_Sync {
      */
     public function force_in_stock_when_has_stock($is_in_stock, $product) {
         // Get purchasability mode setting
-        $purchasability_mode = get_option('bytemash_allow_orders_without_price', 'force_with_stock');
+        $purchasability_mode = get_option('bytemash_allow_orders_without_price', 'default');
         
-        // Default mode: use standard WooCommerce behavior (but still check for quote requests)
+        // Default mode: use standard WooCommerce behavior
         if ($purchasability_mode === 'default') {
-            // Even in default mode, if product has no price, allow quote requests by making it in stock
-            // This ensures quote request button shows even when product appears out of stock
-            $price = $product->get_price();
-            if (empty($price) || $price === '' || $price === null || $price === '0' || $price === 0) {
-                // Check if it's an Amrod product (has Amrod meta)
-                $product_id = $product->get_id();
-                $amrod_code = get_post_meta($product_id, '_amrod_simple_code', true);
-                if (!empty($amrod_code)) {
-                    // It's an Amrod product without price - allow quote requests by making it appear in stock
-                    return true;
+            // Only modify for quote mode if it's actually enabled
+            if ($this->is_quote_mode_enabled()) {
+                // In quote mode, if product has no price, make it appear in stock for quote requests
+                $price = $product->get_price();
+                if (empty($price) || $price === '' || $price === null || $price === '0' || $price === 0) {
+                    $product_id = $product->get_id();
+                    $amrod_code = get_post_meta($product_id, '_amrod_simple_code', true);
+                    if (!empty($amrod_code)) {
+                        return true;
+                    }
                 }
             }
             return $is_in_stock;
@@ -3995,7 +4693,7 @@ class ByteMash_Woo_Sync {
         }
         
         // Get purchasability mode setting
-        $purchasability_mode = get_option('bytemash_allow_orders_without_price', 'force_with_stock');
+        $purchasability_mode = get_option('bytemash_allow_orders_without_price', 'default');
         
         // Default mode: use standard WooCommerce behavior (but still check for quote requests)
         if ($purchasability_mode === 'default') {
@@ -4069,8 +4767,14 @@ class ByteMash_Woo_Sync {
      * @return string Modified stock HTML (empty string to hide message)
      */
     public function hide_out_of_stock_message_for_quote_requests($html, $product) {
+        // Only hide out of stock messages if quote mode is enabled
+        // When quote mode is OFF, use normal WooCommerce stock messages
+        if (!$this->is_quote_mode_enabled()) {
+            return $html;
+        }
+        
         // Get purchasability mode setting
-        $purchasability_mode = get_option('bytemash_allow_orders_without_price', 'force_with_stock');
+        $purchasability_mode = get_option('bytemash_allow_orders_without_price', 'default');
         
         // Check if product has no price
         $price = $product->get_price();
@@ -4081,7 +4785,7 @@ class ByteMash_Woo_Sync {
         $amrod_code = get_post_meta($product_id, '_amrod_simple_code', true);
         $is_amrod_product = !empty($amrod_code);
         
-        // If it's an Amrod product without price, hide the out of stock message
+        // If it's an Amrod product without price, hide the out of stock message (for quote mode)
         if ($is_amrod_product && $has_no_price) {
             // Force all mode: always hide the message
             if ($purchasability_mode === 'force_all') {
@@ -4463,34 +5167,8 @@ class ByteMash_Woo_Sync {
     }
     
     /**
-     * Render quote request button on product page
-     * Always shows for ALL products regardless of settings
-     */
-    public function render_quote_request_button() {
-        // Don't render if quote mode is enabled (quote mode has its own button)
-        if ($this->is_quote_mode_enabled()) {
-            return;
-        }
-        
-        // Get product properly - global $product might not be available
-        $product_id = get_the_ID();
-        $product = wc_get_product($product_id);
-        
-        if (!$product || !is_a($product, 'WC_Product')) {
-            return;
-        }
-        
-        // Show for ALL products - no conditions
-        echo '<div class="bytemash-quote-request-container" style="margin-top: 15px;">';
-        echo '<button type="button" id="bytemash-request-quote-btn" class="button alt" style="width: 100%;">';
-        echo esc_html__('Request Quote', 'bytemash-woo-sync');
-        echo '</button>';
-        echo '<div id="bytemash-quote-request-message" style="margin-top: 10px; display: none;"></div>';
-        echo '</div>';
-    }
-    
-    /**
-     * Fallback method to render quote request button in quote mode
+     * Render quote request button in quote mode
+     * ONLY shows when quote mode is enabled
      * This ensures the button shows even if the add to cart form doesn't render properly
      */
     public function render_quote_request_button_fallback() {
@@ -4881,11 +5559,15 @@ function bytemash_woo_sync_init() {
 bytemash_woo_sync_init();
 
 
-// External image display fix
-// Ensures WooCommerce and Bricks Builder render external product images stored in
-// custom meta `_external_image_url` by providing a complete <img> HTML when present.
-// This runs for both shop grids and single product contexts.
+// External image display fix for Product Collection blocks and all WooCommerce contexts
+// Ensures WooCommerce, Gutenberg blocks, and Bricks Builder render external product images
+// stored in custom meta `_external_image_url` by providing complete <img> HTML when present.
+// This runs for shop grids, single product pages, and Gutenberg Product Collection blocks.
 add_filter('woocommerce_product_get_image', 'bytemash_external_image_display_fix', 10, 6);
+add_filter('woocommerce_blocks_product_grid_item_html', 'bytemash_gutenberg_product_collection_image_fix', 10, 3);
+
+// Additional hook for Product Image block specifically
+add_filter('render_block', 'bytemash_render_product_image_block', 10, 2);
 /**
  * Filter WooCommerce product image HTML to use an external image when available.
  *
@@ -4920,8 +5602,120 @@ function bytemash_external_image_display_fix($image, $product, $size, $attr, $pl
     return $html;
 }
 
+/**
+ * Fix product images in Gutenberg Product Collection blocks
+ * The Product Collection block needs explicit image HTML injection
+ */
+function bytemash_gutenberg_product_collection_image_fix($html, $data, $product) {
+    // Validate product object
+    if (!is_object($product) || !method_exists($product, 'get_id')) {
+        return $html;
+    }
+
+    // Look for external image URL
+    $external_url = get_post_meta($product->get_id(), '_external_image_url', true);
+    if (empty($external_url)) {
+        return $html;
+    }
+
+    // Replace the image section in the HTML
+    $alt = esc_attr($product->get_name());
+    $src = esc_url($external_url);
+    $new_image = '<img src="' . $src . '" alt="' . $alt . '" class="wp-block-woocommerce-product-collection-image" loading="lazy" />';
+
+    // Try to replace existing image tag
+    $html = preg_replace('/<img[^>]+>/', $new_image, $html, 1);
+
+    return $html;
+}
+
+/**
+ * Render external images in WooCommerce Product Image blocks
+ * This handles the core/woocommerce blocks that render product images
+ */
+function bytemash_render_product_image_block($block_content, $block) {
+    // Only process WooCommerce product image related blocks
+    if (empty($block['blockName']) || 
+        (strpos($block['blockName'], 'woocommerce/product-image') === false &&
+         strpos($block['blockName'], 'core/post-featured-image') === false)) {
+        return $block_content;
+    }
+    
+    // Try to get product context
+    global $product, $post;
+    
+    $product_id = 0;
+    
+    // Method 1: Global product
+    if ($product && is_object($product) && method_exists($product, 'get_id')) {
+        $product_id = $product->get_id();
+    }
+    
+    // Method 2: Current post
+    if (!$product_id) {
+        $current_id = get_the_ID();
+        if ($current_id && get_post_type($current_id) === 'product') {
+            $product_id = $current_id;
+        }
+    }
+    
+    // Method 3: Global $post
+    if (!$product_id && !empty($post) && $post->post_type === 'product') {
+        $product_id = $post->ID;
+    }
+    
+    if (!$product_id) {
+        return $block_content;
+    }
+    
+    // Check for external image
+    $external_url = get_post_meta($product_id, '_external_image_url', true);
+    if (empty($external_url)) {
+        return $block_content;
+    }
+    
+    // Get product for alt text
+    if (!$product) {
+        $product = wc_get_product($product_id);
+    }
+    
+    $alt = $product ? esc_attr($product->get_name()) : 'Product';
+    $src = esc_url($external_url);
+    
+    // Replace any existing img tag with our external image
+    $new_image = '<img src="' . $src . '" alt="' . $alt . '" class="wp-post-image" loading="lazy" />';
+    
+    if (strpos($block_content, '<img') !== false) {
+        $block_content = preg_replace('/<img[^>]+>/', $new_image, $block_content, 1);
+    } else {
+        // If no image exists in content, inject it
+        $block_content = $new_image;
+    }
+    
+    return $block_content;
+}
+
 // External URL image support for Bricks `{woo_product_images}` and theme overrides (no sideloading)
-// 1) Neutralize fake/non-numeric thumbnail IDs so builders don’t try to load them as attachments
+// 1) Make products with external images report as having a thumbnail
+add_filter('has_post_thumbnail', function($has_thumbnail, $post) {
+	if (!$post || get_post_type($post) !== 'product') {
+		return $has_thumbnail;
+	}
+	
+	// If already has thumbnail, return true
+	if ($has_thumbnail) {
+		return true;
+	}
+	
+	// Check if product has external image
+	$post_id = is_numeric($post) ? $post : $post->ID;
+	$external = get_post_meta($post_id, '_external_image_url', true);
+	
+	// Return true if external image exists (so blocks know to render image)
+	return !empty($external) ? true : $has_thumbnail;
+}, 10, 2);
+
+// 2) Neutralize fake/non-numeric thumbnail IDs so builders don't try to load them as attachments
 add_filter('get_post_metadata', function ($value, $object_id, $meta_key, $single) {
 	if ($meta_key !== '_thumbnail_id') return $value;
 	if (get_post_type($object_id) !== 'product') return $value;
@@ -4935,7 +5729,7 @@ add_filter('get_post_metadata', function ($value, $object_id, $meta_key, $single
 	return $value;
 }, 20, 4);
 
-// 2) Safety net: if an <img> ends up with src="external_*", swap to the real external URL
+// 3) Safety net: if an <img> ends up with src="external_*", swap to the real external URL
 add_filter('wp_get_attachment_image_attributes', function ($attr, $attachment, $size) {
 	$id = is_string($attachment)
 		? $attachment
@@ -4956,7 +5750,7 @@ add_filter('wp_get_attachment_image_attributes', function ($attr, $attachment, $
 	return $attr;
 }, 20, 3);
 
-// 3) Fallback renderer for Bricks `{woo_product_images}` when no attachment is available
+// 4) Fallback renderer for Bricks `{woo_product_images}` when no attachment is available
 add_action('woo_product_images', function () {
 	global $product;
 	static $bytemash_external_images_rendered = false;
@@ -5154,7 +5948,34 @@ add_action('admin_notices', function() {
 
 // Shortcode: [amrod_before_title] — outputs WooCommerce hook content for use in Bricks or classic editors
 // Usage in Bricks: Shortcode element → [amrod_before_title]
-add_shortcode('amrod_before_title', function() {
+add_shortcode('amrod_before_title', function($atts = array()) {
+	// Ensure we have a product context
+	global $product, $post;
+	
+	// Try to get product using multiple methods
+	if (!$product || !is_object($product) || !method_exists($product, 'get_id')) {
+		// Method 1: Try from current post (works in loops and singular pages)
+		$product_id = get_the_ID();
+		if ($product_id && get_post_type($product_id) === 'product') {
+			$product = wc_get_product($product_id);
+		}
+		
+		// Method 2: Try from global $post (works in some loop contexts)
+		if ((!$product || !is_object($product)) && !empty($post) && $post->post_type === 'product') {
+			$product = wc_get_product($post->ID);
+		}
+	}
+	
+	// If still no product and shortcode is called with product_id attribute
+	if ((!$product || !is_object($product)) && !empty($atts['product_id'])) {
+		$product = wc_get_product(intval($atts['product_id']));
+	}
+	
+	// Only proceed if we have a valid product context
+	if (!$product || !is_object($product) || !method_exists($product, 'get_id')) {
+		return '';
+	}
+	
 	// Capture any HTML printed by callbacks hooked to this action
 	ob_start();
 	do_action('woocommerce_before_shop_loop_item_title');
