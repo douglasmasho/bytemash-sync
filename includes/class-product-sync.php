@@ -102,14 +102,25 @@ class ByteMash_Product_Sync {
         
         $this->logger->log('info', "Sync ready - returning batches to JavaScript", array(), 'product_sync');
         
-            return array(
-                'success' => true,
+        // Store SKU snapshot for reconciliation after processing completes
+        $this->prepare_sku_snapshot(
+            $sync_id,
+            $products,
+            array(
+                'context' => 'full_sync',
+                'fetch_full_catalog' => false,
+                'with_branding' => $with_branding,
+            )
+        );
+        
+        return array(
+            'success' => true,
             'message' => "Ready to sync {$total} products in {$batch_count} batches",
-                'sync_id' => $sync_id,
-                'total' => $total,
+            'sync_id' => $sync_id,
+            'total' => $total,
             'batch_count' => $batch_count,
             'batches' => $batches, // Send batches to JavaScript
-            );
+        );
     }
     
     /**
@@ -160,11 +171,22 @@ class ByteMash_Product_Sync {
             'started' => current_time('mysql'),
         ), false);
         
+        // Capture snapshot of current catalog to reconcile counts after incremental sync
+        $this->prepare_sku_snapshot(
+            $sync_id,
+            null,
+            array(
+                'context' => 'incremental_sync',
+                'fetch_full_catalog' => true,
+                'with_branding' => false,
+            )
+        );
+        
         return array(
             'success' => true,
             'message' => "Ready to sync {$total} updated products in {$batch_count} batches",
-                'sync_id' => $sync_id,
-                'total' => $total,
+            'sync_id' => $sync_id,
+            'total' => $total,
             'batch_count' => $batch_count,
             'batches' => $batches,
             );
@@ -3622,6 +3644,203 @@ class ByteMash_Product_Sync {
         }
     }
 
+    /**
+     * Store a snapshot of SKUs returned by the API so we can reconcile product counts
+     *
+     * @param string $sync_id Sync identifier
+     * @param array|null $products Products returned from API (optional)
+     * @param array $args Additional options
+     */
+    public function prepare_sku_snapshot($sync_id, $products = null, $args = array()) {
+        $defaults = array(
+            'context' => 'unknown',
+            'fetch_full_catalog' => false,
+            'with_branding' => false,
+        );
+        $args = wp_parse_args($args, $defaults);
+        $context = $args['context'];
+        $fetch_full_catalog = (bool) $args['fetch_full_catalog'];
+        $with_branding = (bool) $args['with_branding'];
+        
+        if ((!is_array($products) || empty($products)) && $fetch_full_catalog) {
+            $this->logger->log('info', 'Fetching catalog snapshot for reconciliation', array(
+                'context' => $context,
+                'sync_id' => $sync_id,
+                'with_branding' => $with_branding,
+            ), 'product_sync');
+            
+            $products = $with_branding
+                ? $this->api_client->get_products_with_branding()
+                : $this->api_client->get_products_without_branding();
+            
+            if (is_wp_error($products)) {
+                $this->logger->log('warning', 'Failed to fetch catalog snapshot', array(
+                    'context' => $context,
+                    'sync_id' => $sync_id,
+                    'error' => $products->get_error_message(),
+                ), 'product_sync');
+                return;
+            }
+        }
+        
+        if (!is_array($products) || empty($products)) {
+            $this->logger->log('warning', 'No products available for SKU snapshot', array(
+                'context' => $context,
+                'sync_id' => $sync_id,
+            ), 'product_sync');
+            return;
+        }
+        
+        $sku_list = $this->extract_product_skus($products);
+        
+        if (empty($sku_list)) {
+            $this->logger->log('warning', 'SKU snapshot contained no values', array(
+                'context' => $context,
+                'sync_id' => $sync_id,
+            ), 'product_sync');
+            return;
+        }
+        
+        set_transient("bytemash_sync_{$sync_id}_product_skus", $sku_list, DAY_IN_SECONDS);
+        
+        $this->logger->log('info', 'Stored SKU snapshot for reconciliation', array(
+            'context' => $context,
+            'sync_id' => $sync_id,
+            'sku_count' => count($sku_list),
+        ), 'product_sync');
+    }
+    
+    /**
+     * Cleanup WooCommerce products that are no longer present in the API snapshot
+     *
+     * @param string $sync_id Sync identifier
+     */
+    public function cleanup_products_not_in_snapshot($sync_id) {
+        $sku_snapshot = get_transient("bytemash_sync_{$sync_id}_product_skus");
+        
+        if (empty($sku_snapshot) || !is_array($sku_snapshot)) {
+            $this->logger->log('info', 'No SKU snapshot found for reconciliation', array(
+                'sync_id' => $sync_id,
+            ), 'product_sync');
+            return;
+        }
+        
+        $this->reconcile_catalog_against_skus($sku_snapshot, array(
+            'sync_id' => $sync_id,
+            'context' => 'snapshot_cleanup',
+        ));
+        
+        delete_transient("bytemash_sync_{$sync_id}_product_skus");
+    }
+    
+    /**
+     * Extract normalized SKUs from API payload
+     *
+     * @param array $products
+     * @return array
+     */
+    private function extract_product_skus($products) {
+        $skus = array();
+        
+        foreach ((array) $products as $product) {
+            if (!is_array($product)) {
+                continue;
+            }
+            
+            $raw_sku = $product['simpleCode'] ?? $product['fullCode'] ?? null;
+            $normalized = $this->normalize_sku($raw_sku);
+            
+            if ($normalized !== '') {
+                $skus[$normalized] = true;
+            }
+        }
+        
+        return array_keys($skus);
+    }
+    
+    /**
+     * Normalize SKU for comparisons
+     *
+     * @param string|null $sku
+     * @return string
+     */
+    private function normalize_sku($sku) {
+        if ($sku === null) {
+            return '';
+        }
+        
+        $sanitized = sanitize_text_field($sku);
+        $trimmed = trim($sanitized);
+        
+        if ($trimmed === '') {
+            return '';
+        }
+        
+        return strtoupper($trimmed);
+    }
+    
+    /**
+     * Reconcile WooCommerce catalog against allowed SKUs
+     *
+     * @param array $allowed_skus
+     * @param array $context
+     */
+    private function reconcile_catalog_against_skus(array $allowed_skus, $context = array()) {
+        if (empty($allowed_skus)) {
+            $this->logger->log('warning', 'Cannot reconcile catalog with empty SKU list', $context, 'product_sync');
+            return;
+        }
+        
+        $normalized_map = array();
+        foreach ($allowed_skus as $sku) {
+            $normalized = $this->normalize_sku($sku);
+            if ($normalized !== '') {
+                $normalized_map[$normalized] = true;
+            }
+        }
+        
+        if (empty($normalized_map)) {
+            $this->logger->log('warning', 'No valid SKUs available for reconciliation after normalization', $context, 'product_sync');
+            return;
+        }
+        
+        global $wpdb;
+        $table_posts = $wpdb->posts;
+        $table_meta = $wpdb->postmeta;
+        $query = "
+            SELECT pm.post_id, pm.meta_value AS sku
+            FROM {$table_meta} pm
+            INNER JOIN {$table_posts} p ON pm.post_id = p.ID
+            WHERE pm.meta_key = '_amrod_simple_code'
+              AND p.post_type = 'product'
+              AND p.post_status NOT IN ('trash', 'auto-draft')
+        ";
+        
+        $rows = $wpdb->get_results($query);
+        $checked = 0;
+        $deleted = 0;
+        
+        if ($rows) {
+            foreach ($rows as $row) {
+                $checked++;
+                $product_sku = $this->normalize_sku($row->sku ?? '');
+                
+                if ($product_sku === '' || isset($normalized_map[$product_sku])) {
+                    continue;
+                }
+                
+                wp_delete_post((int) $row->post_id, true);
+                $deleted++;
+            }
+        }
+        
+        $this->logger->log('info', 'Catalog reconciliation completed', array_merge($context, array(
+            'snapshot_total' => count($normalized_map),
+            'products_checked' => $checked,
+            'products_deleted' => $deleted,
+        )), 'product_sync');
+    }
+    
     /**
      * Update stock for variable products based on stock type
      */

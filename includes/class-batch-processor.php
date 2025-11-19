@@ -21,6 +21,11 @@ class ByteMash_Batch_Processor {
      * Batch size
      */
     private $batch_size = 10;
+
+    /**
+     * Cache for variant SKU lookups during price sync
+     */
+    private $price_sync_variant_cache = array();
     
     /**
      * Find matching variation for stock update
@@ -304,6 +309,10 @@ class ByteMash_Batch_Processor {
             delete_transient("bytemash_sync_{$sync_id}_products");
             
             $this->logger->log('success', 'All product batches completed', array(), 'batch_processor');
+            
+            // Reconcile catalog counts now that all products have been processed
+            $product_sync = new ByteMash_Product_Sync();
+            $product_sync->cleanup_products_not_in_snapshot($sync_id);
         }
         
         // Restore original memory limit
@@ -497,6 +506,9 @@ class ByteMash_Batch_Processor {
             }
             
             $this->logger->log('success', 'All product chunks completed', array(), 'batch_processor');
+            
+            $product_sync = new ByteMash_Product_Sync();
+            $product_sync->cleanup_products_not_in_snapshot($sync_id);
         }
         
         // Restore original memory limit
@@ -1199,20 +1211,6 @@ class ByteMash_Batch_Processor {
         }
     }
     
-    /**
-     * LIGHTNING FAST: Bulk update prices using direct SQL
-     * 
-     * Strategy:
-     * 1. Build complete SKU-to-ProductID map in ONE query
-     * 2. Group updates by product_id
-     * 3. Execute bulk UPDATE using CASE statements
-     * 4. No WooCommerce object overhead, no hooks
-     * 
-     * Performance: 10-50x faster than individual product->save()
-     * 
-     * @param array $price_items Array of price items from API
-     * @return array Result with processed and error counts
-     */
     private function bulk_update_prices($price_items) {
         global $wpdb;
         
@@ -1220,195 +1218,197 @@ class ByteMash_Batch_Processor {
             return array('processed' => 0, 'errors' => 0);
         }
         
-        $start_time = microtime(true);
+        $start_time   = microtime(true);
+        $sku_map      = $this->build_price_sync_sku_map($price_items);
+        $processed    = 0;
+        $errors       = 0;
+        $impacted_ids = array();
         
-        // Step 1: Extract all SKUs from price items
-        $skus = array();
-        foreach ($price_items as $item) {
-            $simple_code = $item['simplecode'] ?? $item['simpleCode'] ?? '';
-            $full_code = $item['fullCode'] ?? '';
-            
-            if ($simple_code) $skus[] = $simple_code;
-            if ($full_code && $full_code !== $simple_code) $skus[] = $full_code;
-        }
-        
-        $skus = array_unique(array_filter($skus));
-        
-        if (empty($skus)) {
+        if (empty($sku_map)) {
             return array('processed' => 0, 'errors' => count($price_items));
         }
         
-        // Step 2: Build SKU-to-ProductID map in ONE query (LIGHTNING FAST!)
-        $placeholders = implode(',', array_fill(0, count($skus), '%s'));
-        $query = "SELECT post_id, meta_value as sku 
-                  FROM {$wpdb->postmeta} 
-                  WHERE meta_key = '_sku' 
-                  AND meta_value IN ($placeholders)";
-        
-        $sku_map = array();
-        $results = $wpdb->get_results($wpdb->prepare($query, $skus));
-        
-        foreach ($results as $row) {
-            $sku_map[$row->sku] = $row->post_id;
-        }
-        
-        // Step 3: Also build pattern matches for variants (e.g., ALT-1603 matches ALT-1603-R, ALT-1603-Y)
         foreach ($price_items as $item) {
             $simple_code = $item['simplecode'] ?? $item['simpleCode'] ?? '';
+            $full_code   = $item['fullCode']   ?? '';
+            $price       = $item['price']      ?? null;
+            $sale_price  = $item['salePrice']  ?? null;
             
-            if ($simple_code && !isset($sku_map[$simple_code])) {
-                // Find all products where SKU starts with simple_code
-                $like_pattern = $wpdb->esc_like($simple_code) . '%';
-                $variants = $wpdb->get_results($wpdb->prepare(
-                    "SELECT post_id, meta_value as sku 
-                    FROM {$wpdb->postmeta} 
-                    WHERE meta_key = '_sku' 
-                    AND meta_value LIKE %s",
-                    $like_pattern
-                ));
+            if ($price === null) {
+                $errors++;
+                continue;
+            }
+            
+            $product_ids = $this->resolve_price_sync_product_ids($simple_code, $full_code, $sku_map);
+            
+            if (empty($product_ids)) {
+                $errors++;
+                continue;
+            }
+            
+            foreach ($product_ids as $product_id) {
+                $result = $this->apply_price_update_with_hooks($product_id, $price, $sale_price);
                 
-                foreach ($variants as $variant) {
-                    // Map variant SKU to the simple_code price
-                    if (!isset($sku_map[$variant->sku])) {
-                        $sku_map[$variant->sku] = $variant->post_id;
-                    }
+                if (is_wp_error($result)) {
+                    $errors++;
+                    $this->logger->log('error', 'Price update failed via WooCommerce hooks', array(
+                        'product_id' => $product_id,
+                        'simple_code' => $simple_code,
+                        'full_code' => $full_code,
+                        'error' => $result->get_error_message(),
+                    ), 'price_sync');
+                    continue;
                 }
+                
+                $processed++;
+                $impacted_ids[$product_id] = true;
             }
-        }
-        
-        // Step 4: Group price updates by product_id
-        $price_updates = array(); // product_id => price
-        $sale_price_updates = array(); // product_id => sale_price
-        $processed_items = array();
-        
-        foreach ($price_items as $item) {
-            $simple_code = $item['simplecode'] ?? $item['simpleCode'] ?? '';
-            $full_code = $item['fullCode'] ?? '';
-            $price = $item['price'] ?? null;
-            $sale_price = $item['salePrice'] ?? null;
-            
-            if ($price === null) continue;
-            
-            // Find product ID(s) for this price item
-            $product_ids = array();
-            
-            // Try full code first
-            if ($full_code && isset($sku_map[$full_code])) {
-                $product_ids[] = $sku_map[$full_code];
-            }
-            
-            // Try simple code
-            if ($simple_code && isset($sku_map[$simple_code])) {
-                $product_ids[] = $sku_map[$simple_code];
-            }
-            
-            // Try all variant SKUs that start with simple_code
-            if ($simple_code) {
-                foreach ($sku_map as $sku => $pid) {
-                    if (strpos($sku, $simple_code) === 0 && !in_array($pid, $product_ids)) {
-                        $product_ids[] = $pid;
-                    }
-                }
-            }
-            
-            // Update all matched products
-            foreach ($product_ids as $pid) {
-                $price_updates[$pid] = $price;
-                if ($sale_price && $sale_price > 0) {
-                    $sale_price_updates[$pid] = $sale_price;
-                }
-                $processed_items[$pid] = true;
-            }
-        }
-        
-        $processed_count = count($processed_items);
-        $error_count = count($price_items) - $processed_count;
-        
-        if (empty($price_updates)) {
-            return array('processed' => 0, 'errors' => count($price_items));
-        }
-        
-        // Step 5: Bulk UPDATE using CASE statements (LIGHTNING FAST!)
-        // Update _regular_price
-        $this->bulk_update_post_meta_with_case('_regular_price', $price_updates);
-        
-        // Update _price (displayed price)
-        $this->bulk_update_post_meta_with_case('_price', $price_updates);
-        
-        // Update _sale_price if applicable
-        if (!empty($sale_price_updates)) {
-            $this->bulk_update_post_meta_with_case('_sale_price', $sale_price_updates);
         }
         
         $elapsed = round((microtime(true) - $start_time) * 1000, 2);
-        $this->logger->log('info', "⚡ Bulk updated {$processed_count} prices in {$elapsed}ms", array(), 'batch_processor');
         
         return array(
-            'processed' => $processed_count,
-            'errors' => $error_count,
-            'time_ms' => $elapsed
+            'processed' => count($impacted_ids),
+            'errors'    => $errors,
+            'time_ms'   => $elapsed,
         );
     }
     
     /**
-     * ULTRA FAST: Bulk update post meta using CASE statement
-     * Updates multiple products in a single query
-     * 
-     * @param string $meta_key Meta key to update (_price, _regular_price, etc)
-     * @param array $updates Array of product_id => value
+     * Build a SKU to product ID map for the incoming API payload.
      */
-    private function bulk_update_post_meta_with_case($meta_key, $updates) {
+    private function build_price_sync_sku_map($price_items) {
         global $wpdb;
         
-        if (empty($updates)) return;
+        $skus = array();
         
-        $post_ids = array_keys($updates);
-        $placeholders = implode(',', array_fill(0, count($post_ids), '%d'));
-        
-        // Build CASE statement
-        $case_parts = array();
-        $values = array();
-        
-        foreach ($updates as $post_id => $value) {
-            $case_parts[] = "WHEN post_id = %d THEN %s";
-            $values[] = $post_id;
-            $values[] = $value;
-        }
-        
-        $case_sql = "CASE " . implode(' ', $case_parts) . " END";
-        
-        // Merge values with post_ids for the WHERE clause
-        $all_values = array_merge($values, $post_ids);
-        
-        // Update existing meta
-        $query = "UPDATE {$wpdb->postmeta} 
-                  SET meta_value = $case_sql
-                  WHERE meta_key = %s 
-                  AND post_id IN ($placeholders)";
-        
-        array_unshift($all_values, $meta_key);
-        
-        $wpdb->query($wpdb->prepare($query, $all_values));
-        
-        // Insert missing meta (for products without this meta key)
-        $existing_ids = $wpdb->get_col($wpdb->prepare(
-            "SELECT post_id FROM {$wpdb->postmeta} 
-             WHERE meta_key = %s AND post_id IN ($placeholders)",
-            array_merge(array($meta_key), $post_ids)
-        ));
-        
-        $missing_ids = array_diff($post_ids, $existing_ids);
-        
-        if (!empty($missing_ids)) {
-            $insert_values = array();
-            foreach ($missing_ids as $pid) {
-                $insert_values[] = $wpdb->prepare("(%d, %s, %s)", $pid, $meta_key, $updates[$pid]);
+        foreach ($price_items as $item) {
+            $simple_code = $item['simplecode'] ?? $item['simpleCode'] ?? '';
+            $full_code   = $item['fullCode']   ?? '';
+            
+            if ($simple_code) {
+                $skus[] = $simple_code;
             }
             
-            $wpdb->query(
-                "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value) 
-                 VALUES " . implode(', ', $insert_values)
-            );
+            if ($full_code && $full_code !== $simple_code) {
+                $skus[] = $full_code;
+            }
+        }
+        
+        $skus = array_values(array_unique(array_filter($skus)));
+        
+        if (empty($skus)) {
+            return array();
+        }
+        
+        $placeholders = implode(',', array_fill(0, count($skus), '%s'));
+        $results = $wpdb->get_results(
+            $wpdb->prepare(
+                "SELECT post_id, meta_value as sku 
+                 FROM {$wpdb->postmeta} 
+                 WHERE meta_key = '_sku' 
+                 AND meta_value IN ($placeholders)",
+                 $skus
+            )
+        );
+        
+        $map = array();
+        
+        foreach ($results as $row) {
+            $map[$row->sku] = (int) $row->post_id;
+        }
+        
+        // Reset variant cache each run
+        $this->price_sync_variant_cache = array();
+        
+        return $map;
+    }
+    
+    /**
+     * Resolve all product IDs that should get a given price update.
+     */
+    private function resolve_price_sync_product_ids($simple_code, $full_code, $sku_map) {
+        global $wpdb;
+        
+        $ids = array();
+        
+        if ($full_code && isset($sku_map[$full_code])) {
+            $ids[] = $sku_map[$full_code];
+        }
+        
+        if ($simple_code && isset($sku_map[$simple_code])) {
+            $ids[] = $sku_map[$simple_code];
+        }
+        
+        if ($simple_code) {
+            if (!isset($this->price_sync_variant_cache[$simple_code])) {
+                $like_pattern = $wpdb->esc_like($simple_code) . '%';
+                $variant_ids = $wpdb->get_col(
+                    $wpdb->prepare(
+                        "SELECT post_id FROM {$wpdb->postmeta} 
+                         WHERE meta_key = '_sku' 
+                         AND meta_value LIKE %s",
+                        $like_pattern
+                    )
+                );
+                
+                $this->price_sync_variant_cache[$simple_code] = array_map('intval', $variant_ids ?: array());
+            }
+            
+            $ids = array_merge($ids, $this->price_sync_variant_cache[$simple_code]);
+        }
+        
+        return array_unique(array_filter(array_map('intval', $ids)));
+    }
+    
+    /**
+     * Apply the price update via WooCommerce data store so hooks fire.
+     */
+    private function apply_price_update_with_hooks($product_id, $price, $sale_price = null) {
+        try {
+            $product = wc_get_product($product_id);
+            
+            if (!$product) {
+                return new WP_Error('bytemash_price_sync_missing_product', sprintf('Product ID %d not found', $product_id));
+            }
+            
+            $price_changed  = false;
+            $regular_price  = wc_format_decimal($price);
+            $current_regular = $product->get_regular_price('edit');
+            
+            if ($regular_price === '') {
+                return new WP_Error('bytemash_price_sync_invalid_price', 'Invalid regular price supplied');
+            }
+            
+            if ($current_regular !== $regular_price) {
+                $product->set_regular_price($regular_price);
+                if ($sale_price === null || $sale_price === '' || floatval($sale_price) <= 0) {
+                    $product->set_price($regular_price);
+                }
+                $price_changed = true;
+            }
+            
+            if ($sale_price !== null && $sale_price !== '' && floatval($sale_price) > 0) {
+                $formatted_sale = wc_format_decimal($sale_price);
+                
+                if ($product->get_sale_price('edit') !== $formatted_sale) {
+                    $product->set_sale_price($formatted_sale);
+                    $product->set_price($formatted_sale);
+                    $price_changed = true;
+                }
+            } elseif ($product->get_sale_price('edit')) {
+                $product->set_sale_price('');
+                $product->set_price($regular_price);
+                $price_changed = true;
+            }
+            
+            if ($price_changed) {
+                $product->save();
+            }
+            
+            return true;
+        } catch (Exception $e) {
+            return new WP_Error('bytemash_price_sync_exception', $e->getMessage());
         }
     }
 
@@ -1883,6 +1883,9 @@ class ByteMash_Batch_Processor {
             $progress['status'] = 'completed';
             $progress['completed'] = current_time('mysql');
             $this->save_sync_progress($sync_id, $progress);
+            
+            $product_sync = new ByteMash_Product_Sync();
+            $product_sync->cleanup_products_not_in_snapshot($sync_id);
             return true;
         }
         

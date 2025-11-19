@@ -406,6 +406,8 @@ class ByteMash_Sync_Scheduler {
      * Sync products for cron (processes directly without JavaScript)
      */
     private function sync_products_for_cron($with_branding = true) {
+        $sync_id = 'cron_products_' . time();
+        
         $this->logger->log('info', 'Starting cron-based product sync', array(
             'with_branding' => $with_branding,
         ), 'cron_sync');
@@ -446,6 +448,13 @@ class ByteMash_Sync_Scheduler {
         $batch_count = count($batches);
         
         $this->logger->log('info', "Processing {$total} products in {$batch_count} batches for cron", array(), 'cron_sync');
+        
+        // Capture snapshot so we can reconcile catalog counts after processing completes
+        $this->product_sync->prepare_sku_snapshot($sync_id, $products, array(
+            'context' => 'cron_full_sync',
+            'fetch_full_catalog' => false,
+            'with_branding' => $with_branding,
+        ));
         
         $processed = 0;
         $errors = 0;
@@ -492,6 +501,9 @@ class ByteMash_Sync_Scheduler {
         
         $this->logger->log('success', 'Cron product sync completed', array(), 'cron_sync');
         
+        // Clean up WooCommerce catalog to match API snapshot
+        $this->product_sync->cleanup_products_not_in_snapshot($sync_id);
+        
         return array(
             'success' => true,
             'message' => "Processed {$processed} products, {$errors} errors, {$skipped} skipped",
@@ -506,6 +518,8 @@ class ByteMash_Sync_Scheduler {
      * Sync updated products for cron (processes directly without JavaScript)
      */
     private function sync_updated_products_for_cron($with_branding = true) {
+        $sync_id = 'cron_products_incremental_' . time();
+        
         $this->logger->log('info', 'Starting cron-based incremental product sync', array(), 'cron_sync');
         
         // Fetch updated products from Amrod API
@@ -534,6 +548,13 @@ class ByteMash_Sync_Scheduler {
         $batch_count = count($batches);
         
         $this->logger->log('info', "Processing {$total} updated products in {$batch_count} batches for cron", array(), 'cron_sync');
+        
+        // Always capture the latest catalog snapshot so we can reconcile product counts
+        $this->product_sync->prepare_sku_snapshot($sync_id, null, array(
+            'context' => 'cron_incremental_sync',
+            'fetch_full_catalog' => true,
+            'with_branding' => false,
+        ));
         
         $processed = 0;
         $errors = 0;
@@ -566,6 +587,8 @@ class ByteMash_Sync_Scheduler {
         }
         
         $this->logger->log('success', 'Cron incremental product sync completed', array(), 'cron_sync');
+        
+        $this->product_sync->cleanup_products_not_in_snapshot($sync_id);
         
         return array(
             'success' => true,
