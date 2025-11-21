@@ -261,6 +261,7 @@ class ByteMash_Woo_Sync {
             add_action('wp_ajax_bytemash_toggle_test_mode', array($this, 'ajax_toggle_test_mode'));
             add_action('wp_ajax_bytemash_toggle_full_test_mode', array($this, 'ajax_toggle_full_test_mode'));
             add_action('wp_ajax_bytemash_toggle_incremental_test_mode', array($this, 'ajax_toggle_incremental_test_mode'));
+            add_action('wp_ajax_bytemash_toggle_production_full_sync', array($this, 'ajax_toggle_production_full_sync'));
             add_action('wp_ajax_bytemash_enable_production_cron', array($this, 'ajax_enable_production_cron'));
             add_action('wp_ajax_bytemash_enable_production_system_cron', array($this, 'ajax_enable_production_system_cron'));
             add_action('wp_ajax_bytemash_enable_system_cron', array($this, 'ajax_enable_system_cron'));
@@ -556,7 +557,7 @@ class ByteMash_Woo_Sync {
     public function init_scheduler() {
         new ByteMash_Sync_Scheduler();
         // Only initialize Action Scheduler integration when scheduling is enabled
-        $prod = (bool) get_option('bytemash_cron_production_enabled', false);
+        $prod = (bool) get_option('bytemash_cron_production_full_sync_enabled', false);
         $test = (bool) get_option('bytemash_cron_test_mode_enabled', false)
             || (bool) get_option('bytemash_cron_full_test_mode_enabled', false)
             || (bool) get_option('bytemash_cron_incremental_test_mode_enabled', false);
@@ -3306,6 +3307,49 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             'test_mode' => $new_test_mode,
             'message' => $new_test_mode ? __('Incremental sync test mode enabled', 'bytemash-woo-sync') : __('Incremental sync test mode disabled', 'bytemash-woo-sync'),
         ));
+    }
+    
+    /**
+     * AJAX: Toggle production full sync
+     */
+    public function ajax_toggle_production_full_sync() {
+        check_ajax_referer('bytemash_woo_sync_nonce', 'nonce');
+        
+        if (!current_user_can('manage_options')) {
+            wp_send_json_error(array('message' => __('Insufficient permissions', 'bytemash-woo-sync')));
+        }
+        
+        if (!$this->use_action_scheduler || !$this->action_scheduler) {
+            wp_send_json_error(array('message' => __('Action Scheduler not available', 'bytemash-woo-sync')));
+        }
+        
+        $production_full_sync_enabled = get_option('bytemash_cron_production_full_sync_enabled', false);
+        $new_state = !$production_full_sync_enabled;
+        
+        if ($new_state) {
+            // Enable production full sync
+            $result = $this->action_scheduler->enable_production_full_sync();
+            if ($result['success']) {
+                wp_send_json_success(array(
+                    'enabled' => true,
+                    'message' => $result['message'],
+                    'next_full_sync' => $result['next_full_sync'] ?? null,
+                ));
+            } else {
+                wp_send_json_error(array('message' => $result['message'] ?? __('Failed to enable production full sync', 'bytemash-woo-sync')));
+            }
+        } else {
+            // Disable production full sync
+            $result = $this->action_scheduler->disable_production_full_sync();
+            if ($result['success']) {
+                wp_send_json_success(array(
+                    'enabled' => false,
+                    'message' => $result['message'],
+                ));
+            } else {
+                wp_send_json_error(array('message' => $result['message'] ?? __('Failed to disable production full sync', 'bytemash-woo-sync')));
+            }
+        }
     }
     
     /**

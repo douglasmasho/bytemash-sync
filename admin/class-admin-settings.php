@@ -739,47 +739,26 @@ class ByteMash_Admin_Settings {
                             </tr>
                             
                             <!-- Production Cron Section -->
+                            <!-- Production Full Sync -->
                             <tr>
-                                <th scope="row"><?php esc_html_e('Production Cron', 'bytemash-woo-sync'); ?></th>
+                                <th scope="row"><?php esc_html_e('Production Full Sync', 'bytemash-woo-sync'); ?></th>
                                 <td>
-                                    <div class="production-system-controls">
-                                        <div class="production-system-section">
-                                            <h4><?php esc_html_e('Production Sync Schedules', 'bytemash-woo-sync'); ?></h4>
+                                    <div class="production-full-sync-controls">
+                                        <div class="production-full-sync-section">
                                             <div class="test-mode-item">
-                                                <span class="test-mode-badge <?php echo (wp_next_scheduled('bytemash_full_sync_cron') || wp_next_scheduled('bytemash_incremental_sync_cron')) ? 'enabled' : 'disabled'; ?>">
-                                                    <?php echo (wp_next_scheduled('bytemash_full_sync_cron') || wp_next_scheduled('bytemash_incremental_sync_cron')) ? __('Enabled', 'bytemash-woo-sync') : __('Disabled', 'bytemash-woo-sync'); ?>
+                                                <?php
+                                                $production_full_sync_enabled = get_option('bytemash_cron_production_full_sync_enabled', false);
+                                                ?>
+                                                <span class="test-mode-badge <?php echo $production_full_sync_enabled ? 'enabled' : 'disabled'; ?>">
+                                                    <?php echo $production_full_sync_enabled ? __('Enabled', 'bytemash-woo-sync') : __('Disabled', 'bytemash-woo-sync'); ?>
                                                 </span>
-                                                <button type="button" id="enable-production-cron" class="button button-primary">
-                                                    <?php esc_html_e('Enable Production Cron', 'bytemash-woo-sync'); ?>
+                                                <button type="button" id="toggle-production-full-sync" class="button <?php echo $production_full_sync_enabled ? 'button-secondary' : 'button-primary'; ?>">
+                                                    <?php echo $production_full_sync_enabled ? __('Disable Production Full Sync', 'bytemash-woo-sync') : __('Enable Production Full Sync', 'bytemash-woo-sync'); ?>
                                                 </button>
                                             </div>
-                                            <div id="production-cron-status"></div>
+                                            <div id="production-full-sync-status"></div>
                                             <p class="description">
-                                                <?php esc_html_e('Enables production sync schedules (daily full sync, every 5 hours incremental).', 'bytemash-woo-sync'); ?>
-                                            </p>
-                                        </div>
-                                    </div>
-                                </td>
-                            </tr>
-                            
-                            <!-- Production System Cron Section -->
-                            <tr>
-                                <th scope="row"><?php esc_html_e('System Cron', 'bytemash-woo-sync'); ?></th>
-                                <td>
-                                    <div class="production-system-controls">
-                                        <div class="production-system-section">
-                                            <h4><?php esc_html_e('Reliable System Cron', 'bytemash-woo-sync'); ?></h4>
-                                            <div class="test-mode-item">
-                                                <span class="test-mode-badge <?php echo (get_option('bytemash_cron_system_cron_enabled', false) && (wp_next_scheduled('bytemash_full_sync_cron') || wp_next_scheduled('bytemash_incremental_sync_cron'))) ? 'enabled' : 'disabled'; ?>">
-                                                    <?php echo (get_option('bytemash_cron_system_cron_enabled', false) && (wp_next_scheduled('bytemash_full_sync_cron') || wp_next_scheduled('bytemash_incremental_sync_cron'))) ? __('Enabled', 'bytemash-woo-sync') : __('Disabled', 'bytemash-woo-sync'); ?>
-                                                </span>
-                                                <button type="button" id="enable-production-system-cron" class="button button-primary" <?php echo (get_option('bytemash_cron_system_cron_enabled', false) && (wp_next_scheduled('bytemash_full_sync_cron') || wp_next_scheduled('bytemash_incremental_sync_cron'))) ? 'disabled' : ''; ?>>
-                                                    <?php esc_html_e('Enable Reliable System Cron', 'bytemash-woo-sync'); ?>
-                                                </button>
-                                            </div>
-                                            <div id="production-system-cron-status"></div>
-                                            <p class="description">
-                                                <?php esc_html_e('Enables production schedules with system cron for maximum reliability. Does NOT depend on website traffic.', 'bytemash-woo-sync'); ?>
+                                                <?php esc_html_e('Enables production full sync schedule (daily at 01:30). Syncs only the attributes selected above. Uses Action Scheduler, same as test mode but with production schedule.', 'bytemash-woo-sync'); ?>
                                             </p>
                                         </div>
                                     </div>

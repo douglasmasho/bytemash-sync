@@ -26,7 +26,7 @@ class ByteMash_Action_Scheduler_Sync {
      * Check if background scheduling is enabled (production or any test mode)
      */
     private function is_scheduling_enabled() {
-        $prod = (bool) get_option('bytemash_cron_production_enabled', false);
+        $prod = (bool) get_option('bytemash_cron_production_full_sync_enabled', false);
         $test = (bool) get_option('bytemash_cron_test_mode_enabled', false)
             || (bool) get_option('bytemash_cron_full_test_mode_enabled', false)
             || (bool) get_option('bytemash_cron_incremental_test_mode_enabled', false);
@@ -1291,6 +1291,9 @@ class ByteMash_Action_Scheduler_Sync {
     public function enable_test_mode_full_sync() {
         $this->clear_full_sync_schedules();
         
+        // Disable production full sync if enabled
+        update_option('bytemash_cron_production_full_sync_enabled', false);
+        
         // Schedule full sync once after 2 minutes for testing (no repeating)
         as_schedule_single_action(
             time() + 120, // 2 minutes from now
@@ -1344,6 +1347,7 @@ class ByteMash_Action_Scheduler_Sync {
      * Enable production sync schedules
      * Full sync: Daily at 00:30
      * Incremental sync: Every 5 hours after first full sync
+     * @deprecated Use enable_production_full_sync() instead
      */
     public function enable_production_sync() {
         $this->clear_schedules();
@@ -1389,6 +1393,74 @@ class ByteMash_Action_Scheduler_Sync {
             'message' => 'Production sync enabled - Full sync daily at 01:30, Incremental every 5 hours',
             'next_full_sync' => $next_sync->format('Y-m-d H:i:s'),
             'next_incremental_sync' => date('Y-m-d H:i:s', $wp_timestamp + (5 * HOUR_IN_SECONDS)),
+        );
+    }
+    
+    /**
+     * Enable production full sync schedule (daily full sync only)
+     * Works the same way as test mode but with production schedule
+     * Only syncs attributes selected by the user
+     * Uses Action Scheduler
+     */
+    public function enable_production_full_sync() {
+        $this->clear_full_sync_schedules();
+        
+        // Disable test mode if enabled
+        update_option('bytemash_cron_full_test_mode_enabled', false);
+        
+        // Schedule full sync daily at 01:30 (South Africa time) - avoiding API downtime 00:00-01:00
+        $timezone = new DateTimeZone('Africa/Johannesburg');
+        $now = new DateTime('now', $timezone);
+        
+        // Set to 01:30 today
+        $next_sync = clone $now;
+        $next_sync->setTime(1, 30, 0);
+        
+        // If it's already past 01:30 today, schedule for tomorrow
+        if ($next_sync <= $now) {
+            $next_sync->add(new DateInterval('P1D'));
+        }
+        
+        // Convert to WordPress timezone
+        $wp_timestamp = $next_sync->getTimestamp() - (get_option('gmt_offset') * HOUR_IN_SECONDS);
+        
+        // Schedule full sync daily - same as test mode but recurring daily
+        as_schedule_recurring_action(
+            $wp_timestamp,
+            DAY_IN_SECONDS, // Daily
+            'bytemash_action_scheduler_full_sync',
+            array('with_branding' => true),
+            'bytemash-sync'
+        );
+        
+        // Enable the option
+        update_option('bytemash_cron_production_full_sync_enabled', true);
+        
+        $this->logger->log('info', "Production full sync enabled - runs daily at 01:30 using Action Scheduler", array(
+            'next_run' => $next_sync->format('Y-m-d H:i:s'),
+        ), 'action_scheduler');
+        
+        return array(
+            'success' => true,
+            'message' => 'Production full sync enabled - runs daily at 01:30',
+            'next_full_sync' => $next_sync->format('Y-m-d H:i:s'),
+        );
+    }
+    
+    /**
+     * Disable production full sync
+     */
+    public function disable_production_full_sync() {
+        $this->clear_full_sync_schedules();
+        
+        // Disable the option
+        update_option('bytemash_cron_production_full_sync_enabled', false);
+        
+        $this->logger->log('info', "Production full sync disabled", array(), 'action_scheduler');
+        
+        return array(
+            'success' => true,
+            'message' => 'Production full sync disabled',
         );
     }
     

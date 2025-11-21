@@ -203,7 +203,60 @@
         });
         
         /**
-         * Handle production cron enable
+         * Handle production full sync toggle
+         */
+        $('#toggle-production-full-sync').on('click', function() {
+            const $button = $(this);
+            const originalText = $button.text();
+            
+            $button.prop('disabled', true).text('Processing...');
+            
+            $.ajax({
+                url: bytemashWooSync.ajax_url,
+                type: 'POST',
+                data: {
+                    action: 'bytemash_toggle_production_full_sync',
+                    nonce: bytemashWooSync.nonce
+                },
+                success: function(response) {
+                    if (response.success) {
+                        $('#production-full-sync-status').html(
+                            '<div class="notice notice-success"><p>' + response.data.message + 
+                            (response.data.next_full_sync ? ' Next sync: ' + response.data.next_full_sync + '</p></div>' : '</p></div>')
+                        );
+                        
+                        // Update button text and class
+                        if (response.data.enabled) {
+                            $button.text('Disable Production Full Sync').removeClass('button-primary').addClass('button-secondary');
+                        } else {
+                            $button.text('Enable Production Full Sync').removeClass('button-secondary').addClass('button-primary');
+                        }
+                        
+                        // Reload page after 2 seconds to show updated status
+                        setTimeout(function() {
+                            location.reload();
+                        }, 2000);
+                    } else {
+                        $('#production-full-sync-status').html(
+                            '<div class="notice notice-error"><p>' + response.data.message + '</p></div>'
+                        );
+                        $button.text(originalText);
+                    }
+                },
+                error: function() {
+                    $('#production-full-sync-status').html(
+                        '<div class="notice notice-error"><p>Request failed. Please try again.</p></div>'
+                    );
+                    $button.text(originalText);
+                },
+                complete: function() {
+                    $button.prop('disabled', false);
+                }
+            });
+        });
+        
+        /**
+         * Handle production cron enable (deprecated - kept for backward compatibility)
          */
         $('#enable-production-cron').on('click', function() {
             const $button = $(this);
