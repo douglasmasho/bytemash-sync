@@ -1040,9 +1040,17 @@ class ByteMash_Product_Sync {
     
     /**
      * Sync product categories from Amrod format
+     * 
+     * Handles products that appear in multiple categories and ensures
+     * subcategories with the same name in different parent categories
+     * are properly distinguished using the full path.
      */
     private function sync_product_categories($categories) {
         $category_ids = array();
+        
+        if (empty($categories) || !is_array($categories)) {
+            return array();
+        }
         
         foreach ($categories as $cat_data) {
             if (empty($cat_data['name'])) {
@@ -1050,7 +1058,30 @@ class ByteMash_Product_Sync {
             }
             
             $cat_name = sanitize_text_field($cat_data['name']);
-            $cat_path = isset($cat_data['path']) && $cat_data['path'] !== '' ? $cat_data['path'] : $cat_name;
+            
+            // Use the full path from the API - this is critical for distinguishing
+            // subcategories with the same name in different parent categories
+            // e.g., "Main A / Sub 1" vs "Main B / Sub 1"
+            $cat_path = '';
+            
+            // Check for 'path' field (from product API)
+            if (isset($cat_data['path']) && $cat_data['path'] !== '') {
+                $cat_path = trim($cat_data['path']);
+            }
+            // Check for 'categoryPath' field (alternative format)
+            elseif (isset($cat_data['categoryPath']) && $cat_data['categoryPath'] !== '') {
+                $cat_path = trim($cat_data['categoryPath']);
+            }
+            
+            // If no path is provided, use the category name as fallback
+            // but log a warning as this may cause issues with duplicate subcategory names
+            if (empty($cat_path)) {
+                $cat_path = $cat_name;
+                $this->logger->log('warning', 'Category missing path, using name as fallback', array(
+                    'category_name' => $cat_name,
+                    'category_data' => $cat_data,
+                ), 'category_sync');
+            }
 
             $meta = array(
                 'id' => $cat_data['id'] ?? '',
@@ -1062,6 +1093,11 @@ class ByteMash_Product_Sync {
 
             if ($result['success']) {
                 $category_ids[] = $result['term_id'];
+                $this->logger->log('debug', 'Category assigned to product', array(
+                    'category_name' => $cat_name,
+                    'category_path' => $cat_path,
+                    'term_id' => $result['term_id'],
+                ), 'category_sync');
             } else {
                 $this->logger->log('error', 'Failed to ensure category hierarchy', array(
                     'category' => $cat_name,
@@ -1071,7 +1107,19 @@ class ByteMash_Product_Sync {
             }
         }
         
-        return array_unique(array_filter($category_ids));
+        // Return unique category IDs - products can appear in multiple categories
+        // and we want to ensure all are assigned
+        $unique_category_ids = array_unique(array_filter($category_ids));
+        
+        if (count($unique_category_ids) !== count($category_ids)) {
+            $this->logger->log('info', 'Product assigned to multiple categories (duplicates removed)', array(
+                'total_categories' => count($category_ids),
+                'unique_categories' => count($unique_category_ids),
+                'category_ids' => $unique_category_ids,
+            ), 'category_sync');
+        }
+        
+        return $unique_category_ids;
     }
     
     /**
@@ -3277,55 +3325,92 @@ class ByteMash_Product_Sync {
                 $display_name = $this->format_category_segment_name($segment);
             }
 
+            // Always use path-based lookup first - this is critical for distinguishing
+            // subcategories with the same name in different parent categories
             $existing_term = $this->get_category_term_by_path($current_path);
 
             $slug = sanitize_title($display_name ?: $segment);
 
             if (!$existing_term instanceof WP_Term) {
                 // Try to find by slug with parent context first
-                if ($slug !== '') {
+                // This ensures we don't mix up subcategories with the same name
+                // in different parent categories
+                if ($slug !== '' && $parent_id > 0) {
                     $term_lookup = term_exists($slug, 'product_cat', $parent_id);
                     if ($term_lookup) {
                         $term_object = get_term(is_array($term_lookup) ? $term_lookup['term_id'] : $term_lookup, 'product_cat');
                         if ($term_object instanceof WP_Term) {
-                            $existing_term = $term_object;
+                            // Verify this term has the correct path metadata
+                            $term_path = get_term_meta($term_object->term_id, '_amrod_category_path', true);
+                            if ($term_path === $current_path || empty($term_path)) {
+                                $existing_term = $term_object;
+                            }
                         }
                     }
                 }
 
-                // If still not found, try global slug match and then reassign parent
-                if (!$existing_term && $slug !== '') {
+                // If still not found and we have a parent, don't try global slug match
+                // as this could incorrectly match a subcategory from a different parent
+                // Only do global lookup if this is a top-level category (parent_id = 0)
+                if (!$existing_term && $slug !== '' && $parent_id === 0) {
                     $term_lookup = term_exists($slug, 'product_cat');
                     if ($term_lookup) {
                         $term_object = get_term(is_array($term_lookup) ? $term_lookup['term_id'] : $term_lookup, 'product_cat');
                         if ($term_object instanceof WP_Term) {
-                            $existing_term = $term_object;
+                            // Only use if it's also top-level and has matching path
+                            if ((int) $term_object->parent === 0) {
+                                $term_path = get_term_meta($term_object->term_id, '_amrod_category_path', true);
+                                if ($term_path === $current_path || empty($term_path)) {
+                                    $existing_term = $term_object;
+                                }
+                            }
                         }
                     }
                 }
 
-                // Finally, check by exact display name
-                if (!$existing_term && $display_name) {
+                // Only check by name as last resort for top-level categories
+                // This prevents mixing up subcategories with same name in different parents
+                if (!$existing_term && $display_name && $parent_id === 0) {
                     $term_object = get_term_by('name', $display_name, 'product_cat');
-                    if ($term_object instanceof WP_Term) {
-                        $existing_term = $term_object;
+                    if ($term_object instanceof WP_Term && (int) $term_object->parent === 0) {
+                        $term_path = get_term_meta($term_object->term_id, '_amrod_category_path', true);
+                        if ($term_path === $current_path || empty($term_path)) {
+                            $existing_term = $term_object;
+                        }
                     }
                 }
             }
 
             if ($existing_term instanceof WP_Term) {
                 $term_id = (int) $existing_term->term_id;
+                
+                // Verify the existing term has the correct path - if not, it might be a different category
+                $existing_path = get_term_meta($term_id, '_amrod_category_path', true);
+                if (!empty($existing_path) && $existing_path !== $current_path) {
+                    // This term has a different path - it's a different category with the same name
+                    // We should create a new term instead of reusing this one
+                    $this->logger->log('warning', 'Found category with same name but different path - creating new category', array(
+                        'existing_path' => $existing_path,
+                        'new_path' => $current_path,
+                        'category_name' => $display_name,
+                        'parent_id' => $parent_id,
+                    ), 'category_sync');
+                    $existing_term = null; // Force creation of new category
+                } else {
+                    // Correct parent if it changed
+                    if ((int) $existing_term->parent !== (int) $parent_id) {
+                        wp_update_term($term_id, 'product_cat', array('parent' => $parent_id));
+                    }
 
-                // Correct parent if it changed
-                if ((int) $existing_term->parent !== (int) $parent_id) {
-                    wp_update_term($term_id, 'product_cat', array('parent' => $parent_id));
+                    // Refresh name if API casing changed
+                    if ($display_name && $existing_term->name !== $display_name) {
+                        wp_update_term($term_id, 'product_cat', array('name' => $display_name));
+                    }
                 }
-
-                // Refresh name if API casing changed
-                if ($display_name && $existing_term->name !== $display_name) {
-                    wp_update_term($term_id, 'product_cat', array('name' => $display_name));
-                }
-            } else {
+            }
+            
+            // Create new category if we don't have an existing one
+            if (!$existing_term instanceof WP_Term) {
                 $args = array('parent' => $parent_id);
                 if ($slug) {
                     $args['slug'] = $slug;
