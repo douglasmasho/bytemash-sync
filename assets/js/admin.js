@@ -220,16 +220,29 @@
                 },
                 success: function(response) {
                     if (response.success) {
-                        $('#production-full-sync-status').html(
-                            '<div class="notice notice-success"><p>' + response.data.message + 
-                            (response.data.next_full_sync ? ' Next sync: ' + response.data.next_full_sync + '</p></div>' : '</p></div>')
-                        );
+                        let statusHtml = '<div class="notice notice-success"><p>' + response.data.message;
+                        if (response.data.next_full_sync) {
+                            statusHtml += '<br><strong>Next full sync:</strong> ' + response.data.next_full_sync;
+                        }
+                        if (response.data.next_incremental_sync) {
+                            statusHtml += '<br><strong>Next incremental sync:</strong> ' + response.data.next_incremental_sync;
+                        }
+                        statusHtml += '</p></div>';
+                        $('#production-full-sync-status').html(statusHtml);
                         
                         // Update button text and class
                         if (response.data.enabled) {
                             $button.text('Disable Production Full Sync').removeClass('button-primary').addClass('button-secondary');
                         } else {
                             $button.text('Enable Production Full Sync').removeClass('button-secondary').addClass('button-primary');
+                        }
+                        
+                        // Update badge
+                        const $badge = $('.production-full-sync-section .test-mode-badge');
+                        if (response.data.enabled) {
+                            $badge.removeClass('disabled').addClass('enabled').text('Enabled');
+                        } else {
+                            $badge.removeClass('enabled').addClass('disabled').text('Disabled');
                         }
                         
                         // Reload page after 2 seconds to show updated status
@@ -608,6 +621,26 @@
                 html += '<span class="skipped">' + sync.skipped + ' skipped</span>';
             }
             html += '</div>';
+            
+            // Show cleanup status if available
+            if (sync.cleanup_status) {
+                let cleanupClass = 'info';
+                let cleanupIcon = '🔄';
+                if (sync.cleanup_status === 'completed') {
+                    cleanupClass = 'success';
+                    cleanupIcon = '✓';
+                } else if (sync.cleanup_status === 'starting') {
+                    cleanupIcon = '🔄';
+                }
+                
+                html += '<div class="cleanup-status ' + cleanupClass + '" style="margin-top: 10px; padding: 10px; background: #f0f9ff; border-left: 4px solid #0ea5e9; border-radius: 4px;">';
+                html += '<strong>' + cleanupIcon + ' Cleanup: </strong>';
+                html += '<span>' + (sync.cleanup_message || 'Checking for excess products...') + '</span>';
+                if (sync.cleanup_deleted !== undefined && sync.cleanup_deleted > 0) {
+                    html += ' <span style="color: #dc3545; font-weight: bold;">(' + sync.cleanup_deleted + ' products deleted)</span>';
+                }
+                html += '</div>';
+            }
             html += '<div class="batch-list">';
             
             // Show individual batches

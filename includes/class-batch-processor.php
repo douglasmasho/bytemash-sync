@@ -243,10 +243,8 @@ class ByteMash_Batch_Processor {
                 
                 if ($result['success']) {
                     $processed++;
-                    $this->logger->log('info', 'Product synced successfully', array(
-                        'sku' => $product_data['fullCode'] ?? 'unknown',
-                        'product_name' => $product_data['productName'] ?? 'unknown',
-                    ), 'batch_processor');
+                    // OPTIMIZATION: Don't log every successful product - only log errors
+                    // This reduces I/O overhead significantly
                 } else {
                     $errors++;
                     $this->logger->log('error', 'Product sync failed', array(
@@ -290,6 +288,20 @@ class ByteMash_Batch_Processor {
         $progress['errors'] = ($progress['errors'] ?? 0) + $errors;
         
         $this->save_sync_progress($sync_id, $progress);
+        
+        // OPTIMIZATION: Only run incremental cleanup on the LAST batch to maximize sync speed
+        // Cleanup can wait until the end - it's more important to sync products quickly
+        if ($next_batch >= $progress['batch_count']) {
+            $product_sync = new ByteMash_Product_Sync();
+            $cleanup_result = $product_sync->cleanup_products_incremental($sync_id, 200); // Larger batch since it's only once
+            if ($cleanup_result['deleted'] > 0) {
+                $this->logger->log('info', "Incremental cleanup after final batch {$batch_index}: {$cleanup_result['deleted']} products deleted", array(
+                    'checked' => $cleanup_result['checked'],
+                    'deleted' => $cleanup_result['deleted'],
+                    'skipped' => $cleanup_result['skipped'],
+                ), 'batch_processor');
+            }
+        }
         
         $this->logger->log('info', "Batch {$batch_index} completed", array(), 'batch_processor');
         
@@ -412,16 +424,10 @@ class ByteMash_Batch_Processor {
                 if ($result['success']) {
                     if (isset($result['skipped']) && $result['skipped']) {
                         $skipped++;
-                        $this->logger->log('info', 'Product skipped (unchanged)', array(
-                            'sku' => $product_data['fullCode'] ?? 'unknown',
-                            'product_name' => $product_data['productName'] ?? 'unknown',
-                        ), 'batch_processor');
+                        // OPTIMIZATION: Don't log every skipped product - reduces I/O overhead
                     } else {
                         $processed++;
-                        $this->logger->log('info', 'Product synced successfully', array(
-                            'sku' => $product_data['fullCode'] ?? 'unknown',
-                            'product_name' => $product_data['productName'] ?? 'unknown',
-                        ), 'batch_processor');
+                        // OPTIMIZATION: Don't log every successful product - only log errors
                     }
                 } else {
                     $errors++;
@@ -476,6 +482,20 @@ class ByteMash_Batch_Processor {
         $progress['processed_chunks'][] = $chunk_index;
         
         $this->save_sync_progress($sync_id, $progress);
+        
+        // OPTIMIZATION: Only run incremental cleanup on the LAST chunk to maximize sync speed
+        // Cleanup can wait until the end - it's more important to sync products quickly
+        if ($next_chunk >= $progress['chunk_count']) {
+            $product_sync = new ByteMash_Product_Sync();
+            $cleanup_result = $product_sync->cleanup_products_incremental($sync_id, 200); // Larger batch since it's only once
+            if ($cleanup_result['deleted'] > 0) {
+                $this->logger->log('info', "Incremental cleanup after final chunk {$chunk_index}: {$cleanup_result['deleted']} products deleted", array(
+                    'checked' => $cleanup_result['checked'],
+                    'deleted' => $cleanup_result['deleted'],
+                    'skipped' => $cleanup_result['skipped'],
+                ), 'batch_processor');
+            }
+        }
         
         $this->logger->log('info', "Chunk {$chunk_index} completed", array(), 'batch_processor');
         
@@ -1721,6 +1741,14 @@ class ByteMash_Batch_Processor {
             wp_defer_term_counting(true);
             wp_defer_comment_counting(true);
             
+            // OPTIMIZATION: Disable post revisions during bulk sync (saves DB space and time)
+            if (!defined('WP_POST_REVISIONS')) {
+                define('WP_POST_REVISIONS', false);
+            }
+            
+            // OPTIMIZATION: Disable autosave during bulk operations
+            add_filter('wp_autosave_interval', function() { return 86400; }); // 24 hours
+            
             // Clear any pending queries
             if (method_exists($wpdb, 'flush')) {
                 $wpdb->flush();
@@ -1728,6 +1756,12 @@ class ByteMash_Batch_Processor {
             
             // Ensure we have a clean connection state
             $wpdb->check_connection();
+            
+            // OPTIMIZATION: Disable unnecessary hooks during bulk operations
+            // This reduces overhead from plugins that hook into post saves
+            if (!defined('DOING_BULK_SYNC')) {
+                define('DOING_BULK_SYNC', true);
+            }
             
             $this->logger->log('info', 'Bulk database operations initialized', array(), 'batch_processor');
         } catch (Exception $e) {
@@ -1748,8 +1782,23 @@ class ByteMash_Batch_Processor {
             wp_defer_term_counting(false);
             wp_defer_comment_counting(false);
             
-            // Clear object cache
-            wp_cache_flush();
+            // OPTIMIZATION: Use targeted cache group flushing instead of full flush
+            // This is faster and doesn't clear unrelated cache
+            // Note: wp_cache_flush_group() may not exist in all WordPress versions
+            if (function_exists('wp_cache_flush_group')) {
+                wp_cache_flush_group('posts');
+                wp_cache_flush_group('post_meta');
+                wp_cache_flush_group('terms');
+                wp_cache_flush_group('term_meta');
+            }
+            
+            // Only do full flush every N batches to reduce overhead
+            // Full flush is still needed occasionally to prevent memory buildup
+            static $batch_count = 0;
+            $batch_count++;
+            if ($batch_count % 10 === 0 || !function_exists('wp_cache_flush_group')) {
+                wp_cache_flush(); // Full flush every 10 batches or if group flush not available
+            }
             
             // Force garbage collection
             if (function_exists('gc_collect_cycles')) {

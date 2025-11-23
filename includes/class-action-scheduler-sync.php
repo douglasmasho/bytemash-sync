@@ -1404,6 +1404,7 @@ class ByteMash_Action_Scheduler_Sync {
      */
     public function enable_production_full_sync() {
         $this->clear_full_sync_schedules();
+        $this->clear_incremental_sync_schedules();
         
         // Disable test mode if enabled
         update_option('bytemash_cron_full_test_mode_enabled', false);
@@ -1433,17 +1434,32 @@ class ByteMash_Action_Scheduler_Sync {
             'bytemash-sync'
         );
         
+        // Schedule incremental sync every 5 hours (starts after first full sync)
+        $next_incremental = clone $next_sync;
+        $next_incremental->add(new DateInterval('PT5H')); // Add 5 hours
+        $incremental_wp_timestamp = $next_incremental->getTimestamp() - (get_option('gmt_offset') * HOUR_IN_SECONDS);
+        
+        as_schedule_recurring_action(
+            $incremental_wp_timestamp,
+            5 * HOUR_IN_SECONDS, // Every 5 hours
+            'bytemash_action_scheduler_incremental_sync',
+            array('with_branding' => true),
+            'bytemash-sync'
+        );
+        
         // Enable the option
         update_option('bytemash_cron_production_full_sync_enabled', true);
         
-        $this->logger->log('info', "Production full sync enabled - runs daily at 01:30 using Action Scheduler", array(
-            'next_run' => $next_sync->format('Y-m-d H:i:s'),
+        $this->logger->log('info', "Production full sync enabled - Full sync daily at 01:30, Incremental every 5 hours", array(
+            'next_full_sync' => $next_sync->format('Y-m-d H:i:s'),
+            'next_incremental_sync' => $next_incremental->format('Y-m-d H:i:s'),
         ), 'action_scheduler');
         
         return array(
             'success' => true,
-            'message' => 'Production full sync enabled - runs daily at 01:30',
+            'message' => 'Production full sync enabled - Full sync daily at 01:30, Incremental every 5 hours',
             'next_full_sync' => $next_sync->format('Y-m-d H:i:s'),
+            'next_incremental_sync' => $next_incremental->format('Y-m-d H:i:s'),
         );
     }
     
@@ -1452,15 +1468,16 @@ class ByteMash_Action_Scheduler_Sync {
      */
     public function disable_production_full_sync() {
         $this->clear_full_sync_schedules();
+        $this->clear_incremental_sync_schedules();
         
         // Disable the option
         update_option('bytemash_cron_production_full_sync_enabled', false);
         
-        $this->logger->log('info', "Production full sync disabled", array(), 'action_scheduler');
+        $this->logger->log('info', "Production full sync disabled (full and incremental schedules cleared)", array(), 'action_scheduler');
         
         return array(
             'success' => true,
-            'message' => 'Production full sync disabled',
+            'message' => 'Production full sync disabled (full and incremental schedules cleared)',
         );
     }
     

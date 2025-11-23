@@ -756,9 +756,45 @@ class ByteMash_Admin_Settings {
                                                     <?php echo $production_full_sync_enabled ? __('Disable Production Full Sync', 'bytemash-woo-sync') : __('Enable Production Full Sync', 'bytemash-woo-sync'); ?>
                                                 </button>
                                             </div>
-                                            <div id="production-full-sync-status"></div>
+                                            <div id="production-full-sync-status">
+                                                <?php
+                                                if ($production_full_sync_enabled && class_exists('ByteMash_Action_Scheduler_Sync') && function_exists('as_get_scheduled_actions')) {
+                                                    $action_scheduler = new ByteMash_Action_Scheduler_Sync();
+                                                    $status = $action_scheduler->get_scheduled_actions_status();
+                                                    if (!empty($status['full_sync_scheduled']) || !empty($status['incremental_sync_scheduled'])) {
+                                                        $full_sync_actions = as_get_scheduled_actions(array(
+                                                            'hook' => 'bytemash_action_scheduler_full_sync',
+                                                            'status' => 'pending',
+                                                            'per_page' => 1,
+                                                        ));
+                                                        $incremental_sync_actions = as_get_scheduled_actions(array(
+                                                            'hook' => 'bytemash_action_scheduler_incremental_sync',
+                                                            'status' => 'pending',
+                                                            'per_page' => 1,
+                                                        ));
+                                                        
+                                                        $next_full = !empty($full_sync_actions) ? $full_sync_actions[0]->get_schedule()->get_date()->format('Y-m-d H:i:s') : null;
+                                                        $next_incremental = !empty($incremental_sync_actions) ? $incremental_sync_actions[0]->get_schedule()->get_date()->format('Y-m-d H:i:s') : null;
+                                                        
+                                                        if ($next_full || $next_incremental) {
+                                                            echo '<div class="notice notice-info inline" style="margin-top: 10px;"><p>';
+                                                            if ($next_full) {
+                                                                echo '<strong>' . esc_html__('Next full sync:', 'bytemash-woo-sync') . '</strong> ' . esc_html($next_full);
+                                                            }
+                                                            if ($next_full && $next_incremental) {
+                                                                echo '<br>';
+                                                            }
+                                                            if ($next_incremental) {
+                                                                echo '<strong>' . esc_html__('Next incremental sync:', 'bytemash-woo-sync') . '</strong> ' . esc_html($next_incremental);
+                                                            }
+                                                            echo '</p></div>';
+                                                        }
+                                                    }
+                                                }
+                                                ?>
+                                            </div>
                                             <p class="description">
-                                                <?php esc_html_e('Enables production full sync schedule (daily at 01:30). Syncs only the attributes selected above. Uses Action Scheduler, same as test mode but with production schedule.', 'bytemash-woo-sync'); ?>
+                                                <?php esc_html_e('Enables production sync schedules: Full sync daily at 01:30, Incremental sync every 5 hours. Syncs only the attributes selected above. Uses Action Scheduler, same as test mode but with production schedule.', 'bytemash-woo-sync'); ?>
                                             </p>
                                         </div>
                                     </div>
