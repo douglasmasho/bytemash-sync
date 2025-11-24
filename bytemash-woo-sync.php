@@ -179,6 +179,9 @@ class ByteMash_Woo_Sync {
         // Filter products based on category filter parameter
         add_action('woocommerce_product_query', array($this, 'filter_products_by_category_parameter'));
         
+        // Filter Bricks product queries
+        add_filter('bricks/posts/query_vars', array($this, 'filter_bricks_product_query'), 10, 2);
+        
         // Hook into WooCommerce product images
         add_filter('woocommerce_product_get_image_id', array($this, 'use_external_image_url'), 10, 2);
         add_filter('wp_get_attachment_image_src', array($this, 'replace_with_external_url'), 10, 4);
@@ -608,6 +611,63 @@ class ByteMash_Woo_Sync {
         $tax_query = array_values($tax_query);
         
         $query->set('tax_query', $tax_query);
+    }
+    
+    /**
+     * Filter Bricks product queries based on category filter parameter
+     * Works with Bricks Query Loop element
+     */
+    public function filter_bricks_product_query($query_vars, $settings) {
+        // Check if filter_category parameter is set
+        if (!isset($_GET['filter_category']) || empty($_GET['filter_category'])) {
+            return $query_vars;
+        }
+        
+        // Only filter if post type is product
+        if (isset($query_vars['post_type']) && $query_vars['post_type'] !== 'product') {
+            return $query_vars;
+        }
+        
+        $category_id = intval($_GET['filter_category']);
+        
+        // Validate category exists
+        $category = get_term($category_id, 'product_cat');
+        if (!$category || is_wp_error($category)) {
+            return $query_vars;
+        }
+        
+        // Get the category and all its children
+        $category_ids = array($category_id);
+        $child_categories = get_term_children($category_id, 'product_cat');
+        
+        if (!empty($child_categories) && !is_wp_error($child_categories)) {
+            $category_ids = array_merge($category_ids, $child_categories);
+        }
+        
+        // Initialize tax_query if it doesn't exist
+        if (!isset($query_vars['tax_query'])) {
+            $query_vars['tax_query'] = array();
+        }
+        
+        // Remove any existing product_cat filters
+        foreach ($query_vars['tax_query'] as $key => $tax) {
+            if (isset($tax['taxonomy']) && $tax['taxonomy'] === 'product_cat') {
+                unset($query_vars['tax_query'][$key]);
+            }
+        }
+        
+        // Add our filter
+        $query_vars['tax_query'][] = array(
+            'taxonomy' => 'product_cat',
+            'field' => 'term_id',
+            'terms' => $category_ids,
+            'operator' => 'IN',
+        );
+        
+        // Normalize array keys
+        $query_vars['tax_query'] = array_values($query_vars['tax_query']);
+        
+        return $query_vars;
     }
     
     /**
@@ -4843,8 +4903,26 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         $current_category_id = null; // ID of category to highlight
         $categories_to_show = array();
         
-        // Check if we're on a product category archive page
-        if (is_tax('product_cat')) {
+        // Check if filter_category parameter is set (for filtering)
+        $filtered_category_id = isset($_GET['filter_category']) ? intval($_GET['filter_category']) : null;
+        
+        // If we have a filter parameter, use that category
+        if ($filtered_category_id) {
+            $filtered_category = get_term($filtered_category_id, 'product_cat');
+            if ($filtered_category && !is_wp_error($filtered_category)) {
+                $current_category = $filtered_category;
+                $current_category_id = $filtered_category_id;
+                // Get direct child categories of the filtered category
+                $categories_to_show = get_terms(array(
+                    'taxonomy' => 'product_cat',
+                    'parent' => $filtered_category_id,
+                    'hide_empty' => $hide_empty,
+                ));
+            }
+        }
+        
+        // Check if we're on a product category archive page (if no filter set)
+        if (!$filtered_category_id && is_tax('product_cat')) {
             $current_category = get_queried_object();
             if ($current_category && isset($current_category->term_id)) {
                 $current_category_id = $current_category->term_id;
@@ -4854,22 +4932,10 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                     'parent' => $current_category->term_id,
                     'hide_empty' => $hide_empty,
                 ));
-                
-                // Fallback: if no children, show siblings
-                if (empty($categories_to_show) || is_wp_error($categories_to_show)) {
-                    if ($fallback && $current_category->parent > 0) {
-                        $categories_to_show = get_terms(array(
-                            'taxonomy' => 'product_cat',
-                            'parent' => $current_category->parent,
-                            'hide_empty' => $hide_empty,
-                        ));
-                        $current_category_id = $current_category->term_id; // Keep current for highlighting
-                    }
-                }
             }
         }
-        // Check if we're on a single product page
-        elseif (is_product()) {
+        // Check if we're on a single product page (only if no filter is set)
+        elseif (!$filtered_category_id && is_product()) {
             global $product;
             if ($product) {
                 $product_categories = wp_get_post_terms($product->get_id(), 'product_cat', array('orderby' => 'parent', 'order' => 'ASC'));
@@ -4878,26 +4944,14 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                     // Get the primary category (first one, or deepest one)
                     $primary_category = $product_categories[0];
                     $current_category_id = $primary_category->term_id; // Highlight this category
+                    $current_category = $primary_category;
                     
-                    // If the product is in a child category, get all siblings (including current)
-                    if ($primary_category->parent > 0) {
-                        $categories_to_show = get_terms(array(
-                            'taxonomy' => 'product_cat',
-                            'parent' => $primary_category->parent,
-                            'hide_empty' => $hide_empty,
-                        ));
-                        
-                        // Also include parent category info for breadcrumb context
-                        $current_category = get_term($primary_category->parent, 'product_cat');
-                    } else {
-                        // If product is in top-level category, show its children
-                        $current_category = $primary_category;
-                        $categories_to_show = get_terms(array(
-                            'taxonomy' => 'product_cat',
-                            'parent' => $primary_category->term_id,
-                            'hide_empty' => $hide_empty,
-                        ));
-                    }
+                    // Show children of the primary category
+                    $categories_to_show = get_terms(array(
+                        'taxonomy' => 'product_cat',
+                        'parent' => $primary_category->term_id,
+                        'hide_empty' => $hide_empty,
+                    ));
                 }
             }
         }
@@ -4935,37 +4989,43 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             return '<!-- Category Filter Debug: ' . wp_json_encode($debug_info) . ' -->';
         }
         
-        // If still no categories found, return empty
-        if (empty($categories_to_show) || is_wp_error($categories_to_show)) {
-            return '';
-        }
-        
-        // Get current URL for filter links
-        $current_url = '';
-        if (is_tax('product_cat') && $current_category) {
-            // On category page - links will navigate to child categories
-            $base_url = get_term_link($current_category);
-        } elseif (is_shop()) {
-            $base_url = get_permalink(wc_get_page_id('shop'));
-        } else {
-            $base_url = home_url('/');
-        }
-        
-        // Get child categories for each category to build accordion
+        // Build accordion structure
         $categories_with_children = array();
-        foreach ($categories_to_show as $category) {
-            if (is_wp_error($category)) continue;
-            
+        
+        // If we have a current/filtered category, show IT with its children in the accordion
+        if ($current_category && isset($current_category->term_id)) {
+            // Get children of the current category
             $child_categories = get_terms(array(
                 'taxonomy' => 'product_cat',
-                'parent' => $category->term_id,
+                'parent' => $current_category->term_id,
                 'hide_empty' => $hide_empty,
             ));
             
             $categories_with_children[] = array(
-                'category' => $category,
+                'category' => $current_category,
                 'children' => !empty($child_categories) && !is_wp_error($child_categories) ? $child_categories : array(),
             );
+        } else {
+            // Fallback: show categories_to_show with their children
+            foreach ($categories_to_show as $category) {
+                if (is_wp_error($category)) continue;
+                
+                $child_categories = get_terms(array(
+                    'taxonomy' => 'product_cat',
+                    'parent' => $category->term_id,
+                    'hide_empty' => $hide_empty,
+                ));
+                
+                $categories_with_children[] = array(
+                    'category' => $category,
+                    'children' => !empty($child_categories) && !is_wp_error($child_categories) ? $child_categories : array(),
+                );
+            }
+        }
+        
+        // If still no categories found, return empty
+        if (empty($categories_with_children)) {
+            return '';
         }
         
         ob_start();
@@ -4989,17 +5049,16 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                     
                     $is_current = ($current_category_id && $current_category_id === $category->term_id);
                     $accordion_id = 'amrod-accordion-' . $category->term_id;
+                    // Always expand if it's the current/filtered category, or if it has children and is the first item
                     $is_expanded = $is_current || ($index === 0 && $has_children);
                 ?>
                     <div class="amrod-accordion-item" style="margin-bottom: 8px; border: 1px solid #e9ecef; border-radius: 8px; overflow: hidden; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.05); transition: all 0.3s ease;">
                         <div class="amrod-accordion-header" 
-                             data-accordion-id="<?php echo esc_attr($accordion_id); ?>"
-                             style="display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; cursor: pointer; background: <?php echo $is_current ? '#007bff' : '#fff'; ?>; color: <?php echo $is_current ? '#fff' : '#212529'; ?>; transition: all 0.3s ease; user-select: none;">
+                             style="display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; background: <?php echo $is_current ? '#007bff' : '#fff'; ?>; color: <?php echo $is_current ? '#fff' : '#212529'; ?>; transition: all 0.3s ease; user-select: none;">
                             <a href="#" 
                                data-category-id="<?php echo esc_attr($category->term_id); ?>"
                                class="amrod-accordion-link amrod-filter-link" 
-                               style="flex: 1; text-decoration: none; color: inherit; font-weight: 500; font-size: 15px; display: flex; align-items: center; gap: 10px;"
-                               onclick="event.preventDefault(); event.stopPropagation(); return false;">
+                               style="flex: 1; text-decoration: none; color: inherit; font-weight: 500; font-size: 15px; display: flex; align-items: center; gap: 10px; cursor: pointer;">
                                 <span class="category-name"><?php echo esc_html($category->name); ?></span>
                                 <?php if ($show_count): ?>
                                     <span class="count" style="font-size: 0.85em; opacity: 0.7; font-weight: 400;">
@@ -5008,8 +5067,9 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                                 <?php endif; ?>
                             </a>
                             <?php if ($has_children): ?>
-                                <span class="amrod-accordion-icon" 
-                                      style="margin-left: 12px; font-size: 12px; transition: transform 0.3s ease; display: inline-block; color: <?php echo $is_current ? '#fff' : '#6c757d'; ?>;">
+                                <span class="amrod-accordion-toggle" 
+                                      data-accordion-id="<?php echo esc_attr($accordion_id); ?>"
+                                      style="margin-left: 12px; font-size: 12px; transition: transform 0.3s ease; display: inline-block; color: <?php echo $is_current ? '#fff' : '#6c757d'; ?>; cursor: pointer; padding: 4px 8px; user-select: none;">
                                     ▼
                                 </span>
                             <?php endif; ?>
@@ -5072,8 +5132,11 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                 border-color: #0056b3 !important;
                 color: #fff !important;
             }
-            .amrod-accordion-icon.rotated {
+            .amrod-accordion-toggle.rotated {
                 transform: rotate(180deg);
+            }
+            .amrod-accordion-toggle:hover {
+                opacity: 0.7;
             }
         </style>
         
@@ -5086,98 +5149,108 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                 
                 // Handle filter links
                 var filterLinks = document.querySelectorAll('.amrod-filter-link');
-                filterLinks.forEach(function(link) {
-                    link.addEventListener('click', function(e) {
-                        e.preventDefault();
-                        
-                        var categoryId = this.getAttribute('data-category-id');
-                        if (!categoryId) return;
-                        
-                        // Update URL with filter parameter
-                        var url = new URL(window.location.href);
-                        if (categoryId) {
-                            url.searchParams.set('filter_category', categoryId);
-                        } else {
-                            url.searchParams.delete('filter_category');
-                        }
-                        
-                        // Remove pagination if present
-                        url.searchParams.delete('paged');
-                        
-                        // Reload page with new filter
-                        window.location.href = url.toString();
-                    });
-                    
-                    // Highlight active filter
-                    if (currentFilterCategory && this.getAttribute('data-category-id') === currentFilterCategory) {
-                        this.style.background = '#007bff';
-                        this.style.color = '#fff';
-                        if (this.style.borderColor) {
-                            this.style.borderColor = '#007bff';
-                        }
-                    }
-                });
-                
-                // Accordion toggle functionality
-                var headers = document.querySelectorAll('.amrod-accordion-header');
-                headers.forEach(function(header) {
-                    header.addEventListener('click', function(e) {
-                        // Don't toggle if clicking the filter link
-                        if (e.target.closest('.amrod-filter-link')) {
+                if (filterLinks && filterLinks.length > 0) {
+                    filterLinks.forEach(function(link) {
+                        // Safety check
+                        if (!link || typeof link.getAttribute !== 'function') {
                             return;
                         }
                         
-                        var accordionId = this.getAttribute('data-accordion-id');
-                        var content = document.getElementById(accordionId);
-                        var icon = this.querySelector('.amrod-accordion-icon');
-                        var item = this.closest('.amrod-accordion-item');
-                        
-                        if (!content) return;
-                        
-                        var isExpanded = content.style.maxHeight && content.style.maxHeight !== '0px' && content.style.maxHeight !== '0';
-                        
-                        if (isExpanded) {
-                            // Collapse
-                            content.style.maxHeight = '0';
-                            content.style.padding = '0 16px';
-                            if (icon) icon.classList.remove('rotated');
-                        } else {
-                            // Expand
-                            // Close other accordions first
-                            headers.forEach(function(otherHeader) {
-                                if (otherHeader !== header) {
-                                    var otherId = otherHeader.getAttribute('data-accordion-id');
-                                    var otherContent = document.getElementById(otherId);
-                                    var otherIcon = otherHeader.querySelector('.amrod-accordion-icon');
-                                    if (otherContent) {
-                                        otherContent.style.maxHeight = '0';
-                                        otherContent.style.padding = '0 16px';
-                                        if (otherIcon) otherIcon.classList.remove('rotated');
-                                    }
-                                }
-                            });
-                            
-                            // Expand this one
-                            content.style.maxHeight = content.scrollHeight + 'px';
-                            content.style.padding = '12px 16px';
-                            if (icon) icon.classList.add('rotated');
+                        // Highlight active filter on page load
+                        var categoryId = link.getAttribute('data-category-id');
+                        if (currentFilterCategory && categoryId === currentFilterCategory) {
+                            link.style.background = '#007bff';
+                            link.style.color = '#fff';
+                            if (link.style.borderColor !== undefined) {
+                                link.style.borderColor = '#007bff';
+                            }
                         }
+                        
+                        // Add click handler - use closure variable 'link' to avoid 'this' issues
+                        link.addEventListener('click', function(e) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            
+                            var catId = link.getAttribute('data-category-id');
+                            if (!catId) return;
+                            
+                            // Update URL with filter parameter
+                            var url = new URL(window.location.href);
+                            url.searchParams.set('filter_category', catId);
+                            
+                            // Remove pagination if present
+                            url.searchParams.delete('paged');
+                            
+                            // Reload page with new filter
+                            window.location.href = url.toString();
+                        });
                     });
-                });
+                }
                 
-                // Set initial state for expanded items (expand if contains active filter)
-                headers.forEach(function(header) {
-                    var accordionId = header.getAttribute('data-accordion-id');
+                // Accordion toggle functionality - click on icon to toggle
+                var accordionToggles = document.querySelectorAll('.amrod-accordion-toggle');
+                if (accordionToggles && accordionToggles.length > 0) {
+                    accordionToggles.forEach(function(toggle) {
+                        // Safety check
+                        if (!toggle || typeof toggle.getAttribute !== 'function') {
+                            return;
+                        }
+                        
+                        toggle.addEventListener('click', function(e) {
+                            e.preventDefault();
+                            e.stopPropagation();
+                            
+                            var accordionId = toggle.getAttribute('data-accordion-id');
+                            if (!accordionId) return;
+                            
+                            var content = document.getElementById(accordionId);
+                            if (!content) return;
+                            
+                            var isExpanded = content.style.maxHeight && content.style.maxHeight !== '0px' && content.style.maxHeight !== '0';
+                            
+                            if (isExpanded) {
+                                // Collapse
+                                content.style.maxHeight = '0';
+                                content.style.padding = '0 16px';
+                                toggle.classList.remove('rotated');
+                            } else {
+                                // Expand
+                                // Close other accordions first
+                                accordionToggles.forEach(function(otherToggle) {
+                                    if (otherToggle !== toggle && otherToggle && typeof otherToggle.getAttribute === 'function') {
+                                        var otherId = otherToggle.getAttribute('data-accordion-id');
+                                        if (otherId) {
+                                            var otherContent = document.getElementById(otherId);
+                                            if (otherContent) {
+                                                otherContent.style.maxHeight = '0';
+                                                otherContent.style.padding = '0 16px';
+                                                otherToggle.classList.remove('rotated');
+                                            }
+                                        }
+                                    }
+                                });
+                                
+                                // Expand this one
+                                content.style.maxHeight = content.scrollHeight + 'px';
+                                content.style.padding = '12px 16px';
+                                toggle.classList.add('rotated');
+                            }
+                        });
+                    });
+                }
+                
+                // Set initial state for expanded items (expand if contains active filter or was initially expanded)
+                accordionToggles.forEach(function(toggle) {
+                    var accordionId = toggle.getAttribute('data-accordion-id');
                     var content = document.getElementById(accordionId);
                     if (content) {
                         var hasActiveChild = content.querySelector('[data-category-id="' + currentFilterCategory + '"]');
                         var isExpanded = content.style.maxHeight && content.style.maxHeight !== '0px' && content.style.maxHeight !== '0';
                         
                         if (hasActiveChild || isExpanded) {
-                            var icon = header.querySelector('.amrod-accordion-icon');
                             content.style.maxHeight = content.scrollHeight + 'px';
                             content.style.padding = '12px 16px';
-                            if (icon) icon.classList.add('rotated');
+                            toggle.classList.add('rotated');
                         }
                     }
                 });
