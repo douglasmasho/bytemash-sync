@@ -109,7 +109,7 @@ class ByteMash_Batch_Processor {
         add_action('bytemash_process_categories_batch', array($this, 'process_categories_batch'), 10, 1);
         add_action('bytemash_process_brands_batch', array($this, 'process_brands_batch'), 10, 2);
     }
-
+    
     /**
      * Schedule batch processing for products using chunk-based approach
      * 
@@ -243,8 +243,10 @@ class ByteMash_Batch_Processor {
                 
                 if ($result['success']) {
                     $processed++;
-                    // OPTIMIZATION: Don't log every successful product - only log errors
-                    // This reduces I/O overhead significantly
+                    $this->logger->log('info', 'Product synced successfully', array(
+                        'sku' => $product_data['fullCode'] ?? 'unknown',
+                        'product_name' => $product_data['productName'] ?? 'unknown',
+                    ), 'batch_processor');
                 } else {
                     $errors++;
                     $this->logger->log('error', 'Product sync failed', array(
@@ -298,19 +300,17 @@ class ByteMash_Batch_Processor {
             // Schedule next batch in 5 seconds
             wp_schedule_single_event(time() + 5, 'bytemash_process_products_batch', array($sync_id, $next_batch));
         } else {
-            // All batches completed - mark as processing deletion before cleanup
-            $progress['status'] = 'deleting_excess';
-            $progress['cleanup_status'] = 'starting';
-            $progress['cleanup_message'] = 'Starting to delete excess products...';
+            // All batches completed
+            $progress['status'] = 'completed';
+            $progress['completed'] = current_time('mysql');
             $this->save_sync_progress($sync_id, $progress);
             
             // Delete cached data
             delete_transient("bytemash_sync_{$sync_id}_products");
             
-            $this->logger->log('success', 'All product batches completed, starting product deletion', array(), 'batch_processor');
+            $this->logger->log('success', 'All product batches completed', array(), 'batch_processor');
             
             // Reconcile catalog counts now that all products have been processed
-            // This will delete products not in the API and show progress
             $product_sync = new ByteMash_Product_Sync();
             $product_sync->cleanup_products_not_in_snapshot($sync_id);
         }
@@ -396,20 +396,11 @@ class ByteMash_Batch_Processor {
         // Set up proper bulk operation handling
         $this->handle_bulk_database_operations();
         
-        // OPTIMIZATION: Extend execution time to prevent timeouts during batch processing
-        // This is safe because we're processing in controlled chunks
-        @set_time_limit(300); // 5 minutes per batch
-        
         // Suspend cache to reduce memory usage
         wp_suspend_cache_addition(true);
         
         // Process each product in chunk
         $product_sync = new ByteMash_Product_Sync();
-        
-        // OPTIMIZATION: Enable batch mode to preload all SKUs in one query
-        // This eliminates N individual SKU lookups, replacing with 1 batch query
-        $product_sync->start_batch_mode($chunk);
-        
         $processed = 0;
         $errors = 0;
         $skipped = 0;
@@ -421,10 +412,16 @@ class ByteMash_Batch_Processor {
                 if ($result['success']) {
                     if (isset($result['skipped']) && $result['skipped']) {
                         $skipped++;
-                        // OPTIMIZATION: Don't log every skipped product - reduces I/O overhead
+                        $this->logger->log('info', 'Product skipped (unchanged)', array(
+                            'sku' => $product_data['fullCode'] ?? 'unknown',
+                            'product_name' => $product_data['productName'] ?? 'unknown',
+                        ), 'batch_processor');
                     } else {
                         $processed++;
-                        // OPTIMIZATION: Don't log every successful product - only log errors
+                        $this->logger->log('info', 'Product synced successfully', array(
+                            'sku' => $product_data['fullCode'] ?? 'unknown',
+                            'product_name' => $product_data['productName'] ?? 'unknown',
+                        ), 'batch_processor');
                     }
                 } else {
                     $errors++;
@@ -447,9 +444,6 @@ class ByteMash_Batch_Processor {
             // Clear memory after each product
             unset($product_data, $result);
         }
-        
-        // OPTIMIZATION: Disable batch mode and clear caches
-        $product_sync->end_batch_mode();
         
         // Resume cache
         wp_suspend_cache_addition(false);
@@ -498,10 +492,8 @@ class ByteMash_Batch_Processor {
             
             // DON'T schedule via WP-Cron - AJAX will call process_next_chunk endpoint
         } else {
-            // All chunks completed - mark as processing deletion before cleanup
-            $progress['status'] = 'deleting_excess';
-            $progress['cleanup_status'] = 'starting';
-            $progress['cleanup_message'] = 'Starting to delete excess products...';
+            // All chunks completed
+            $progress['status'] = 'completed';
             $progress['completed'] = current_time('mysql');
             $this->save_sync_progress($sync_id, $progress);
             
@@ -513,7 +505,7 @@ class ByteMash_Batch_Processor {
                 delete_transient("bytemash_sync_{$sync_id}_chunk_{$i}");
             }
             
-            $this->logger->log('success', 'All product chunks completed, starting product deletion', array(), 'batch_processor');
+            $this->logger->log('success', 'All product chunks completed', array(), 'batch_processor');
             
             $product_sync = new ByteMash_Product_Sync();
             $product_sync->cleanup_products_not_in_snapshot($sync_id);
@@ -1729,14 +1721,6 @@ class ByteMash_Batch_Processor {
             wp_defer_term_counting(true);
             wp_defer_comment_counting(true);
             
-            // OPTIMIZATION: Disable post revisions during bulk sync (saves DB space and time)
-            if (!defined('WP_POST_REVISIONS')) {
-                define('WP_POST_REVISIONS', false);
-            }
-            
-            // OPTIMIZATION: Disable autosave during bulk operations
-            add_filter('wp_autosave_interval', function() { return 86400; }); // 24 hours
-            
             // Clear any pending queries
             if (method_exists($wpdb, 'flush')) {
                 $wpdb->flush();
@@ -1744,12 +1728,6 @@ class ByteMash_Batch_Processor {
             
             // Ensure we have a clean connection state
             $wpdb->check_connection();
-            
-            // OPTIMIZATION: Disable unnecessary hooks during bulk operations
-            // This reduces overhead from plugins that hook into post saves
-            if (!defined('DOING_BULK_SYNC')) {
-                define('DOING_BULK_SYNC', true);
-            }
             
             $this->logger->log('info', 'Bulk database operations initialized', array(), 'batch_processor');
         } catch (Exception $e) {
@@ -1770,23 +1748,8 @@ class ByteMash_Batch_Processor {
             wp_defer_term_counting(false);
             wp_defer_comment_counting(false);
             
-            // OPTIMIZATION: Use targeted cache group flushing instead of full flush
-            // This is faster and doesn't clear unrelated cache
-            // Note: wp_cache_flush_group() may not exist in all WordPress versions
-            if (function_exists('wp_cache_flush_group')) {
-                wp_cache_flush_group('posts');
-                wp_cache_flush_group('post_meta');
-                wp_cache_flush_group('terms');
-                wp_cache_flush_group('term_meta');
-            }
-            
-            // Only do full flush every N batches to reduce overhead
-            // Full flush is still needed occasionally to prevent memory buildup
-            static $batch_count = 0;
-            $batch_count++;
-            if ($batch_count % 10 === 0 || !function_exists('wp_cache_flush_group')) {
-                wp_cache_flush(); // Full flush every 10 batches or if group flush not available
-            }
+            // Clear object cache
+            wp_cache_flush();
             
             // Force garbage collection
             if (function_exists('gc_collect_cycles')) {

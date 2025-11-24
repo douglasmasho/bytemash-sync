@@ -552,53 +552,17 @@ class ByteMash_Woo_Sync {
     }
     
     /**
-     * Action Scheduler instance
-     */
-    private $action_scheduler;
-    
-    /**
-     * Whether to use Action Scheduler
-     */
-    private $use_action_scheduler = false;
-    
-    /**
      * Initialize scheduler after all dependencies are loaded
      */
     public function init_scheduler() {
         new ByteMash_Sync_Scheduler();
-        // Initialize Action Scheduler integration
-        $this->init_action_scheduler();
-    }
-    
-    /**
-     * Initialize Action Scheduler integration
-     */
-    private function init_action_scheduler() {
-        // Check if Action Scheduler is available
-        if (class_exists('ByteMash_Action_Scheduler_Sync')) {
-            $this->action_scheduler = new ByteMash_Action_Scheduler_Sync();
-            
-            // Use Action Scheduler for scheduling if available
-            $this->use_action_scheduler = $this->action_scheduler->is_action_scheduler_available();
-            
-            // Only log once per session to avoid spam
-            if (!get_transient('bytemash_action_scheduler_logged')) {
-                if ($this->use_action_scheduler) {
-                    $logger = new ByteMash_Logger();
-                    $logger->log('info', 'Action Scheduler integration enabled in main plugin class', array(), 'action_scheduler');
-                } else {
-                    $logger = new ByteMash_Logger();
-                    $logger->log('warning', 'Action Scheduler not available in main plugin class', array(), 'action_scheduler');
-                }
-                set_transient('bytemash_action_scheduler_logged', true, HOUR_IN_SECONDS);
-            }
-        } else {
-            $this->use_action_scheduler = false;
-            if (!get_transient('bytemash_action_scheduler_logged')) {
-                $logger = new ByteMash_Logger();
-                $logger->log('warning', 'Action Scheduler class not found in main plugin class', array(), 'action_scheduler');
-                set_transient('bytemash_action_scheduler_logged', true, HOUR_IN_SECONDS);
-            }
+        // Only initialize Action Scheduler integration when scheduling is enabled
+        $prod = (bool) get_option('bytemash_cron_production_full_sync_enabled', false);
+        $test = (bool) get_option('bytemash_cron_test_mode_enabled', false)
+            || (bool) get_option('bytemash_cron_full_test_mode_enabled', false)
+            || (bool) get_option('bytemash_cron_incremental_test_mode_enabled', false);
+        if ($prod || $test) {
+            new ByteMash_Action_Scheduler_Sync();
         }
     }
     
@@ -766,73 +730,27 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                             html += '</div>';
                             
                             // Category Counts
-                            html += '<h2>Category Product Counts (API vs Database)</h2>';
-                            html += '<p class="description">Compares product counts from the Amrod API with what\'s stored in WooCommerce. Discrepancies indicate products that should be in a category but aren\'t assigned correctly.</p>';
+                            html += '<h2>Category Product Counts</h2>';
                             html += '<table class="wp-list-table widefat fixed striped" style="margin-top: 10px;">';
                             html += '<thead><tr>';
                             html += '<th style="padding: 10px;">Category Name</th>';
-                            html += '<th style="padding: 10px;">API Count</th>';
-                            html += '<th style="padding: 10px;">DB Direct</th>';
-                            html += '<th style="padding: 10px;">DB Total (with children)</th>';
-                            html += '<th style="padding: 10px;">Discrepancy</th>';
+                            html += '<th style="padding: 10px;">Category Slug</th>';
+                            html += '<th style="padding: 10px;">Direct Products</th>';
+                            html += '<th style="padding: 10px;">Total Products (with children)</th>';
                             html += '<th style="padding: 10px;">Parent</th>';
                             html += '</tr></thead><tbody>';
                             
-                            var categoriesWithDiscrepancy = 0;
-                            
                             $.each(response.data.categories, function(index, category) {
-                                var rowClass = '';
-                                var discrepancyText = '';
-                                var discrepancyColor = '';
-                                
-                                if (category.has_discrepancy) {
-                                    categoriesWithDiscrepancy++;
-                                    rowClass = 'style="background-color: #fff3cd;"';
-                                    var discrepancy = category.discrepancy || 0;
-                                    if (discrepancy > 0) {
-                                        discrepancyText = '<strong style="color: #dc3545;">+' + discrepancy + '</strong> (API has more)';
-                                        discrepancyColor = '#dc3545';
-                                    } else {
-                                        discrepancyText = '<strong style="color: #ff9800;">' + discrepancy + '</strong> (DB has more)';
-                                        discrepancyColor = '#ff9800';
-                                    }
-                                } else {
-                                    discrepancyText = '<span style="color: #28a745;">✓ Match</span>';
-                                }
-                                
-                                html += '<tr ' + rowClass + '>';
-                                html += '<td style="padding: 10px;"><strong>' + category.name + '</strong>';
-                                if (category.path) {
-                                    html += '<br><small style="color: #666;">Path: ' + category.path + '</small>';
-                                }
-                                html += '</td>';
-                                html += '<td style="padding: 10px; text-align: center;">';
-                                if (category.api_count > 0) {
-                                    html += '<strong style="color: #0073aa;">' + category.api_count + '</strong>';
-                                } else {
-                                    html += '<span style="color: #999;">-</span>';
-                                }
-                                html += '</td>';
-                                html += '<td style="padding: 10px; text-align: center;">' + category.direct_count + '</td>';
+                                html += '<tr>';
+                                html += '<td style="padding: 10px;">' + category.name + '</td>';
+                                html += '<td style="padding: 10px;"><code>' + category.slug + '</code></td>';
+                                html += '<td style="padding: 10px; text-align: center;"><strong>' + category.direct_count + '</strong></td>';
                                 html += '<td style="padding: 10px; text-align: center;"><strong style="color: #0073aa;">' + category.total_count + '</strong></td>';
-                                html += '<td style="padding: 10px; text-align: center;">' + discrepancyText + '</td>';
                                 html += '<td style="padding: 10px;">' + (category.parent || '-') + '</td>';
                                 html += '</tr>';
                             });
                             
                             html += '</tbody></table>';
-                            
-                            if (categoriesWithDiscrepancy > 0) {
-                                html += '<div class="notice notice-warning" style="margin-top: 20px;">';
-                                html += '<p><strong>⚠️ Found ' + categoriesWithDiscrepancy + ' categor' + (categoriesWithDiscrepancy === 1 ? 'y' : 'ies') + ' with discrepancies.</strong> ';
-                                html += 'This indicates that some products from the API are not correctly assigned to categories in WooCommerce. ';
-                                html += 'Run a full product sync to fix these discrepancies.</p>';
-                                html += '</div>';
-                            } else {
-                                html += '<div class="notice notice-success" style="margin-top: 20px;">';
-                                html += '<p><strong>✓ All category counts match!</strong> All products are correctly assigned to their categories.</p>';
-                                html += '</div>';
-                            }
                             html += '</div>';
                             
                             resultsDiv.html(html);
@@ -1569,37 +1487,8 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             
             error_log('ByteMash Product Count Test: WooCommerce Regular = ' . $wc_regular_count . ', Decoupled = ' . $wc_decoupled_count);
             
-            // Count products per category from API data
-            error_log('ByteMash Product Count Test: Counting products per category from API...');
-            $api_category_counts = array();
-            if (is_array($api_products)) {
-                foreach ($api_products as $product) {
-                    if (!empty($product['categories']) && is_array($product['categories'])) {
-                        foreach ($product['categories'] as $cat) {
-                            $cat_name = $cat['name'] ?? '';
-                            $cat_path = $cat['path'] ?? ($cat['categoryPath'] ?? '');
-                            
-                            if (!empty($cat_name)) {
-                                // Use path as key if available, otherwise use name
-                                $key = !empty($cat_path) ? $cat_path : $cat_name;
-                                
-                                if (!isset($api_category_counts[$key])) {
-                                    $api_category_counts[$key] = array(
-                                        'name' => $cat_name,
-                                        'path' => $cat_path,
-                                        'count' => 0
-                                    );
-                                }
-                                $api_category_counts[$key]['count']++;
-                            }
-                        }
-                    }
-                }
-            }
-            error_log('ByteMash Product Count Test: Found ' . count($api_category_counts) . ' categories in API data');
-            
             // Get category counts
-            error_log('ByteMash Product Count Test: Fetching categories from database...');
+            error_log('ByteMash Product Count Test: Fetching categories...');
             $categories = get_terms(array(
                 'taxonomy' => 'product_cat',
                 'hide_empty' => false,
@@ -1613,7 +1502,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                 return;
             }
             
-            error_log('ByteMash Product Count Test: Found ' . count($categories) . ' categories in database');
+            error_log('ByteMash Product Count Test: Found ' . count($categories) . ' categories');
             
             $category_data = array();
             $category_count = 0;
@@ -1622,9 +1511,6 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                 $category_count++;
                 
                 try {
-                    // Get the category path from metadata
-                    $category_path = get_term_meta($category->term_id, '_amrod_category_path', true);
-                    
                     // Get direct product count (products directly in this category, not children)
                     $direct_args = array(
                         'post_type' => 'product',
@@ -1661,36 +1547,6 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                     $total_products = get_posts($total_args);
                     $total_count = count($total_products);
                     
-                    // Find matching API category count
-                    $api_count = 0;
-                    $api_path = '';
-                    
-                    // Try to match by path first (most accurate)
-                    if (!empty($category_path)) {
-                        foreach ($api_category_counts as $key => $api_cat) {
-                            if ($api_cat['path'] === $category_path || $key === $category_path) {
-                                $api_count = $api_cat['count'];
-                                $api_path = $api_cat['path'];
-                                break;
-                            }
-                        }
-                    }
-                    
-                    // If no match by path, try by name (less accurate but better than nothing)
-                    if ($api_count === 0) {
-                        foreach ($api_category_counts as $key => $api_cat) {
-                            if ($api_cat['name'] === $category->name) {
-                                $api_count = $api_cat['count'];
-                                $api_path = $api_cat['path'];
-                                break;
-                            }
-                        }
-                    }
-                    
-                    // Calculate discrepancy
-                    $discrepancy = $api_count - $total_count;
-                    $has_discrepancy = $discrepancy !== 0;
-                    
                     // Get parent category name
                     $parent_name = '';
                     if ($category->parent > 0) {
@@ -1703,21 +1559,12 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                     $category_data[] = array(
                         'name' => $category->name,
                         'slug' => $category->slug,
-                        'path' => $category_path,
-                        'api_count' => $api_count,
-                        'api_path' => $api_path,
                         'direct_count' => $direct_count,
                         'total_count' => $total_count,
-                        'discrepancy' => $discrepancy,
-                        'has_discrepancy' => $has_discrepancy,
                         'parent' => $parent_name
                     );
                     
-                    if ($has_discrepancy) {
-                        error_log('ByteMash Product Count Test: Category "' . $category->name . '" - API: ' . $api_count . ', DB Total: ' . $total_count . ', Discrepancy: ' . $discrepancy);
-                    } else {
-                        error_log('ByteMash Product Count Test: Category "' . $category->name . '" - API: ' . $api_count . ', DB Total: ' . $total_count . ' (Match)');
-                    }
+                    error_log('ByteMash Product Count Test: Category "' . $category->name . '" - Direct: ' . $direct_count . ', Total: ' . $total_count);
                     
                 } catch (Exception $e) {
                     error_log('ByteMash Product Count Test ERROR: Failed to process category "' . $category->name . '" - ' . $e->getMessage());
@@ -3262,10 +3109,6 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         $product_sync = new ByteMash_Product_Sync();
         $processed = 0;
         $errors = 0;
-        $skipped = 0;
-        $last_changed_fields = array();
-        $last_processing_reason = '';
-        $last_skip_reason = '';
         
         $sync_type = $sync_info['type'] ?? 'products';
         
@@ -3294,20 +3137,11 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                     $result = $product_sync->sync_single_product($item_data);
                 }
                 
-                if (!empty($result['skipped'])) {
-                    $skipped++;
-                    $last_skip_reason = $result['skip_reason'] ?? 'unknown';
-                } elseif (!empty($result['success'])) {
+                if ($result['success']) {
                     $processed++;
-                    if (!empty($result['changed_fields']) && is_array($result['changed_fields'])) {
-                        $last_changed_fields = $result['changed_fields'];
-                    }
-                    if (!empty($result['processing_reason'])) {
-                        $last_processing_reason = $result['processing_reason'];
-                    }
                 } else {
                     $errors++;
-                }
+            }
         }
         
         // Mark batch as complete
@@ -3320,11 +3154,6 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         $sync_info['current_batch'] = $batch_index + 1;
         $sync_info['processed'] += $processed;
         $sync_info['errors'] += $errors;
-        if (isset($sync_info['skipped'])) {
-            $sync_info['skipped'] += $skipped;
-        } else {
-            $sync_info['skipped'] = $skipped;
-        }
         $sync_info['status'] = 'processing';
         
         update_option("bytemash_sync_{$sync_id}", $sync_info, false);
@@ -3336,16 +3165,13 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             'batch' => $batch_index,
             'processed' => $processed,
             'errors' => $errors,
-            'skipped' => $skipped,
+            'skipped' => 0, // Not tracking skipped in current version
             'total_processed' => $sync_info['processed'],
             'total_errors' => $sync_info['errors'],
-            'total_skipped' => $sync_info['skipped'],
+            'total_skipped' => 0, // Not tracking skipped in current version
             'total_products' => $sync_info['total'],
             'woo_product_count' => $product_counts->publish,
-            'done' => false,
-            'last_changed_fields' => $last_changed_fields,
-            'last_processing_reason' => $last_processing_reason,
-            'last_skip_reason' => $last_skip_reason,
+            'done' => false
         ));
     }
     
@@ -3508,7 +3334,6 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                     'enabled' => true,
                     'message' => $result['message'],
                     'next_full_sync' => $result['next_full_sync'] ?? null,
-                    'next_incremental_sync' => $result['next_incremental_sync'] ?? null,
                 ));
             } else {
                 wp_send_json_error(array('message' => $result['message'] ?? __('Failed to enable production full sync', 'bytemash-woo-sync')));

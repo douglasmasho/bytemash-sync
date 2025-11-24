@@ -32,365 +32,6 @@ class ByteMash_Product_Sync {
     private $batch_size;
     
     /**
-     * SKU to product ID cache for batch processing
-     */
-    private $sku_cache = array();
-    
-    /**
-     * Category cache for batch processing
-     */
-    private $category_cache = array();
-    
-    /**
-     * Flag to indicate batch processing mode
-     */
-    private $batch_mode = false;
-
-    /**
-     * Fields used when generating product payload signatures
-     * to detect unchanged products between syncs
-     */
-    private $signature_fields = array(
-        'productName',
-        'shortDescription',
-        'description',
-        'categories',
-        'brand',
-        'brandings',
-        'images',
-        'colourImages',
-        'material',
-        'gender',
-        'fit',
-        'feature',
-        'minimum',
-        'maximum',
-        'incrementedBy',
-        'companionCodes',
-        'relatedCodes',
-        'behaviour',
-        'inventoryType',
-        'variants',
-        'fullBrandingGuide',
-        'logo24BrandingGuide',
-        'decoupled',
-        'simpleCode',
-        'fullCode',
-    );
-
-    /**
-     * Variant fields considered when generating product payload signatures.
-     * Excludes volatile inventory/pricing data that is handled by other sync jobs.
-     */
-    private $variant_signature_fields = array(
-        'fullCode',
-        'codeColour',
-        'codeColourName',
-        'codeColourFamily',
-        'codeSize',
-        'codeSizeName',
-        'codeSizeAbbreviation',
-        'categorisedAttribute',
-        'productDimension',
-        'packagingAndDimension',
-    );
-
-    /**
-     * Fields that primarily affect product meta storage.
-     */
-    private $meta_payload_fields = array(
-        'brand',
-        'brandings',
-        'colourImages',
-        'material',
-        'gender',
-        'fit',
-        'feature',
-        'minimum',
-        'maximum',
-        'incrementedBy',
-        'companionCodes',
-        'relatedCodes',
-        'behaviour',
-        'inventoryType',
-        'fullBrandingGuide',
-        'logo24BrandingGuide',
-        'decoupled',
-        'simpleCode',
-        'fullCode',
-    );
-
-    /**
-     * Normalize an image URL for signature comparisons (strip query/fragment, lowercase host).
-     *
-     * @param string $url
-     * @return string
-     */
-    private function normalize_image_url_for_signature($url) {
-        if (empty($url) || !is_string($url)) {
-            return '';
-        }
-
-        $parsed = wp_parse_url($url);
-        if (!$parsed) {
-            $parts = explode('?', $url, 2);
-            return trim($parts[0]);
-        }
-
-        $normalized = '';
-
-        if (!empty($parsed['scheme'])) {
-            $normalized .= strtolower($parsed['scheme']) . '://';
-        }
-
-        if (!empty($parsed['host'])) {
-            $normalized .= strtolower($parsed['host']);
-        }
-
-        if (!empty($parsed['path'])) {
-            $normalized .= $parsed['path'];
-        }
-
-        return $normalized ?: (isset($parsed['path']) ? $parsed['path'] : '');
-    }
-
-    /**
-     * Log entry helper for the real-time dashboard stream.
-     *
-     * @param string $status
-     * @param string $message
-     * @param array $data
-     */
-    private function log_realtime_activity($status, $message, $data = array()) {
-        $payload = array_merge(array(
-            'timestamp' => current_time('mysql'),
-        ), $data);
-
-        $this->logger->log($status, $message, $payload, 'realtime_activity');
-    }
-
-    /**
-     * Determine why a product is being processed (vs skipped).
-     */
-    private function determine_processing_reason($product_id, $force, $existing_signature, $payload_signature, $had_existing_signature = false, $origin_product_id = null) {
-        if (!$product_id) {
-            // If this product previously existed (signature stored or we started with an ID),
-            // treat it as an update even if the ID was temporarily cleared during conversion.
-            if ($had_existing_signature || !empty($origin_product_id)) {
-                return 'signature_changed';
-            }
-            return 'new_product';
-        }
-
-        if ($force) {
-            return 'force_requested';
-        }
-
-        if (empty($existing_signature) || empty($payload_signature)) {
-            return 'missing_signature';
-        }
-
-        return 'signature_changed';
-    }
-
-    /**
-     * Convert machine-friendly reason keys to human readable text.
-     */
-    private function format_activity_reason_label($reason_key) {
-        $map = array(
-            'new_product' => __('new product', 'bytemash-woo-sync'),
-            'force_requested' => __('force update requested', 'bytemash-woo-sync'),
-            'missing_signature' => __('signature not stored yet', 'bytemash-woo-sync'),
-            'signature_changed' => __('payload changed', 'bytemash-woo-sync'),
-            'payload_unchanged' => __('payload unchanged', 'bytemash-woo-sync'),
-        );
-
-        $reason_key = strtolower($reason_key);
-        if (isset($map[$reason_key])) {
-            return $map[$reason_key];
-        }
-
-        return strtolower(str_replace('_', ' ', $reason_key));
-    }
-
-    /**
-     * Retrieve the previously stored payload snapshot for a product.
-     *
-     * @param int $product_id
-     * @return array
-     */
-    private function get_payload_snapshot($product_id) {
-        if (!$product_id) {
-            return array();
-        }
-
-        $snapshot = get_post_meta($product_id, '_amrod_payload_snapshot', true);
-        return is_array($snapshot) ? $snapshot : array();
-    }
-
-    /**
-     * Persist the current payload snapshot for later diffing.
-     *
-     * @param int $product_id
-     * @param array $payload_snapshot
-     */
-    private function save_payload_snapshot($product_id, $payload_snapshot) {
-        if (!$product_id || empty($payload_snapshot) || !is_array($payload_snapshot)) {
-            return;
-        }
-
-        update_post_meta($product_id, '_amrod_payload_snapshot', $payload_snapshot, false);
-    }
-
-    /**
-     * Build a list of changed fields between two payload snapshots.
-     *
-     * @param array $previous
-     * @param array $current
-     * @return array
-     */
-    private function diff_payload_snapshots($previous, $current) {
-        $changes = array();
-        $fields = array_unique(array_merge(array_keys((array) $previous), array_keys((array) $current)));
-
-        foreach ($fields as $field) {
-            $old_value = $previous[$field] ?? null;
-            $new_value = $current[$field] ?? null;
-
-            if ($this->payload_values_equal($old_value, $new_value)) {
-                continue;
-            }
-
-            $changes[] = array(
-                'field' => $field,
-                'previous' => $this->stringify_payload_value($old_value),
-                'current' => $this->stringify_payload_value($new_value),
-            );
-        }
-
-        return $changes;
-    }
-
-    /**
-     * Check if two payload values are equivalent.
-     *
-     * @param mixed $a
-     * @param mixed $b
-     * @return bool
-     */
-    private function payload_values_equal($a, $b) {
-        return wp_json_encode($a) === wp_json_encode($b);
-    }
-
-    /**
-     * Convert payload values to a short string for logging.
-     *
-     * @param mixed $value
-     * @param int $max_length
-     * @return string
-     */
-    private function stringify_payload_value($value, $max_length = 140) {
-        if (is_bool($value)) {
-            $string = $value ? 'true' : 'false';
-        } elseif (is_null($value) || $value === '') {
-            $string = __('(empty)', 'bytemash-woo-sync');
-        } elseif (is_array($value) || is_object($value)) {
-            $string = wp_json_encode($value, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES);
-        } else {
-            $string = (string) $value;
-        }
-
-        $string = trim(wp_strip_all_tags($string));
-        if ($string === '') {
-            $string = __('(empty)', 'bytemash-woo-sync');
-        }
-
-        if (strlen($string) > $max_length) {
-            $string = substr($string, 0, $max_length - 3) . '...';
-        }
-
-        return $string;
-    }
-
-    /**
-     * Format a succinct summary string for changed payload fields.
-     *
-     * @param array $changes
-     * @param int $limit
-     * @return string
-     */
-    private function format_payload_change_summary($changes, $limit = 3) {
-        if (empty($changes)) {
-            return '';
-        }
-
-        $snippets = array();
-        $display_changes = array_slice($changes, 0, $limit);
-        foreach ($display_changes as $change) {
-            $snippets[] = sprintf(
-                '%s: "%s" -> "%s"',
-                $change['field'],
-                $change['previous'],
-                $change['current']
-            );
-        }
-
-        if (count($changes) > $limit) {
-            $snippets[] = sprintf(
-                __('+%d more', 'bytemash-woo-sync'),
-                count($changes) - $limit
-            );
-        }
-
-        return implode('; ', $snippets);
-    }
-
-    /**
-     * Check if specific payload fields changed.
-     *
-     * @param array $changes
-     * @param array $fields
-     * @return bool
-     */
-    private function payload_fields_changed($changes, $fields = array()) {
-        if (empty($changes)) {
-            return false;
-        }
-
-        if (empty($fields)) {
-            return true;
-        }
-
-        foreach ($changes as $change) {
-            if (in_array($change['field'], $fields, true)) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /**
-     * Decide if a sync section should run based on diff data.
-     *
-     * @param bool $run_all
-     * @param array $changes
-     * @param array $fields
-     * @return bool
-     */
-    private function should_run_section($run_all, $changes, $fields = array()) {
-        if ($run_all) {
-            return true;
-        }
-
-        if (empty($fields)) {
-            return !empty($changes);
-        }
-
-        return $this->payload_fields_changed($changes, $fields);
-    }
-    
-    /**
      * Constructor
      */
     public function __construct() {
@@ -400,414 +41,6 @@ class ByteMash_Product_Sync {
         $this->batch_size = (int) get_option('bytemash_amrod_batch_size', 50);
     }
     
-    /**
-     * Enable batch processing mode and preload SKU cache for a batch of products
-     * This significantly reduces database queries by doing one batch lookup instead of N individual queries
-     * 
-     * @param array $products Array of product data from API
-     */
-    public function start_batch_mode($products) {
-        $this->batch_mode = true;
-        $this->sku_cache = array();
-        $this->category_cache = array();
-        
-        // Extract all SKUs from the batch
-        $skus = array();
-        foreach ($products as $product_data) {
-            $sku = $product_data['simpleCode'] ?? $product_data['fullCode'] ?? null;
-            if ($sku) {
-                $skus[] = sanitize_text_field($sku);
-            }
-        }
-        
-        if (empty($skus)) {
-            return;
-        }
-        
-        
-        // Batch lookup all SKUs in one query
-        global $wpdb;
-        
-        // OPTIMIZATION: Use direct escaped query instead of wpdb->prepare with call_user_func_array
-        // The prepare approach is EXTREMELY slow for large arrays (processes each placeholder individually)
-        // This direct approach is 10-100x faster for batch queries
-        $escaped_skus = array_map(function($sku) use ($wpdb) {
-            return "'" . esc_sql($sku) . "'";
-        }, $skus);
-        
-        $skus_list = implode(',', $escaped_skus);
-        
-        $query = "SELECT pm.post_id, pm.meta_value as sku, p.post_type
-                  FROM {$wpdb->postmeta} pm
-                  INNER JOIN {$wpdb->posts} p ON pm.post_id = p.ID
-                  WHERE pm.meta_key = '_sku' AND pm.meta_value IN ($skus_list)";
-        
-        $results = $wpdb->get_results($query);
-        
-        // Build SKU cache
-        foreach ($results as $row) {
-            $this->sku_cache[$row->sku] = array(
-                'product_id' => (int) $row->post_id,
-                'post_type' => $row->post_type,
-            );
-        }
-    }
-    
-    /**
-     * Disable batch processing mode and clear caches
-     */
-    public function end_batch_mode() {
-        $this->batch_mode = false;
-        $this->sku_cache = array();
-        $this->category_cache = array();
-    }
-    
-    /**
-     * Get product ID by SKU using cache in batch mode
-     * Falls back to standard lookup if not in batch mode
-     * 
-     * @param string $sku Product SKU
-     * @return int|null Product ID or null if not found
-     */
-    private function get_product_id_by_sku_cached($sku) {
-        if ($this->batch_mode && isset($this->sku_cache[$sku])) {
-            return $this->sku_cache[$sku]['product_id'];
-        }
-        
-        // Fallback to standard lookup
-        return wc_get_product_id_by_sku($sku);
-    }
-    
-    /**
-     * Get product type by SKU using cache in batch mode
-     * 
-     * @param string $sku Product SKU
-     * @return string|null Post type or null if not found
-     */
-    private function get_product_type_by_sku_cached($sku) {
-        if ($this->batch_mode && isset($this->sku_cache[$sku])) {
-            return $this->sku_cache[$sku]['post_type'];
-        }
-        
-        return null;
-    }
-
-    /**
-     * Build deterministic signature hash for a product payload.
-     * Used to skip unchanged products between sync runs.
-     *
-     * @param array $product_data
-     * @return string
-     */
-    private function generate_product_signature_hash($product_data) {
-        if (empty($product_data) || !is_array($product_data)) {
-            return '';
-        }
-
-        $payload = $this->build_signature_payload($product_data);
-
-        if (empty($payload)) {
-            return '';
-        }
-
-        return md5(wp_json_encode($payload));
-    }
-
-    /**
-     * Normalize mixed values so hashes remain stable regardless of ordering.
-     *
-     * @param mixed $value
-     * @return mixed
-     */
-    private function normalize_signature_value($value) {
-        if (is_array($value)) {
-            foreach ($value as $key => $item) {
-                $value[$key] = $this->normalize_signature_value($item);
-            }
-
-            if ($this->is_associative_array($value)) {
-                ksort($value);
-            } else {
-                usort($value, function($a, $b) {
-                    return strcmp(
-                        wp_json_encode($a, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES),
-                        wp_json_encode($b, JSON_UNESCAPED_UNICODE | JSON_UNESCAPED_SLASHES)
-                    );
-                });
-            }
-
-            return $value;
-        }
-
-        if (is_string($value)) {
-            $value = trim(preg_replace('/\s+/u', ' ', $value));
-        }
-
-        if (is_bool($value)) {
-            return $value ? 1 : 0;
-        }
-
-        if (is_null($value)) {
-            return '';
-        }
-
-        return $value;
-    }
-
-    /**
-     * Helper to determine if an array is associative.
-     *
-     * @param array $array
-     * @return bool
-     */
-    private function is_associative_array($array) {
-        if (!is_array($array) || empty($array)) {
-            return false;
-        }
-
-        return array_keys($array) !== range(0, count($array) - 1);
-    }
-
-    /**
-     * Build the sanitized payload used for product signature hashing.
-     *
-     * @param array $product_data
-     * @return array
-     */
-    private function build_signature_payload($product_data) {
-        $payload = array();
-
-        foreach ($this->signature_fields as $field) {
-            if (!array_key_exists($field, $product_data)) {
-                continue;
-            }
-
-            switch ($field) {
-                case 'categories':
-                    $payload[$field] = $this->sanitize_categories_for_signature($product_data[$field]);
-                    break;
-                case 'brand':
-                    $payload[$field] = $this->sanitize_brand_for_signature($product_data[$field]);
-                    break;
-                case 'brandings':
-                    $payload[$field] = $this->sanitize_brandings_for_signature($product_data[$field]);
-                    break;
-                case 'images':
-                    $payload[$field] = $this->sanitize_image_payload($product_data[$field]);
-                    break;
-                case 'colourImages':
-                    $payload[$field] = $this->sanitize_colour_image_payload($product_data[$field]);
-                    break;
-                case 'variants':
-                    $payload[$field] = $this->sanitize_variants_for_signature($product_data[$field]);
-                    break;
-                default:
-                    $payload[$field] = $this->normalize_signature_value($product_data[$field]);
-                    break;
-            }
-        }
-
-        // Remove empty entries to keep payload lean
-        $payload = array_filter($payload, function($value) {
-            return $value !== null && $value !== '' && $value !== array();
-        });
-
-        return $payload;
-    }
-
-    private function sanitize_categories_for_signature($categories) {
-        $sanitized = array();
-
-        foreach ((array) $categories as $category) {
-            if (empty($category['name']) && empty($category['path']) && empty($category['categoryPath'])) {
-                continue;
-            }
-
-            $sanitized[] = array(
-                'name' => $category['name'] ?? '',
-                'code' => $category['code'] ?? '',
-                'path' => $category['path'] ?? ($category['categoryPath'] ?? ''),
-            );
-        }
-
-        if (empty($sanitized)) {
-            return array();
-        }
-
-        usort($sanitized, function($a, $b) {
-            $aKey = strtolower(($a['path'] ?? '') . '|' . ($a['code'] ?? '') . '|' . ($a['name'] ?? ''));
-            $bKey = strtolower(($b['path'] ?? '') . '|' . ($b['code'] ?? '') . '|' . ($b['name'] ?? ''));
-            return strcmp($aKey, $bKey);
-        });
-
-        return $this->normalize_signature_value($sanitized);
-    }
-
-    private function sanitize_brand_for_signature($brand) {
-        if (is_array($brand)) {
-            $normalized = array(
-                'name' => $brand['brandName'] ?? $brand['name'] ?? $brand['Brand'] ?? '',
-                'code' => $brand['code'] ?? '',
-            );
-            return $this->normalize_signature_value($normalized);
-        }
-
-        return $this->normalize_signature_value((string) $brand);
-    }
-
-    private function sanitize_brandings_for_signature($brandings) {
-        $sanitized = array();
-
-        foreach ((array) $brandings as $branding) {
-            if (empty($branding['positionCode']) && empty($branding['positionName'])) {
-                continue;
-            }
-
-            $methods = array();
-            if (!empty($branding['method']) && is_array($branding['method'])) {
-                foreach ($branding['method'] as $method) {
-                    $methods[] = array(
-                        'code' => $method['code'] ?? '',
-                        'name' => $method['name'] ?? '',
-                    );
-                }
-            }
-
-            $sanitized[] = array(
-                'positionCode' => $branding['positionCode'] ?? '',
-                'positionName' => $branding['positionName'] ?? '',
-                'method' => $methods,
-            );
-        }
-
-        if (!empty($sanitized)) {
-            usort($sanitized, function($a, $b) {
-                $aKey = strtolower(($a['positionCode'] ?? '') . '|' . ($a['positionName'] ?? ''));
-                $bKey = strtolower(($b['positionCode'] ?? '') . '|' . ($b['positionName'] ?? ''));
-                return strcmp($aKey, $bKey);
-            });
-        }
-
-        return $this->normalize_signature_value($sanitized);
-    }
-
-    private function sanitize_image_payload($images) {
-        $sanitized = array();
-
-        foreach ((array) $images as $image) {
-            $url = $this->get_highest_resolution_url($image['urls'] ?? array());
-            $normalized_url = $this->normalize_image_url_for_signature($url);
-            if (!$normalized_url) {
-                continue;
-            }
-            $sanitized[] = array(
-                'url' => $normalized_url,
-                'isDefault' => !empty($image['isDefault']),
-                'hasLogo' => !empty($image['hasLogo']),
-            );
-        }
-
-        if (!empty($sanitized)) {
-            usort($sanitized, function($a, $b) {
-                return strcmp($a['url'], $b['url']);
-            });
-        }
-
-        return $this->normalize_signature_value($sanitized);
-    }
-
-    private function sanitize_colour_image_payload($colour_images) {
-        $sanitized = array();
-
-        foreach ((array) $colour_images as $colour) {
-            $image_urls = array();
-            if (!empty($colour['images']) && is_array($colour['images'])) {
-                foreach ($colour['images'] as $image_entry) {
-                    $url = $image_entry['url'] ?? $this->get_highest_resolution_url($image_entry['urls'] ?? array());
-                    $normalized_url = $this->normalize_image_url_for_signature($url);
-                    if ($normalized_url) {
-                        $image_urls[] = $normalized_url;
-                    }
-                }
-            }
-
-            $sanitized[] = array(
-                'code' => $colour['code'] ?? '',
-                'name' => $colour['name'] ?? '',
-                'images' => $image_urls,
-            );
-        }
-
-        if (!empty($sanitized)) {
-            foreach ($sanitized as &$entry) {
-                if (!empty($entry['images'])) {
-                    sort($entry['images']);
-                }
-            }
-            unset($entry);
-
-            usort($sanitized, function($a, $b) {
-                $aKey = strtolower(($a['code'] ?? '') . '|' . ($a['name'] ?? ''));
-                $bKey = strtolower(($b['code'] ?? '') . '|' . ($b['name'] ?? ''));
-                return strcmp($aKey, $bKey);
-            });
-        }
-
-        return $this->normalize_signature_value($sanitized);
-    }
-
-    private function sanitize_variants_for_signature($variants) {
-        $sanitized = array();
-
-        foreach ((array) $variants as $variant) {
-            $variant_entry = array();
-            foreach ($this->variant_signature_fields as $field) {
-                if (!array_key_exists($field, $variant)) {
-                    continue;
-                }
-                $variant_entry[$field] = $this->normalize_signature_value($variant[$field]);
-            }
-            if (!empty($variant_entry)) {
-                $sanitized[] = $variant_entry;
-            }
-        }
-
-        if (!empty($sanitized)) {
-            usort($sanitized, function($a, $b) {
-                $aKey = strtolower(($a['fullCode'] ?? '') . '|' . ($a['codeColour'] ?? '') . '|' . ($a['codeSize'] ?? ''));
-                $bKey = strtolower(($b['fullCode'] ?? '') . '|' . ($b['codeColour'] ?? '') . '|' . ($b['codeSize'] ?? ''));
-                return strcmp($aKey, $bKey);
-            });
-        }
-
-        return $this->normalize_signature_value($sanitized);
-    }
-
-    /**
-     * Generate a signature hash for a single variant payload.
-     *
-     * @param array $variant_data
-     * @return string
-     */
-    private function generate_variant_signature($variant_data) {
-        if (empty($variant_data) || !is_array($variant_data)) {
-            return '';
-        }
-
-        $payload = array();
-        foreach ($this->variant_signature_fields as $field) {
-            if (array_key_exists($field, $variant_data)) {
-                $payload[$field] = $this->normalize_signature_value($variant_data[$field]);
-            }
-        }
-
-        if (empty($payload)) {
-            return '';
-        }
-
-        return md5(wp_json_encode($payload));
-    }
-
     /**
      * Sync all products (uses batch processor for memory efficiency)
      * 
@@ -962,11 +195,9 @@ class ByteMash_Product_Sync {
     /**
      * Sync variable product with size/color variations
      */
-    private function sync_variable_product($product_data, $parent_sku, $force = false, $payload_signature = '', $payload_snapshot = array()) {
+    private function sync_variable_product($product_data, $parent_sku, $force = false) {
         try {
-            $this->logger->log('info', 'Inspecting variable product for changes', array(
-                'sku' => $parent_sku,
-            ), 'product_sync');
+            $this->logger->log('info', 'Creating/updating variable product with variations', array(), 'product_sync');
             
             // Check if parent product exists
             $product_id = wc_get_product_id_by_sku($parent_sku);
@@ -995,117 +226,28 @@ class ByteMash_Product_Sync {
             ), 'product_sync');
             return array('success' => false, 'message' => 'Failed to initialize variable product: ' . $e->getMessage());
         }
-
-        $existing_signature = $product_id ? get_post_meta($product_id, '_amrod_payload_signature', true) : '';
-        $previous_snapshot = $this->get_payload_snapshot($product_id);
-        if (!$force && $product_id && !empty($payload_signature) && $existing_signature === $payload_signature) {
-            $this->log_realtime_activity('info', sprintf(
-                __('Skipped %1$s (%2$s)', 'bytemash-woo-sync'),
-                $parent_sku,
-                $this->format_activity_reason_label('payload_unchanged')
-            ), array(
-                'sku' => $parent_sku,
-                'product_id' => $product_id,
-                'action' => 'skipped',
-                'reason' => 'payload_unchanged',
-                'product_type' => 'variable',
-                'changes' => array(),
-            ));
-            $this->logger->log('info', 'Variable product unchanged - skipping', array(
-                'product_id' => $product_id,
-                'sku' => $parent_sku,
-                'existing_signature' => $existing_signature,
-            ), 'product_sync');
-            return array(
-                'success' => true,
-                'product_id' => $product_id,
-                'skipped' => true,
-                'skip_reason' => 'payload_unchanged',
-                'payload_signature' => $payload_signature,
-                'existing_signature' => $existing_signature,
-                'message' => 'Product data unchanged'
-            );
-        }
-
-        $had_existing_signature = !empty($existing_signature);
-        $origin_product_id = $product_id;
-        $processing_reason = $this->determine_processing_reason(
-            $product_id,
-            $force,
-            $existing_signature,
-            $payload_signature,
-            $had_existing_signature,
-            $origin_product_id
-        );
-        $payload_changes = array();
-        $changed_fields = array();
-        $change_summary = '';
-        if ($processing_reason === 'signature_changed' && !empty($previous_snapshot) && !empty($payload_snapshot)) {
-            $payload_changes = $this->diff_payload_snapshots($previous_snapshot, $payload_snapshot);
-            $change_summary = $this->format_payload_change_summary($payload_changes);
-            $changed_fields = array_values(array_unique(array_map(function($change) {
-                return $change['field'];
-            }, $payload_changes)));
-        }
-
-        $log_message = sprintf(
-            __('Processing variable product %1$s (%2$s)', 'bytemash-woo-sync'),
-            $parent_sku,
-            $this->format_activity_reason_label($processing_reason)
-        );
-        if (!empty($change_summary)) {
-            $log_message .= ' | ' . $change_summary;
-        }
-
-        $this->log_realtime_activity('info', $log_message, array(
-            'sku' => $parent_sku,
-            'product_id' => $product_id,
-            'action' => 'processing',
-            'reason' => $processing_reason,
-            'product_type' => 'variable',
-            'changes' => $payload_changes,
-        ));
-
-        $this->logger->log('info', 'Creating/updating variable product with variations', array(
-            'product_id' => $product_id,
-            'sku' => $parent_sku,
-            'origin_product_id' => $origin_product_id,
-            'payload_signature' => $payload_signature,
-            'existing_signature' => $existing_signature,
-        ), 'product_sync');
         
         // Set parent product data
         $product->set_sku($parent_sku);
         $product->set_name(sanitize_text_field($product_data['productName'] ?? ''));
         $product->set_description(wp_kses_post($product_data['description'] ?? ''));
         
-        $has_diff_data = !empty($payload_changes);
-        $run_all_sections = !$has_diff_data;
-        $should_update_categories = $this->should_run_section($run_all_sections, $payload_changes, array('categories'));
-        $should_update_images = $this->should_run_section($run_all_sections, $payload_changes, array('images', 'colourImages'));
-        $should_update_meta = $this->should_run_section($run_all_sections, $payload_changes, $this->meta_payload_fields);
-        $should_update_brand = $this->should_run_section($run_all_sections, $payload_changes, array('brand'));
-        $should_update_variations = $this->should_run_section($run_all_sections, $payload_changes, array('variants', 'colourImages', 'images'));
-        $force_variation_refresh = $this->should_run_section($run_all_sections, $payload_changes, array('colourImages', 'images'));
-
-        // Set categories only when changed
-        if ($should_update_categories && !empty($product_data['categories']) && is_array($product_data['categories'])) {
-                    $category_ids = $this->sync_product_categories($product_data['categories']);
-                    if (!empty($category_ids)) {
-                        $product->set_category_ids($category_ids);
-                    }
+        // Set categories
+        if (!empty($product_data['categories']) && is_array($product_data['categories'])) {
+            $category_ids = $this->sync_product_categories($product_data['categories']);
+            $product->set_category_ids($category_ids);
         }
         
-        // Set brand when changed
-        if ($should_update_brand && !empty($product_data['brand'])) {
+        // Set brand
+        if (!empty($product_data['brand'])) {
             $this->set_product_brand($product, $product_data['brand']);
         }
         
         // Save parent product using safe method
         $product_id = $this->save_product_safely($product);
         
-        // Sync parent images when payload changed
-        if ($should_update_images && !empty($product_data['images']) && is_array($product_data['images'])) {
+        // Sync parent images
+        if (!empty($product_data['images']) && is_array($product_data['images'])) {
             try {
                 $colour_images = isset($product_data['colourImages']) && is_array($product_data['colourImages'])
                     ? $product_data['colourImages']
@@ -1119,80 +261,58 @@ class ByteMash_Product_Sync {
             }
         }
         
-        // Store parent metadata if necessary
-        if ($should_update_meta) {
-            $this->sync_product_meta($product_id, $product_data);
-        }
-
-        if (!empty($payload_signature)) {
-            update_post_meta($product_id, '_amrod_payload_signature', $payload_signature, false);
-        }
-        if (!empty($payload_snapshot)) {
-            $this->save_payload_snapshot($product_id, $payload_snapshot);
-        }
+        // Store parent metadata
+        $this->sync_product_meta($product_id, $product_data);
         
-        if ($should_update_variations) {
-            // Create product attributes (Size and Color)
-            $attribute_data = $this->create_product_attributes($product_data['variants']);
-            $product->set_attributes($attribute_data['attributes']);
-            $product->save();
-            
-            // Store color code mapping for frontend color swatches
-            if (!empty($attribute_data['color_mapping'])) {
-                update_post_meta($product_id, '_amrod_color_mapping', $attribute_data['color_mapping']);
-            }
+        // Create product attributes (Size and Color)
+        $attribute_data = $this->create_product_attributes($product_data['variants']);
+        $product->set_attributes($attribute_data['attributes']);
+        $product->save();
+        
+        // Store color code mapping for frontend color swatches
+        if (!empty($attribute_data['color_mapping'])) {
+            update_post_meta($product_id, '_amrod_color_mapping', $attribute_data['color_mapping']);
         }
         
         // Create/update variations
         $variation_count = 0;
         $variation_errors = 0;
-        $variation_skipped = 0;
-        $api_has_variants = !empty($product_data['variants']) && is_array($product_data['variants']) && count($product_data['variants']) > 0;
         
         // Check if variants array is empty or missing
-        if (!$api_has_variants) {
+        if (empty($product_data['variants']) || !is_array($product_data['variants']) || count($product_data['variants']) === 0) {
             $this->logger->log('warning', 'No variants in product data - will convert to simple product', array(
                 'product_id' => $product_id,
                 'sku' => $parent_sku,
             ), 'product_sync');
-        } elseif ($should_update_variations) {
-            foreach ($product_data['variants'] as $variant_data) {
-                try {
-                    $result = $this->create_product_variation($product_id, $variant_data, $product_data, $force_variation_refresh);
-                    if ($result === 'skipped') {
-                        $variation_skipped++;
-                        continue;
-                    }
-                    if ($result) {
-                        $variation_count++;
-                    } else {
-                        $variation_errors++;
-                    }
-                } catch (Exception $e) {
+        } else {
+        foreach ($product_data['variants'] as $variant_data) {
+            try {
+                $result = $this->create_product_variation($product_id, $variant_data, $product_data);
+                if ($result) {
+                    $variation_count++;
+                } else {
                     $variation_errors++;
-                    $this->logger->log('error', 'Failed to create variation', array(
-                        'parent_id' => $product_id,
-                        'variant_sku' => $variant_data['fullCode'] ?? 'unknown',
-                        'error' => $e->getMessage(),
-                    ), 'product_sync');
+                }
+            } catch (Exception $e) {
+                $variation_errors++;
+                $this->logger->log('error', 'Failed to create variation', array(
+                    'parent_id' => $product_id,
+                    'variant_sku' => $variant_data['fullCode'] ?? 'unknown',
+                    'error' => $e->getMessage(),
+                ), 'product_sync');
                 }
             }
         }
         
-        $this->logger->log('success', "Variable product synced: {$variation_count} variations created, {$variation_errors} errors, {$variation_skipped} skipped", array(
+        $this->logger->log('success', "Variable product synced: {$variation_count} variations created, {$variation_errors} errors", array(
             'product_id' => $product_id,
             'sku' => $parent_sku,
             'variations_created' => $variation_count,
             'variation_errors' => $variation_errors,
-            'variations_skipped' => $variation_skipped,
         ), 'product_sync');
         
-        $should_convert_to_simple =
-            !$api_has_variants ||
-            ($should_update_variations && $variation_count === 0 && $variation_skipped === 0);
-
-        // If no variations remain, convert back to simple product
-        if ($should_convert_to_simple) {
+        // If no variations were created, convert back to simple product
+        if ($variation_count === 0) {
             $this->logger->log('warning', 'No variations created - converting variable product back to simple', array(
                 'product_id' => $product_id,
                 'sku' => $parent_sku,
@@ -1228,34 +348,11 @@ class ByteMash_Product_Sync {
             // IMPORTANT: Sync branding from API data after conversion
             // This ensures branding is always up-to-date from the API response
             $this->sync_product_meta($new_product_id, $product_data);
-
-        if (!empty($payload_signature)) {
-            update_post_meta($new_product_id, '_amrod_payload_signature', $payload_signature, false);
-        }
-        if (!empty($payload_snapshot)) {
-            $this->save_payload_snapshot($new_product_id, $payload_snapshot);
-        }
             
-            return array(
-                'success' => true,
-                'product_id' => $new_product_id,
-                'message' => "Product converted to simple (no variations created)",
-                'changed_fields' => $changed_fields,
-                'processing_reason' => $processing_reason,
-                'payload_signature' => $payload_signature,
-                'existing_signature' => $existing_signature,
-            );
+            return array('success' => true, 'product_id' => $new_product_id, 'message' => "Product converted to simple (no variations created)");
         }
         
-        return array(
-            'success' => true,
-            'product_id' => $product_id,
-            'message' => "Variable product created with {$variation_count} variations",
-            'changed_fields' => $changed_fields,
-            'processing_reason' => $processing_reason,
-            'payload_signature' => $payload_signature,
-            'existing_signature' => $existing_signature,
-        );
+        return array('success' => true, 'product_id' => $product_id, 'message' => "Variable product created with {$variation_count} variations");
     }
     
     /**
@@ -1316,7 +413,7 @@ class ByteMash_Product_Sync {
     /**
      * Create single product variation
      */
-    private function create_product_variation($parent_id, $variant_data, $parent_data, $force_refresh = false) {
+    private function create_product_variation($parent_id, $variant_data, $parent_data) {
         $variant_sku = $variant_data['fullCode'] ?? '';
         
         if (empty($variant_sku)) {
@@ -1334,7 +431,6 @@ class ByteMash_Product_Sync {
         
         // Check if variation exists
         $variation_id = wc_get_product_id_by_sku($variant_sku);
-        $variant_signature = $this->generate_variant_signature($variant_data);
         
         if ($variation_id) {
             $this->logger->log('info', 'Updating existing variation', array(), 'product_sync');
@@ -1343,22 +439,6 @@ class ByteMash_Product_Sync {
             $this->logger->log('info', 'Creating new variation', array(), 'product_sync');
             $variation = new WC_Product_Variation();
             $variation->set_parent_id($parent_id);
-        }
-
-        if ($variation_id && !$force_refresh && $variant_signature) {
-            $existing_variant_signature = get_post_meta($variation_id, '_amrod_variation_signature', true);
-            if (!empty($existing_variant_signature) && $existing_variant_signature === $variant_signature) {
-                $this->log_realtime_activity('info', sprintf(
-                    __('Skipped variant %1$s (payload unchanged)', 'bytemash-woo-sync'),
-                    $variant_sku
-                ), array(
-                    'sku' => $variant_sku,
-                    'action' => 'variation_skipped',
-                    'reason' => 'payload_unchanged',
-                    'parent_id' => $parent_id,
-                ));
-                return 'skipped';
-            }
         }
         
         // Set variation data
@@ -1506,12 +586,6 @@ class ByteMash_Product_Sync {
         if (!empty($variant_data['packagingAndDimension'])) {
             update_post_meta($variation_id, '_amrod_packaging', $variant_data['packagingAndDimension']);
         }
-
-        if (!empty($variant_signature)) {
-            update_post_meta($variation_id, '_amrod_variation_signature', $variant_signature, false);
-        } else {
-            delete_post_meta($variation_id, '_amrod_variation_signature');
-        }
         
         return $variation_id;
     }
@@ -1529,9 +603,6 @@ class ByteMash_Product_Sync {
         }
         
         $sku = sanitize_text_field($sku);
-
-        $payload_signature = $this->generate_product_signature_hash($product_data);
-        $payload_snapshot = $this->build_signature_payload($product_data);
         
         // Check if product is decoupled (sold separately from grouped base)
         $is_decoupled = isset($product_data['decoupled']) && $product_data['decoupled'] === true;
@@ -1544,86 +615,63 @@ class ByteMash_Product_Sync {
         }
         
         // Check if product has variants (sizes/colors)
-        // OPTIMIZATION: Cache option lookup (only checked once per product, but faster)
-        static $enable_variable_products_cache = null;
-        if ($enable_variable_products_cache === null) {
-            $enable_variable_products_cache = get_option('bytemash_enable_variable_products', true);
-        }
-        $has_variants = $enable_variable_products_cache && !empty($product_data['variants']) && is_array($product_data['variants']) && count($product_data['variants']) > 0;
+        // TEMPORARY: Can disable variable products via option for testing
+        $enable_variable_products = get_option('bytemash_enable_variable_products', true);
+        $has_variants = $enable_variable_products && !empty($product_data['variants']) && is_array($product_data['variants']) && count($product_data['variants']) > 0;
         
-        // OPTIMIZATION: Use cached SKU lookup in batch mode, otherwise use direct SQL query
-        if ($this->batch_mode && isset($this->sku_cache[$sku])) {
-            // Use cached data - much faster!
-            $product_id = $this->sku_cache[$sku]['product_id'];
-            $is_variable_type = $this->sku_cache[$sku]['post_type'] === 'product_variation';
-        } else {
-            // Fallback to direct SQL query (still faster than wc_get_product_id_by_sku)
-            global $wpdb;
-            $product_row = $wpdb->get_row($wpdb->prepare(
-                "SELECT pm.post_id, p.post_type 
-                 FROM {$wpdb->postmeta} pm
-                 INNER JOIN {$wpdb->posts} p ON pm.post_id = p.ID
-                 WHERE pm.meta_key = '_sku' AND pm.meta_value = %s 
-                 LIMIT 1",
-                $sku
-            ));
-            
-            $product_id = $product_row ? (int) $product_row->post_id : null;
-            $is_variable_type = $product_row && $product_row->post_type === 'product_variation';
-        }
-
-        $pending_variable_convert = false;
-        if ($product_id) {
-            if ($has_variants && $is_variable_type) {
-                // No action needed - correct type already
-            } elseif ($has_variants && !$is_variable_type) {
-                // Needs conversion to variable
-                $pending_variable_convert = true;
-            } elseif (!$has_variants && $is_variable_type === false) {
-                // Already simple, no action
-            } elseif (!$has_variants) {
-                // Product currently variable but API says simple - convert now
-                $existing_product = wc_get_product($product_id);
-                if ($existing_product) {
-                    $this->logger->log('info', 'Product was variable but now has no variants - converting to simple', array(
-                        'product_id' => $product_id,
-                        'sku' => $sku,
-                    ), 'product_sync');
-
-                    $product_name = $existing_product->get_name();
-                    $product_sku = $existing_product->get_sku();
-                    $product_description = $existing_product->get_description();
-                    $category_ids = $existing_product->get_category_ids();
-                    $meta_data = get_post_meta($product_id);
-
-                    wp_delete_post($product_id, true);
-
-                    $simple_product = new WC_Product_Simple();
-                    $simple_product->set_sku($product_sku);
-                    $simple_product->set_name($product_name);
-                    $simple_product->set_description($product_description);
-                    $simple_product->set_category_ids($category_ids);
-
-                    $new_product_id = $this->save_product_safely($simple_product);
-
-                    foreach ($meta_data as $key => $value) {
-                        if (!in_array($key, ['_sku', '_product_attributes', '_default_attributes', '_product_version', '_amrod_brandings'])) {
-                            update_post_meta($new_product_id, $key, $value[0] ?? $value);
-                        }
+        // Check if existing product is variable but should be simple (no variants in API)
+        $product_id = wc_get_product_id_by_sku($sku);
+        if ($product_id && !$has_variants) {
+            $existing_product = wc_get_product($product_id);
+            if ($existing_product && $existing_product->is_type('variable')) {
+                $this->logger->log('info', 'Product was variable but now has no variants - converting to simple', array(
+                    'product_id' => $product_id,
+                    'sku' => $sku,
+                ), 'product_sync');
+                
+                // Get product data before deleting
+                $product_name = $existing_product->get_name();
+                $product_sku = $existing_product->get_sku();
+                $product_description = $existing_product->get_description();
+                $category_ids = $existing_product->get_category_ids();
+                $meta_data = get_post_meta($product_id);
+                
+                // Delete variable product
+                wp_delete_post($product_id, true);
+                
+                // Create simple product
+                $simple_product = new WC_Product_Simple();
+                $simple_product->set_sku($product_sku);
+                $simple_product->set_name($product_name);
+                $simple_product->set_description($product_description);
+                $simple_product->set_category_ids($category_ids);
+                
+                $new_product_id = $this->save_product_safely($simple_product);
+                
+                // Restore meta data (but exclude branding - it will be synced from API below)
+                foreach ($meta_data as $key => $value) {
+                    if (!in_array($key, ['_sku', '_product_attributes', '_default_attributes', '_product_version', '_amrod_brandings'])) {
+                        update_post_meta($new_product_id, $key, $value[0] ?? $value);
                     }
-
-                    $product_id = $new_product_id;
                 }
+                
+                // Update product_id for the sync below
+                $product_id = $new_product_id;
+                
+                // IMPORTANT: After conversion, sync_product_meta will be called which will sync branding from API
+                // This ensures branding is always up-to-date from the API response
+                // We excluded _amrod_brandings from meta restore above to prevent overwriting fresh API data
             }
         }
         
-        // OPTIMIZATION: Removed debug logging for performance
+        $this->logger->log('info', 'Product variant check', array(), 'product_sync');
         
         if ($has_variants) {
             // Create/update as Variable Product with variations
+            $this->logger->log('info', 'Routing to variable product sync', array(), 'product_sync');
             
             try {
-                return $this->sync_variable_product($product_data, $sku, $force, $payload_signature, $payload_snapshot);
+                return $this->sync_variable_product($product_data, $sku, $force);
             } catch (Exception $e) {
                 $this->logger->log('error', 'Variable product sync failed - falling back to simple product', array(
                     'sku' => $sku,
@@ -1637,99 +685,96 @@ class ByteMash_Product_Sync {
             }
         }
         
+        $this->logger->log('info', 'Routing to simple product sync', array(), 'product_sync');
+        
         // Otherwise create/update as Simple Product
         // Note: product_id may have been set above if we converted variable to simple
-        // OPTIMIZATION: Reuse product_id from earlier query if available
-        if (!isset($product_id) || ($product_id && $is_variable_type)) {
-            // Need to find simple product by SKU
-            $product_id = $this->get_product_id_by_sku_cached($sku);
+        if (!isset($product_id)) {
+            $product_id = wc_get_product_id_by_sku($sku);
         }
         
-        $existing_signature = $product_id ? get_post_meta($product_id, '_amrod_payload_signature', true) : '';
-        $previous_snapshot = $this->get_payload_snapshot($product_id);
         if ($product_id && !$force) {
-            if (!empty($payload_signature) && !empty($existing_signature) && $existing_signature === $payload_signature) {
-                $this->log_realtime_activity('info', sprintf(
-                    __('Skipped %1$s (%2$s)', 'bytemash-woo-sync'),
-                    $sku,
-                    $this->format_activity_reason_label('payload_unchanged')
-                ), array(
-                    'sku' => $sku,
-                    'product_id' => $product_id,
-                    'action' => 'skipped',
-                    'reason' => 'payload_unchanged',
-                    'product_type' => 'simple',
-                    'changes' => array(),
-                ));
-                $this->logger->log('info', 'Simple product unchanged - skipping', array(
-                    'product_id' => $product_id,
-                    'sku' => $sku,
-                    'existing_signature' => $existing_signature,
-                ), 'product_sync');
-                return array(
-                    'success' => true,
-                    'product_id' => $product_id,
-                    'skipped' => true,
-                    'skip_reason' => 'payload_unchanged',
-                    'payload_signature' => $payload_signature,
-                    'existing_signature' => $existing_signature,
-                    'message' => 'Product data unchanged'
-                );
-            }
-
+            // Check if product data has changed before updating
             $existing_product = wc_get_product($product_id);
-            $product = $existing_product ?: new WC_Product_Simple();
+            $is_unchanged = $this->is_product_data_unchanged($existing_product, $product_data);
+            
+            // Check if brand needs to be updated even if product is otherwise unchanged
+            $needs_brand_update = false;
+            if (!empty($product_data['brand'])) {
+                $existing_brand = get_post_meta($product_id, '_amrod_brand', true);
+                $existing_brand_code = get_post_meta($product_id, '_amrod_brand_code', true);
+                $api_brand = '';
+                $api_brand_code = '';
+                if (is_array($product_data['brand'])) {
+                    $api_brand = $product_data['brand']['brandName'] ?? $product_data['brand']['name'] ?? $product_data['brand']['Brand'] ?? '';
+                    $api_brand_code = $product_data['brand']['code'] ?? '';
+                } else {
+                    $api_brand = (string) $product_data['brand'];
+                }
+                
+                // Need to update brand if: brand meta is missing, or brand name differs, or brand code differs
+                if (empty($existing_brand) || $existing_brand !== $api_brand || $existing_brand_code !== $api_brand_code) {
+                    $needs_brand_update = true;
+                    
+                    // Log that brand update is needed
+                    $this->logger->log('info', "Brand update needed for product: {$sku}", array(
+                        'product_id' => $product_id,
+                        'sku' => $sku,
+                        'existing_brand' => $existing_brand,
+                        'new_brand' => $api_brand,
+                        'existing_code' => $existing_brand_code,
+                        'new_code' => $api_brand_code,
+                    ), 'product_sync');
+                }
+            }
+            
+            // Check if branding options need to be updated even if product is otherwise unchanged
+            $needs_branding_update = false;
+            $existing_brandings = get_post_meta($product_id, '_amrod_brandings', true);
+            $api_brandings = $product_data['brandings'] ?? null;
+            
+            // Need to update branding if: branding meta is missing but API has branding, or branding differs
+            if (empty($existing_brandings) && !empty($api_brandings) && is_array($api_brandings)) {
+                $needs_branding_update = true;
+                $this->logger->log('info', "Branding options missing, update needed for product: {$sku}", array(
+                    'product_id' => $product_id,
+                    'sku' => $sku,
+                ), 'product_sync');
+            } elseif (!empty($existing_brandings) && (empty($api_brandings) || !is_array($api_brandings))) {
+                // API no longer has branding, need to clear it
+                $needs_branding_update = true;
+                $this->logger->log('info', "Branding options need to be cleared for product: {$sku}", array(
+                    'product_id' => $product_id,
+                    'sku' => $sku,
+                ), 'product_sync');
+            } elseif (!empty($existing_brandings) && !empty($api_brandings) && is_array($api_brandings)) {
+                // Compare branding options
+                $existing_normalized = wp_json_encode($existing_brandings);
+                $api_normalized = wp_json_encode($api_brandings);
+                if ($existing_normalized !== $api_normalized) {
+                    $needs_branding_update = true;
+                    $this->logger->log('info', "Branding options changed, update needed for product: {$sku}", array(
+                        'product_id' => $product_id,
+                        'sku' => $sku,
+                    ), 'product_sync');
+                }
+            }
+            
+            if ($is_unchanged && !$needs_brand_update && !$needs_branding_update) {
+                $this->logger->log('info', "Product data unchanged, skipping: {$sku}", array(
+                    'sku' => $sku,
+                    'product_id' => $product_id,
+                ), 'product_sync');
+                return array('success' => true, 'product_id' => $product_id, 'skipped' => true, 'message' => 'Product data unchanged');
+            }
+            
+            // Update existing product (data has changed or brand needs update)
+            $product = $existing_product;
         } else {
             // Create new simple product
             $product = new WC_Product_Simple();
         }
         
-        $had_existing_signature = !empty($existing_signature);
-        $origin_product_id = $product_id;
-        $processing_reason = $this->determine_processing_reason(
-            $product_id,
-            $force,
-            $existing_signature,
-            $payload_signature,
-            $had_existing_signature,
-            $origin_product_id
-        );
-        $payload_changes = array();
-        $changed_fields = array();
-        $change_summary = '';
-        if ($processing_reason === 'signature_changed' && !empty($previous_snapshot) && !empty($payload_snapshot)) {
-            $payload_changes = $this->diff_payload_snapshots($previous_snapshot, $payload_snapshot);
-            $change_summary = $this->format_payload_change_summary($payload_changes);
-            $changed_fields = array_values(array_unique(array_map(function($change) {
-                return $change['field'];
-            }, $payload_changes)));
-        }
-
-        $log_message = sprintf(
-            __('Processing product %1$s (%2$s)', 'bytemash-woo-sync'),
-            $sku,
-            $this->format_activity_reason_label($processing_reason)
-        );
-        if (!empty($change_summary)) {
-            $log_message .= ' | ' . $change_summary;
-        }
-
-        $this->log_realtime_activity('info', $log_message, array(
-            'sku' => $sku,
-            'product_id' => $product_id,
-            'action' => 'processing',
-            'reason' => $processing_reason,
-            'product_type' => 'simple',
-            'changes' => $payload_changes,
-        ));
-
-        $has_diff_data = !empty($payload_changes);
-        $run_all_sections = !$has_diff_data;
-        $should_update_categories = $this->should_run_section($run_all_sections, $payload_changes, array('categories'));
-        $should_update_images = $this->should_run_section($run_all_sections, $payload_changes, array('images', 'colourImages'));
-        $should_update_meta = $this->should_run_section($run_all_sections, $payload_changes, $this->meta_payload_fields);
-        $should_update_brand = $this->should_run_section($run_all_sections, $payload_changes, array('brand'));
-
         try {
             // Set basic product data (Amrod's field names)
             $product->set_sku($sku);
@@ -1737,14 +782,13 @@ class ByteMash_Product_Sync {
             $product->set_description(wp_kses_post($product_data['description'] ?? ''));
             
             // Set categories (Amrod returns nested category objects)
-            // Note: Unchanged products already returned early, so we only reach here if updating
-            if ($should_update_categories && !empty($product_data['categories']) && is_array($product_data['categories'])) {
+            if (!empty($product_data['categories']) && is_array($product_data['categories'])) {
                 $category_ids = $this->sync_product_categories($product_data['categories']);
                 $product->set_category_ids($category_ids);
             }
             
             // Always set brand if present in API data (even if product is otherwise unchanged)
-            if ($should_update_brand && !empty($product_data['brand'])) {
+            if (!empty($product_data['brand'])) {
                 $this->set_product_brand($product, $product_data['brand']);
             }
             
@@ -1756,7 +800,7 @@ class ByteMash_Product_Sync {
             
             // Sync images (Amrod returns image objects with URLs and metadata)
             // Images are optional - if they fail, product still syncs
-            if ($should_update_images && !empty($product_data['images']) && is_array($product_data['images'])) {
+            if (!empty($product_data['images']) && is_array($product_data['images'])) {
                 try {
                     $colour_images = isset($product_data['colourImages']) && is_array($product_data['colourImages'])
                         ? $product_data['colourImages']
@@ -1771,42 +815,19 @@ class ByteMash_Product_Sync {
             }
             
             // Store Amrod-specific metadata (includes branding guides, color swatches, etc.)
-            if ($should_update_meta) {
-                $this->sync_product_meta($product_id, $product_data);
-            }
-
-        if (!empty($payload_signature)) {
-            update_post_meta($product_id, '_amrod_payload_signature', $payload_signature, false);
-        }
-        if (!empty($payload_snapshot)) {
-            $this->save_payload_snapshot($product_id, $payload_snapshot);
-        }
+            $this->sync_product_meta($product_id, $product_data);
             
             // Store stock from product data if available
-            // OPTIMIZATION: Only save again if stock was set (product was already saved above)
             if (isset($product_data['stock']) && is_numeric($product_data['stock'])) {
                 $stock_qty = (int) $product_data['stock'];
-                // Reload product to ensure we have fresh data
-                $product = wc_get_product($product_id);
-                if ($product) {
-                    $product->set_manage_stock(true);
-                    $product->set_stock_quantity($stock_qty);
-                    $product->set_stock_status($stock_qty > 0 ? 'instock' : 'outofstock');
-                    // Save only if stock changed
-                    $product->save();
-                }
+                $product->set_manage_stock(true);
+                $product->set_stock_quantity($stock_qty);
+                $product->set_stock_status($stock_qty > 0 ? 'instock' : 'outofstock');
             }
             
             // Reduce noise: avoid per-product success logs
             
-            return array(
-                'success' => true,
-                'product_id' => $product_id,
-                'changed_fields' => $changed_fields,
-                'processing_reason' => $processing_reason,
-                'payload_signature' => $payload_signature,
-                'existing_signature' => $existing_signature,
-            );
+            return array('success' => true, 'product_id' => $product_id);
             
         } catch (Exception $e) {
             $this->logger->log('error', "Failed to sync product: {$sku}", array(
@@ -1851,27 +872,79 @@ class ByteMash_Product_Sync {
             }
         }
         
-        // OPTIMIZATION: Don't sync categories during unchanged check - just compare existing
-        // This avoids expensive category creation/lookup during the check
+        // Compare categories
         $existing_categories = $existing_product->get_category_ids();
+        $api_categories = array();
+        
         if (!empty($api_data['categories']) && is_array($api_data['categories'])) {
-            // Quick check: if API has categories but product has none, it changed
-            if (empty($existing_categories)) {
-                return false;
-            }
-            // For detailed comparison, we'd need to sync categories, but that's expensive
-            // So we'll do a lightweight check: if category count differs significantly, assume changed
-            // Full category sync will happen during actual update
+            $api_categories = $this->sync_product_categories($api_data['categories']);
         }
         
-        // OPTIMIZATION: Skip brand, stock, category, and image comparison - these are handled separately
-        // Brand updates are checked via needs_brand_update flag
-        // Stock is synced via separate stock endpoint
-        // Categories are synced separately
-        // Images are synced separately
+        if (array_diff($existing_categories, $api_categories) || array_diff($api_categories, $existing_categories)) {
+            return false;
+        }
         
-        // If we get here, basic data (name, description) is unchanged
-        return true;
+        // Compare brand - always update if brand meta is missing but API has brand data
+        $existing_brand = get_post_meta($existing_product->get_id(), '_amrod_brand', true);
+        $existing_brand_code = get_post_meta($existing_product->get_id(), '_amrod_brand_code', true);
+        $api_brand = '';
+        $api_brand_code = '';
+        if (!empty($api_data['brand'])) {
+            if (is_array($api_data['brand'])) {
+                $api_brand = $api_data['brand']['brandName'] ?? $api_data['brand']['name'] ?? $api_data['brand']['Brand'] ?? '';
+                $api_brand_code = $api_data['brand']['code'] ?? '';
+            } else {
+                $api_brand = (string) $api_data['brand'];
+            }
+        }
+        
+        // If brand meta is missing but API has brand data, consider it changed
+        if (empty($existing_brand) && !empty($api_brand)) {
+            return false; // Need to update to add brand
+        }
+        
+        // If existing brand differs from API brand, consider it changed
+        if (!empty($api_brand) && $existing_brand !== $api_brand) {
+            return false;
+        }
+        
+        // If brand code differs, consider it changed
+        if (!empty($api_brand_code) && $existing_brand_code !== $api_brand_code) {
+            return false;
+        }
+        
+        // Compare images (check if image URLs have changed)
+        $existing_images = $this->get_existing_product_images($existing_product->get_id());
+        $api_images = $api_data['images'] ?? array();
+        
+        if (!$this->are_images_unchanged($existing_images, $api_images)) {
+            return false;
+        }
+        
+        // Compare branding options - always update if branding meta is missing but API has branding data
+        $existing_brandings = get_post_meta($existing_product->get_id(), '_amrod_brandings', true);
+        $api_brandings = $api_data['brandings'] ?? null;
+        
+        // If branding meta is missing but API has branding data, consider it changed
+        if (empty($existing_brandings) && !empty($api_brandings) && is_array($api_brandings)) {
+            return false; // Need to update to add branding
+        }
+        
+        // If API has no branding but product has branding, consider it changed (to clear old branding)
+        if (!empty($existing_brandings) && (empty($api_brandings) || !is_array($api_brandings))) {
+            return false; // Need to update to clear branding
+        }
+        
+        // If both exist, compare them (deep comparison)
+        if (!empty($existing_brandings) && !empty($api_brandings) && is_array($api_brandings)) {
+            // Normalize both arrays for comparison
+            $existing_normalized = wp_json_encode($existing_brandings);
+            $api_normalized = wp_json_encode($api_brandings);
+            
+            if ($existing_normalized !== $api_normalized) {
+                return false; // Branding has changed
+            }
+        }
         
         // If we get here, no significant changes detected
         return true;
@@ -1926,15 +999,14 @@ class ByteMash_Product_Sync {
     
     /**
      * Handle product save with proper WooCommerce hooks and database management
-     * OPTIMIZATION: Term counting is handled at batch level, not per-product
      */
     private function save_product_safely($product) {
-        // OPTIMIZATION: Don't defer term counting here - it's already deferred at batch level
-        // This prevents re-enabling counting after each product (major performance bottleneck)
+        // Use WordPress's built-in bulk operation handling
+        wp_defer_term_counting(true);
+        wp_defer_comment_counting(true);
         
         try {
             // Save the product using WooCommerce's native method
-            // WooCommerce hooks will still fire: woocommerce_before_product_object_save, woocommerce_after_product_object_save, etc.
             $product_id = $product->save();
             
             // Ensure the product is properly saved
@@ -1947,6 +1019,8 @@ class ByteMash_Product_Sync {
                 throw new Exception('Failed to save product');
             }
             
+            // Reduce noise: do not log per-product success
+            
             return $product_id;
         } catch (Exception $e) {
             $this->logger->log('error', 'Product save failed with exception', array(
@@ -1957,6 +1031,10 @@ class ByteMash_Product_Sync {
                 'trace' => $e->getTraceAsString(),
             ), 'product_sync');
             throw $e;
+        } finally {
+            // Re-enable counting
+            wp_defer_term_counting(false);
+            wp_defer_comment_counting(false);
         }
     }
     
@@ -1996,9 +1074,13 @@ class ByteMash_Product_Sync {
             }
             
             // If no path is provided, use the category name as fallback
+            // but log a warning as this may cause issues with duplicate subcategory names
             if (empty($cat_path)) {
                 $cat_path = $cat_name;
-                // OPTIMIZATION: Removed logging for performance
+                $this->logger->log('warning', 'Category missing path, using name as fallback', array(
+                    'category_name' => $cat_name,
+                    'category_data' => $cat_data,
+                ), 'category_sync');
             }
 
             $meta = array(
@@ -2011,9 +1093,12 @@ class ByteMash_Product_Sync {
 
             if ($result['success']) {
                 $category_ids[] = $result['term_id'];
-                // OPTIMIZATION: Removed debug logging for performance
+                $this->logger->log('debug', 'Category assigned to product', array(
+                    'category_name' => $cat_name,
+                    'category_path' => $cat_path,
+                    'term_id' => $result['term_id'],
+                ), 'category_sync');
             } else {
-                // Only log errors, not successes
                 $this->logger->log('error', 'Failed to ensure category hierarchy', array(
                     'category' => $cat_name,
                     'path' => $cat_path,
@@ -2027,8 +1112,11 @@ class ByteMash_Product_Sync {
         $unique_category_ids = array_unique(array_filter($category_ids));
         
         if (count($unique_category_ids) !== count($category_ids)) {
-            // OPTIMIZATION: Removed logging for performance
-            // Duplicate category IDs are normal and expected
+            $this->logger->log('info', 'Product assigned to multiple categories (duplicates removed)', array(
+                'total_categories' => count($category_ids),
+                'unique_categories' => count($unique_category_ids),
+                'category_ids' => $unique_category_ids,
+            ), 'category_sync');
         }
         
         return $unique_category_ids;
@@ -2256,14 +1344,13 @@ class ByteMash_Product_Sync {
         $existing_brand = get_post_meta($product_id, '_amrod_brand', true);
         $is_update = !empty($existing_brand);
         
-        // OPTIMIZATION: Disable autoloading for sync meta (not needed in queries, saves memory)
-        update_post_meta($product_id, '_amrod_brand', sanitize_text_field($brand_name), false);
+        update_post_meta($product_id, '_amrod_brand', sanitize_text_field($brand_name));
         
         $brand_code = '';
         if (is_array($brand_data)) {
             if (!empty($brand_data['code'])) {
                 $brand_code = sanitize_text_field($brand_data['code']);
-                update_post_meta($product_id, '_amrod_brand_code', $brand_code, false);
+                update_post_meta($product_id, '_amrod_brand_code', $brand_code);
             }
             // Note: Logo URL is NOT stored in product meta - it's retrieved from brands sync data
         }
@@ -2309,8 +1396,7 @@ class ByteMash_Product_Sync {
     private function sync_product_meta($product_id, $product_data) {
         // Store Amrod codes for reference
         if (!empty($product_data['simpleCode'])) {
-            // OPTIMIZATION: Disable autoloading for sync meta
-            update_post_meta($product_id, '_amrod_simple_code', sanitize_text_field($product_data['simpleCode']), false);
+            update_post_meta($product_id, '_amrod_simple_code', sanitize_text_field($product_data['simpleCode']));
         }
         
         if (!empty($product_data['fullCode'])) {
@@ -2385,8 +1471,7 @@ class ByteMash_Product_Sync {
             }
             
             if (!empty($valid_brandings)) {
-                // OPTIMIZATION: Disable autoloading for sync meta
-                update_post_meta($product_id, '_amrod_brandings', $valid_brandings, false);
+                update_post_meta($product_id, '_amrod_brandings', $valid_brandings);
                 $this->logger->log('info', "Branding options synced", array(
                     'product_id' => $product_id,
                     'branding_count' => count($valid_brandings),
@@ -4258,8 +3343,8 @@ class ByteMash_Product_Sync {
                             // Verify this term has the correct path metadata
                             $term_path = get_term_meta($term_object->term_id, '_amrod_category_path', true);
                             if ($term_path === $current_path || empty($term_path)) {
-                            $existing_term = $term_object;
-                        }
+                                $existing_term = $term_object;
+                            }
                         }
                     }
                 }
@@ -4276,7 +3361,7 @@ class ByteMash_Product_Sync {
                             if ((int) $term_object->parent === 0) {
                                 $term_path = get_term_meta($term_object->term_id, '_amrod_category_path', true);
                                 if ($term_path === $current_path || empty($term_path)) {
-                            $existing_term = $term_object;
+                                    $existing_term = $term_object;
                                 }
                             }
                         }
@@ -4290,7 +3375,7 @@ class ByteMash_Product_Sync {
                     if ($term_object instanceof WP_Term && (int) $term_object->parent === 0) {
                         $term_path = get_term_meta($term_object->term_id, '_amrod_category_path', true);
                         if ($term_path === $current_path || empty($term_path)) {
-                        $existing_term = $term_object;
+                            $existing_term = $term_object;
                         }
                     }
                 }
@@ -4298,7 +3383,7 @@ class ByteMash_Product_Sync {
 
             if ($existing_term instanceof WP_Term) {
                 $term_id = (int) $existing_term->term_id;
-
+                
                 // Verify the existing term has the correct path - if not, it might be a different category
                 $existing_path = get_term_meta($term_id, '_amrod_category_path', true);
                 if (!empty($existing_path) && $existing_path !== $current_path) {
@@ -4312,15 +3397,15 @@ class ByteMash_Product_Sync {
                     ), 'category_sync');
                     $existing_term = null; // Force creation of new category
                 } else {
-                // Correct parent if it changed
-                if ((int) $existing_term->parent !== (int) $parent_id) {
-                    wp_update_term($term_id, 'product_cat', array('parent' => $parent_id));
-                }
+                    // Correct parent if it changed
+                    if ((int) $existing_term->parent !== (int) $parent_id) {
+                        wp_update_term($term_id, 'product_cat', array('parent' => $parent_id));
+                    }
 
-                // Refresh name if API casing changed
-                if ($display_name && $existing_term->name !== $display_name) {
-                    wp_update_term($term_id, 'product_cat', array('name' => $display_name));
-                }
+                    // Refresh name if API casing changed
+                    if ($display_name && $existing_term->name !== $display_name) {
+                        wp_update_term($term_id, 'product_cat', array('name' => $display_name));
+                    }
                 }
             }
             
@@ -4725,208 +3810,12 @@ class ByteMash_Product_Sync {
             return;
         }
         
-        // Update progress to show cleanup is starting
-        $batch_processor = new ByteMash_Batch_Processor();
-        $progress = $batch_processor->get_sync_progress($sync_id);
-        if ($progress) {
-            $progress['status'] = 'deleting_excess';
-            $progress['cleanup_status'] = 'in_progress';
-            $progress['cleanup_message'] = 'Deleting excess products...';
-            $batch_processor->save_sync_progress($sync_id, $progress);
-        }
-        
-        $this->logger->log('info', 'Starting cleanup of products not in API snapshot', array(
-            'sync_id' => $sync_id,
-            'snapshot_count' => count($sku_snapshot),
-        ), 'product_sync');
-        
-        $result = $this->reconcile_catalog_against_skus($sku_snapshot, array(
+        $this->reconcile_catalog_against_skus($sku_snapshot, array(
             'sync_id' => $sync_id,
             'context' => 'snapshot_cleanup',
         ));
         
-        // Update progress with cleanup results
-        if ($progress) {
-            $progress['status'] = 'completed';
-            $progress['cleanup_status'] = 'completed';
-            $progress['cleanup_message'] = sprintf(
-                'Deleting excess products completed: %d checked, %d deleted',
-                $result['checked'] ?? 0,
-                $result['deleted'] ?? 0
-            );
-            $progress['cleanup_checked'] = $result['checked'] ?? 0;
-            $progress['cleanup_deleted'] = $result['deleted'] ?? 0;
-            $batch_processor->save_sync_progress($sync_id, $progress);
-        }
-        
         delete_transient("bytemash_sync_{$sync_id}_product_skus");
-    }
-    
-    /**
-     * Incremental cleanup - deletes a limited number of excess products after each batch
-     * This is faster than waiting until the end
-     *
-     * @param string $sync_id Sync identifier
-     * @param int $limit Maximum number of products to check/delete per call
-     * @return array Result with checked/deleted counts
-     */
-    public function cleanup_products_incremental($sync_id, $limit = 50) {
-        $sku_snapshot = get_transient("bytemash_sync_{$sync_id}_product_skus");
-        
-        if (empty($sku_snapshot) || !is_array($sku_snapshot)) {
-            return array('checked' => 0, 'deleted' => 0, 'skipped' => 0);
-        }
-        
-        // Get progress to track which products we've already checked
-        $batch_processor = new ByteMash_Batch_Processor();
-        $progress = $batch_processor->get_sync_progress($sync_id);
-        
-        // Track which products we've already checked (to avoid re-checking)
-        $checked_products = isset($progress['cleanup_checked_product_ids']) 
-            ? $progress['cleanup_checked_product_ids'] 
-            : array();
-        
-        // OPTIMIZATION: Cache normalized SKU map in progress to avoid re-normalizing every time
-        if (!isset($progress['cleanup_normalized_sku_map'])) {
-            $normalized_map = array();
-            foreach ($sku_snapshot as $sku) {
-                $normalized = $this->normalize_sku($sku);
-                if ($normalized !== '') {
-                    $normalized_map[$normalized] = true;
-                }
-            }
-            $progress['cleanup_normalized_sku_map'] = $normalized_map;
-            $batch_processor->save_sync_progress($sync_id, $progress);
-        } else {
-            $normalized_map = $progress['cleanup_normalized_sku_map'];
-        }
-        
-        if (empty($normalized_map)) {
-            return array('checked' => 0, 'deleted' => 0, 'skipped' => 0);
-        }
-        
-        global $wpdb;
-        $table_posts = $wpdb->posts;
-        $table_meta = $wpdb->postmeta;
-        
-        // Get a limited number of Amrod products we haven't checked yet
-        $where_conditions = array(
-            "p.post_type = 'product'",
-            "p.post_status NOT IN ('trash', 'auto-draft')"
-        );
-        
-        if (!empty($checked_products)) {
-            $checked_ids = array_map('intval', $checked_products);
-            if (!empty($checked_ids)) {
-                $checked_ids_str = implode(',', $checked_ids);
-                // Safe because all values are cast to int via array_map('intval')
-                $where_conditions[] = "p.ID NOT IN ({$checked_ids_str})";
-            }
-        }
-        
-        $where_clause = implode(' AND ', $where_conditions);
-        $limit_int = intval($limit);
-        
-        $query = "
-            SELECT DISTINCT p.ID as post_id, 
-                   pm_amrod.meta_value AS sku
-            FROM {$table_posts} p
-            INNER JOIN {$table_meta} pm_amrod ON (
-                pm_amrod.post_id = p.ID 
-                AND pm_amrod.meta_key = '_amrod_simple_code'
-                AND pm_amrod.meta_value IS NOT NULL
-                AND pm_amrod.meta_value != ''
-            )
-            WHERE {$where_clause}
-            LIMIT {$limit_int}
-        ";
-        
-        $rows = $wpdb->get_results($query);
-        $checked = 0;
-        $deleted = 0;
-        $skipped = 0;
-        
-        // OPTIMIZATION: Enable bulk operation mode for faster processing
-        wp_defer_term_counting(true);
-        wp_defer_comment_counting(true);
-        wp_suspend_cache_addition(true);
-        
-        try {
-            if ($rows) {
-                foreach ($rows as $row) {
-                    $product_id = (int) $row->post_id;
-                    $checked_products[] = $product_id; // Track that we've checked this
-                    $checked++;
-                    
-                    $product_sku = $this->normalize_sku($row->sku ?? '');
-                    
-                    // Skip if SKU is empty or if product is in the allowed list
-                    if ($product_sku === '' || isset($normalized_map[$product_sku])) {
-                        $skipped++;
-                        continue;
-                    }
-                    
-                    // OPTIMIZATION: Don't load full product object - we only need ID for deletion
-                    // wp_delete_post() will handle WooCommerce hooks properly:
-                    // - before_delete_post
-                    // - delete_post
-                    // - woocommerce_before_delete_product
-                    // - woocommerce_delete_product
-                    $this->logger->log('warning', 'Deleting product not in API snapshot (incremental)', array(
-                        'product_id' => $product_id,
-                        'sku' => $row->sku,
-                    ), 'product_sync');
-                    
-                    // Delete the product (force delete, bypass trash)
-                    $delete_result = wp_delete_post($product_id, true);
-                    
-                    if ($delete_result) {
-                        $deleted++;
-                        $this->logger->log('success', 'Product deleted successfully (incremental)', array(
-                            'product_id' => $product_id,
-                            'sku' => $row->sku,
-                        ), 'product_sync');
-                    } else {
-                        $this->logger->log('error', 'Failed to delete product (incremental)', array(
-                            'product_id' => $product_id,
-                            'sku' => $row->sku,
-                        ), 'product_sync');
-                    }
-                }
-            }
-        } finally {
-            // OPTIMIZATION: Re-enable counting and cache (term counts update in bulk)
-            wp_defer_term_counting(false);
-            wp_defer_comment_counting(false);
-            wp_suspend_cache_addition(false);
-        }
-        
-        // Update progress with checked product IDs
-        if ($progress) {
-            $progress['cleanup_checked_product_ids'] = $checked_products;
-            $progress['cleanup_incremental_checked'] = ($progress['cleanup_incremental_checked'] ?? 0) + $checked;
-            $progress['cleanup_incremental_deleted'] = ($progress['cleanup_incremental_deleted'] ?? 0) + $deleted;
-            
-            // Update cleanup status for UI
-            if ($deleted > 0 || $checked > 0) {
-                $progress['cleanup_status'] = 'in_progress';
-                $progress['cleanup_message'] = sprintf(
-                    'Deleting excess products... %d checked, %d deleted (incremental)',
-                    $progress['cleanup_incremental_checked'],
-                    $progress['cleanup_incremental_deleted']
-                );
-                $progress['cleanup_checked'] = $progress['cleanup_incremental_checked'];
-                $progress['cleanup_deleted'] = $progress['cleanup_incremental_deleted'];
-            }
-            
-            $batch_processor->save_sync_progress($sync_id, $progress);
-        }
-        
-        return array(
-            'checked' => $checked,
-            'deleted' => $deleted,
-            'skipped' => $skipped,
-        );
     }
     
     /**
@@ -4977,7 +3866,6 @@ class ByteMash_Product_Sync {
     
     /**
      * Reconcile WooCommerce catalog against allowed SKUs
-     * Deletes products that are no longer present in the API
      *
      * @param array $allowed_skus
      * @param array $context
@@ -5001,128 +3889,41 @@ class ByteMash_Product_Sync {
             return;
         }
         
-        $this->logger->log('info', 'Starting catalog reconciliation', array_merge($context, array(
-            'snapshot_total' => count($normalized_map),
-        )), 'product_sync');
-        
         global $wpdb;
         $table_posts = $wpdb->posts;
         $table_meta = $wpdb->postmeta;
-        
-        // Find all Amrod products by checking _amrod_simple_code meta
-        // Also check _sku meta as fallback for products that might not have _amrod_simple_code yet
-        // This ensures we catch all Amrod products, even if meta wasn't saved in a previous sync
         $query = "
-            SELECT DISTINCT p.ID as post_id, 
-                   COALESCE(pm_amrod.meta_value, pm_sku.meta_value) AS sku
-            FROM {$table_posts} p
-            LEFT JOIN {$table_meta} pm_amrod ON (
-                pm_amrod.post_id = p.ID 
-                AND pm_amrod.meta_key = '_amrod_simple_code'
-                AND pm_amrod.meta_value IS NOT NULL
-                AND pm_amrod.meta_value != ''
-            )
-            LEFT JOIN {$table_meta} pm_sku ON (
-                pm_sku.post_id = p.ID 
-                AND pm_sku.meta_key = '_sku'
-                AND pm_sku.meta_value IS NOT NULL
-                AND pm_sku.meta_value != ''
-                AND pm_amrod.meta_value IS NULL
-            )
-            WHERE p.post_type = 'product'
+            SELECT pm.post_id, pm.meta_value AS sku
+            FROM {$table_meta} pm
+            INNER JOIN {$table_posts} p ON pm.post_id = p.ID
+            WHERE pm.meta_key = '_amrod_simple_code'
+              AND p.post_type = 'product'
               AND p.post_status NOT IN ('trash', 'auto-draft')
-              AND (pm_amrod.meta_value IS NOT NULL OR pm_sku.meta_value IS NOT NULL)
         ";
         
         $rows = $wpdb->get_results($query);
         $checked = 0;
         $deleted = 0;
-        $skipped = 0;
-        $sync_id = $context['sync_id'] ?? '';
-        $batch_processor = !empty($sync_id) ? new ByteMash_Batch_Processor() : null;
-        
-        $this->logger->log('info', 'Catalog reconciliation query executed', array_merge($context, array(
-            'products_found' => $rows ? count($rows) : 0,
-            'snapshot_total' => count($normalized_map),
-        )), 'product_sync');
         
         if ($rows) {
             foreach ($rows as $row) {
                 $checked++;
                 $product_sku = $this->normalize_sku($row->sku ?? '');
                 
-                // Skip if SKU is empty or if product is in the allowed list
                 if ($product_sku === '' || isset($normalized_map[$product_sku])) {
-                    $skipped++;
                     continue;
                 }
                 
-                // Product is not in the API snapshot - delete it
-                $product_id = (int) $row->post_id;
-                $product = wc_get_product($product_id);
-                
-                if ($product) {
-                    $product_name = $product->get_name();
-                    $product_sku_display = $product->get_sku();
-                    
-                    $this->logger->log('warning', 'Deleting product not in API snapshot', array(
-                        'product_id' => $product_id,
-                        'product_name' => $product_name,
-                        'sku' => $product_sku_display,
-                        'normalized_sku' => $product_sku,
-                        'snapshot_has_sku' => isset($normalized_map[$product_sku]),
-                    ), 'product_sync');
-                    
-                    // Update progress more frequently during deletion (every 5 deletions) to show real-time progress
-                    if ($batch_processor && ($deleted === 0 || $deleted % 5 === 0 || $checked % 50 === 0)) {
-                        $progress = $batch_processor->get_sync_progress($sync_id);
-                        if ($progress) {
-                            $progress['status'] = 'deleting_excess';
-                            $progress['cleanup_status'] = 'in_progress';
-                            $progress['cleanup_message'] = sprintf(
-                                'Deleting excess products... %d checked, %d deleted',
-                                $checked,
-                                $deleted
-                            );
-                            $progress['cleanup_checked'] = $checked;
-                            $progress['cleanup_deleted'] = $deleted;
-                            $batch_processor->save_sync_progress($sync_id, $progress);
-                        }
-                    }
-                    
-                    // Delete the product (force delete, bypass trash)
-                    $delete_result = wp_delete_post($product_id, true);
-                    
-                    if ($delete_result) {
-                        $deleted++;
-                        $this->logger->log('success', 'Product deleted successfully', array(
-                            'product_id' => $product_id,
-                            'sku' => $product_sku_display,
-                        ), 'product_sync');
-                    } else {
-                        $this->logger->log('error', 'Failed to delete product', array(
-                            'product_id' => $product_id,
-                            'sku' => $product_sku_display,
-                        ), 'product_sync');
-                    }
-                }
+                wp_delete_post((int) $row->post_id, true);
+                $deleted++;
             }
         }
         
         $this->logger->log('info', 'Catalog reconciliation completed', array_merge($context, array(
             'snapshot_total' => count($normalized_map),
             'products_checked' => $checked,
-            'products_skipped' => $skipped,
             'products_deleted' => $deleted,
         )), 'product_sync');
-        
-        // Return result for progress tracking
-        return array(
-            'checked' => $checked,
-            'deleted' => $deleted,
-            'skipped' => $skipped,
-            'snapshot_total' => count($normalized_map),
-        );
     }
     
     /**

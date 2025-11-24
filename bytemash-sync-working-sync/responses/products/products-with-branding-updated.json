@@ -1,0 +1,743 @@
+[
+  {
+    "actionType": 1,
+    "simpleCode": "WR-AL-5-F-N",
+    "fullCode": "WR-AL-5-F-N",
+    "categorisedAttribute": [],
+    "gender": null,
+    "material": "Polyester PVC",
+    "fit": "RelaxedFit",
+    "feature": "",
+    "categories": [
+      {
+        "id": 49056,
+        "name": "Rainwear",
+        "path": "workwear/rainwear",
+        "code": "Rainwear",
+        "image": "https://amrcdn.amrod.co.za/amrodprod-blob/_default_upload_bucket/Rainwear.jpg"
+      }
+    ],
+    "brand": {
+      "name": "Altitude",
+      "brandWebsiteLogo": "https://amrcdn.amrod.co.za/amrodprod-blob/_default_upload_bucket/Altitude.png",
+      "code": "AL"
+    },
+    "companionCodes": [{ "simpleCode": "ALT-1901", "fullCode": "ALT-1901" }],
+    "relatedCodes": [],
+    "matchingCodes": [],
+    "groupingCodes": [],
+    "groupingCodeGiftsets": [],
+    "productName": "Light Duty Storm Rubberised Polyester/PVC Raincoat - Navy",
+    "description": "<ul>\n\t<li>polyester PVC</li>\n\t<li>280g/m<sup>2</sup></li>\n\t<li>hood</li>\n\t<li>concealed storm flap</li>\n\t<li>open end sleeves</li>\n\t<li>relaxed fit</li>\n\t<li>light usage rainwear</li>\n</ul>\n",
+    "minimum": 0,
+    "maximum": 0,
+    "incrementedBy": 0,
+    "keywords": "raincoat; rain coat",
+    "tags": "",
+    "inventoryType": "6",
+    "behaviour": "0",
+    "madeToOrder": "",
+    "madeToOrderMessage": "",
+    "displayCountryOfOrigin": "",
+    "promotion": "3",
+    "fullBrandingGuide": "https://amrcdn.amrod.co.za/amrodprod-blob/Pdf Templates/WR-AL-5-F/Full Guide/WR-AL-5-F_1747158563.pdf",
+    "logo24BrandingGuide": null,
+    "images": [
+      {
+        "name": "WR-AL-5-F-N",
+        "isDefault": true,
+        "urls": [
+          {
+            "url": "https://amrcdn.amrod.co.za/amrodprod-blob/ProductImages/WR-AL-5-F/WR-AL-5-F-N_1024X1024.jpg",
+            "width": 1024,
+            "height": 1024
+          }
+        ],
+        "hasLogo": false,
+        "angle": null,
+        "type": "defaultUnbrandedImage"
+      },
+      {
+        "name": "WR-AL-5-F-N-GHSI",
+        "isDefault": false,
+        "urls": [
+          {
+            "url": "https://amrcdn.amrod.co.za/amrodprod-blob/ProductImages/WR-AL-5-F/WR-AL-5-F-N-GHSI_1024X1024.jpg",
+            "width": 1024,
+            "height": 1024
+          }
+        ],
+        "hasLogo": false,
+        "angle": null,
+        "type": "additionalClearanceImage"
+      },
+      {
+        "name": "WR-AL-5-F-N-GHBK",
+        "isDefault": false,
+        "urls": [
+          {
+            "url": "https://amrcdn.amrod.co.za/amrodprod-blob/ProductImages/WR-AL-5-F/WR-AL-5-F-N-GHBK_1024X1024.jpg",
+            "width": 1024,
+            "height": 1024
+          }
+        ],
+        "hasLogo": false,
+        "angle": null,
+        "type": "additionalClearanceImage"
+      }
+    ],
+    "videos": [],
+    "colourImages": [
+      {
+        "name": "Navy",
+        "code": "N",
+        "images": [
+          {
+            "name": "WR-AL-5-F-N",
+            "isDefault": true,
+            "urls": [
+              {
+                "url": "https://amrcdn.amrod.co.za/amrodprod-blob/ProductImages/WR-AL-5-F/WR-AL-5-F-N_1024X1024.jpg",
+                "width": 1024,
+                "height": 1024
+              }
+            ],
+            "hasLogo": false,
+            "angle": null,
+            "type": "defaultUnbrandedImage"
+          },
+          {
+            "name": "WR-AL-5-F-N-GHSI",
+            "isDefault": false,
+            "urls": [
+              {
+                "url": "https://amrcdn.amrod.co.za/amrodprod-blob/ProductImages/WR-AL-5-F/WR-AL-5-F-N-GHSI_1024X1024.jpg",
+                "width": 1024,
+                "height": 1024
+              }
+            ],
+            "hasLogo": false,
+            "angle": null,
+            "type": "additionalClearanceImage"
+          },
+          {
+            "name": "WR-AL-5-F-N-GHBK",
+            "isDefault": false,
+            "urls": [
+              {
+                "url": "https://amrcdn.amrod.co.za/amrodprod-blob/ProductImages/WR-AL-5-F/WR-AL-5-F-N-GHBK_1024X1024.jpg",
+                "width": 1024,
+                "height": 1024
+              }
+            ],
+            "hasLogo": false,
+            "angle": null,
+            "type": "additionalClearanceImage"
+          }
+        ]
+      }
+    ],
+    "brandings": [
+      {
+        "positionName": "On Left or Right Chest of Garment",
+        "positionCode": "A",
+        "positionComment": null,
+        "positionMultiplier": 2,
+        "method": [
+          {
+            "brandingName": "Screen Print",
+            "brandingDepartment": "Screenprint",
+            "brandingCode": "SB",
+            "brandingInclusiveMethod": false,
+            "displayIndex": "1",
+            "maxPrintingSizeWidth": "130",
+            "maxPrintingSizeHeight": "100",
+            "numberOfColours": "1 Colour",
+            "brandingMultiplier": 1,
+            "exclusions": []
+          }
+        ]
+      },
+      {
+        "positionName": "On Upper Back of Garment",
+        "positionCode": "B",
+        "positionComment": null,
+        "positionMultiplier": 1,
+        "method": [
+          {
+            "brandingName": "Screen Print",
+            "brandingDepartment": "Screenprint",
+            "brandingCode": "SB",
+            "brandingInclusiveMethod": false,
+            "displayIndex": "1",
+            "maxPrintingSizeWidth": "200",
+            "maxPrintingSizeHeight": "150",
+            "numberOfColours": "1 Colour",
+            "brandingMultiplier": 1,
+            "exclusions": []
+          }
+        ]
+      }
+    ],
+    "isLogo24": false,
+    "logo24Branding": null,
+    "inclusiveBranding": [],
+    "variants": [
+      {
+        "simpleCode": "WR-AL-5-F-N",
+        "fullCode": "WR-AL-5-F-N-S",
+        "codeColour": "N",
+        "codeColourName": "NAVY",
+        "codeSize": "S",
+        "codeSizeName": "S",
+        "categorisedAttribute": [{ "key": "1/2 Chest", "value": "64" }],
+        "packagingAndDimension": {
+          "cartonSizeDimensionL": 36,
+          "cartonSizeDimensionW": 26,
+          "cartonSizeDimensionH": 19,
+          "piecesPerCarton": 10,
+          "cartonWeight": 11
+        },
+        "productDimension": { "length": 33.2, "width": 29.6, "weight": 0.852 },
+        "isLogo24": false,
+        "components": null
+      },
+      {
+        "simpleCode": "WR-AL-5-F-N",
+        "fullCode": "WR-AL-5-F-N-M",
+        "codeColour": "N",
+        "codeColourName": "NAVY",
+        "codeSize": "M",
+        "codeSizeName": "M",
+        "categorisedAttribute": [{ "key": "1/2 Chest", "value": "66" }],
+        "packagingAndDimension": {
+          "cartonSizeDimensionL": 36,
+          "cartonSizeDimensionW": 26,
+          "cartonSizeDimensionH": 19,
+          "piecesPerCarton": 10,
+          "cartonWeight": 11
+        },
+        "productDimension": { "length": 31.1, "width": 29.9, "weight": 0.81 },
+        "isLogo24": false,
+        "components": null
+      },
+      {
+        "simpleCode": "WR-AL-5-F-N",
+        "fullCode": "WR-AL-5-F-N-L",
+        "codeColour": "N",
+        "codeColourName": "NAVY",
+        "codeSize": "L",
+        "codeSizeName": "L",
+        "categorisedAttribute": [{ "key": "1/2 Chest", "value": "68" }],
+        "packagingAndDimension": {
+          "cartonSizeDimensionL": 36,
+          "cartonSizeDimensionW": 26,
+          "cartonSizeDimensionH": 19,
+          "piecesPerCarton": 10,
+          "cartonWeight": 11
+        },
+        "productDimension": { "length": 34.7, "width": 29.5, "weight": 0.974 },
+        "isLogo24": false,
+        "components": null
+      },
+      {
+        "simpleCode": "WR-AL-5-F-N",
+        "fullCode": "WR-AL-5-F-N-XL",
+        "codeColour": "N",
+        "codeColourName": "NAVY",
+        "codeSize": "XL",
+        "codeSizeName": "XL",
+        "categorisedAttribute": [{ "key": "1/2 Chest", "value": "70" }],
+        "packagingAndDimension": {
+          "cartonSizeDimensionL": 36,
+          "cartonSizeDimensionW": 26,
+          "cartonSizeDimensionH": 19,
+          "piecesPerCarton": 10,
+          "cartonWeight": 11
+        },
+        "productDimension": { "length": 34.6, "width": 29.6, "weight": 34.6 },
+        "isLogo24": false,
+        "components": null
+      },
+      {
+        "simpleCode": "WR-AL-5-F-N",
+        "fullCode": "WR-AL-5-F-N-2XL",
+        "codeColour": "N",
+        "codeColourName": "NAVY",
+        "codeSize": "2XL",
+        "codeSizeName": "2XL",
+        "categorisedAttribute": [{ "key": "1/2 Chest", "value": "72" }],
+        "packagingAndDimension": {
+          "cartonSizeDimensionL": 36,
+          "cartonSizeDimensionW": 26,
+          "cartonSizeDimensionH": 19,
+          "piecesPerCarton": 10,
+          "cartonWeight": 11
+        },
+        "productDimension": { "length": 34.3, "width": 29, "weight": 1.03 },
+        "isLogo24": false,
+        "components": null
+      },
+      {
+        "simpleCode": "WR-AL-5-F-N",
+        "fullCode": "WR-AL-5-F-N-3XL",
+        "codeColour": "N",
+        "codeColourName": "NAVY",
+        "codeSize": "3XL",
+        "codeSizeName": "3XL",
+        "categorisedAttribute": [{ "key": "1/2 Chest", "value": "74" }],
+        "packagingAndDimension": {
+          "cartonSizeDimensionL": 36,
+          "cartonSizeDimensionW": 26,
+          "cartonSizeDimensionH": 19,
+          "piecesPerCarton": 10,
+          "cartonWeight": 11
+        },
+        "productDimension": { "length": 36.6, "width": 28.9, "weight": 1.08 },
+        "isLogo24": false,
+        "components": null
+      },
+      {
+        "simpleCode": "WR-AL-5-F-N",
+        "fullCode": "WR-AL-5-F-N-4XL",
+        "codeColour": "N",
+        "codeColourName": "NAVY",
+        "codeSize": "4XL",
+        "codeSizeName": "4XL",
+        "categorisedAttribute": [{ "key": "1/2 Chest", "value": "76" }],
+        "packagingAndDimension": {
+          "cartonSizeDimensionL": 36,
+          "cartonSizeDimensionW": 26,
+          "cartonSizeDimensionH": 19,
+          "piecesPerCarton": 10,
+          "cartonWeight": 11
+        },
+        "productDimension": { "length": 35.2, "width": 29.2, "weight": 1.134 },
+        "isLogo24": false,
+        "components": null
+      },
+      {
+        "simpleCode": "WR-AL-5-F-N",
+        "fullCode": "WR-AL-5-F-N-5XL",
+        "codeColour": "N",
+        "codeColourName": "NAVY",
+        "codeSize": "5XL",
+        "codeSizeName": "5XL",
+        "categorisedAttribute": [{ "key": "1/2 Chest", "value": "78" }],
+        "packagingAndDimension": {
+          "cartonSizeDimensionL": 36,
+          "cartonSizeDimensionW": 26,
+          "cartonSizeDimensionH": 19,
+          "piecesPerCarton": 10,
+          "cartonWeight": 11
+        },
+        "productDimension": { "length": 34.9, "width": 28.8, "weight": 1.232 },
+        "isLogo24": false,
+        "components": null
+      }
+    ],
+    "requiredBrandingPositions": [],
+    "noCoBrandingPositions": [],
+    "brandingTemplates": [],
+    "decoupled": true,
+    "type": "Product"
+  },
+  {
+    "actionType": 1,
+    "simpleCode": "ALT-1603-Y",
+    "fullCode": "ALT-1603-Y",
+    "categorisedAttribute": [],
+    "gender": null,
+    "material": "100% Polyester",
+    "fit": "",
+    "feature": "",
+    "categories": [
+      {
+        "id": 49056,
+        "name": "Rainwear",
+        "path": "workwear/rainwear",
+        "code": "Rainwear",
+        "image": "https://amrcdn.amrod.co.za/amrodprod-blob/_default_upload_bucket/Rainwear.jpg"
+      }
+    ],
+    "brand": null,
+    "companionCodes": [{ "simpleCode": "ALT-1901", "fullCode": "ALT-1901" }],
+    "relatedCodes": [{ "simpleCode": "ALT-1600-Y", "fullCode": "ALT-1600-Y" }],
+    "matchingCodes": [],
+    "groupingCodes": [],
+    "groupingCodeGiftsets": [],
+    "productName": "Thunder Rubberised Polyester/Pvc Raincoat - Yellow",
+    "description": "<ul>\n\t<li>180g/m2</li>\n\t<li>70D / 170T 100% polyester, 0,18mm PVC (rubberised)</li>\n\t<li>hood with drawcord and stoppers • ventilated back with inner mesh cape • concealed zip features a double storm flap with press stud closure • eyelets underarms</li>\n\t<li>open-end sleeves with inner elasticated cuffs • two front patch pockets with flap • double-needle top stitching detail</li>\n\t<li>rainproof</li>\n\t<li>includes matching carry pouch</li>\n</ul>\n",
+    "minimum": 0,
+    "maximum": 0,
+    "incrementedBy": 0,
+    "keywords": "polyester raincoat; pvc raincoat; rain coat; rubberized raincoat",
+    "tags": "",
+    "inventoryType": "6",
+    "behaviour": "0",
+    "madeToOrder": "",
+    "madeToOrderMessage": "",
+    "displayCountryOfOrigin": "",
+    "promotion": "3",
+    "fullBrandingGuide": "https://amrcdn.amrod.co.za/amrodprod-blob/Pdf Templates/WR-AL-4-F/Full Guide/WR-AL-4-F_1747158174.pdf",
+    "logo24BrandingGuide": null,
+    "images": [
+      {
+        "name": "ALT-1603-Y",
+        "isDefault": true,
+        "urls": [
+          {
+            "url": "https://amrcdn.amrod.co.za/amrodprod-blob/ProductImages/ALT-1603/ALT-1603-Y_1024X1024.jpg",
+            "width": 1024,
+            "height": 1024
+          }
+        ],
+        "hasLogo": false,
+        "angle": null,
+        "type": "defaultUnbrandedImage"
+      },
+      {
+        "name": "ALT-1603-Y-GHBK",
+        "isDefault": false,
+        "urls": [
+          {
+            "url": "https://amrcdn.amrod.co.za/amrodprod-blob/ProductImages/ALT-1603/ALT-1603-Y-GHBK_1024X1024.jpg",
+            "width": 1024,
+            "height": 1024
+          }
+        ],
+        "hasLogo": false,
+        "angle": null,
+        "type": "additionalClearanceImage"
+      },
+      {
+        "name": "ALT-1603-Y-DT02",
+        "isDefault": false,
+        "urls": [
+          {
+            "url": "https://amrcdn.amrod.co.za/amrodprod-blob/ProductImages/ALT-1603/ALT-1603-Y-DT02_1024X1024.jpg",
+            "width": 1024,
+            "height": 1024
+          }
+        ],
+        "hasLogo": false,
+        "angle": null,
+        "type": "additionalClearanceImage"
+      },
+      {
+        "name": "ALT-1603-Y-DT01",
+        "isDefault": false,
+        "urls": [
+          {
+            "url": "https://amrcdn.amrod.co.za/amrodprod-blob/ProductImages/ALT-1603/ALT-1603-Y-DT01_1024X1024.jpg",
+            "width": 1024,
+            "height": 1024
+          }
+        ],
+        "hasLogo": false,
+        "angle": null,
+        "type": "additionalClearanceImage"
+      },
+      {
+        "name": "ALT-1603-Y-GHSI",
+        "isDefault": false,
+        "urls": [
+          {
+            "url": "https://amrcdn.amrod.co.za/amrodprod-blob/ProductImages/ALT-1603/ALT-1603-Y-GHSI_1024X1024.jpg",
+            "width": 1024,
+            "height": 1024
+          }
+        ],
+        "hasLogo": false,
+        "angle": null,
+        "type": "additionalClearanceImage"
+      }
+    ],
+    "videos": [],
+    "colourImages": [
+      {
+        "name": "Yellow",
+        "code": "Y",
+        "images": [
+          {
+            "name": "ALT-1603-Y",
+            "isDefault": true,
+            "urls": [
+              {
+                "url": "https://amrcdn.amrod.co.za/amrodprod-blob/ProductImages/ALT-1603/ALT-1603-Y_1024X1024.jpg",
+                "width": 1024,
+                "height": 1024
+              }
+            ],
+            "hasLogo": false,
+            "angle": null,
+            "type": "defaultUnbrandedImage"
+          },
+          {
+            "name": "ALT-1603-Y-GHBK",
+            "isDefault": false,
+            "urls": [
+              {
+                "url": "https://amrcdn.amrod.co.za/amrodprod-blob/ProductImages/ALT-1603/ALT-1603-Y-GHBK_1024X1024.jpg",
+                "width": 1024,
+                "height": 1024
+              }
+            ],
+            "hasLogo": false,
+            "angle": null,
+            "type": "additionalClearanceImage"
+          },
+          {
+            "name": "ALT-1603-Y-DT02",
+            "isDefault": false,
+            "urls": [
+              {
+                "url": "https://amrcdn.amrod.co.za/amrodprod-blob/ProductImages/ALT-1603/ALT-1603-Y-DT02_1024X1024.jpg",
+                "width": 1024,
+                "height": 1024
+              }
+            ],
+            "hasLogo": false,
+            "angle": null,
+            "type": "additionalClearanceImage"
+          },
+          {
+            "name": "ALT-1603-Y-DT01",
+            "isDefault": false,
+            "urls": [
+              {
+                "url": "https://amrcdn.amrod.co.za/amrodprod-blob/ProductImages/ALT-1603/ALT-1603-Y-DT01_1024X1024.jpg",
+                "width": 1024,
+                "height": 1024
+              }
+            ],
+            "hasLogo": false,
+            "angle": null,
+            "type": "additionalClearanceImage"
+          },
+          {
+            "name": "ALT-1603-Y-GHSI",
+            "isDefault": false,
+            "urls": [
+              {
+                "url": "https://amrcdn.amrod.co.za/amrodprod-blob/ProductImages/ALT-1603/ALT-1603-Y-GHSI_1024X1024.jpg",
+                "width": 1024,
+                "height": 1024
+              }
+            ],
+            "hasLogo": false,
+            "angle": null,
+            "type": "additionalClearanceImage"
+          }
+        ]
+      }
+    ],
+    "brandings": [
+      {
+        "positionName": "On Left or Right Chest",
+        "positionCode": "A",
+        "positionComment": null,
+        "positionMultiplier": 2,
+        "method": [
+          {
+            "brandingName": "Screen Print",
+            "brandingDepartment": "Screenprint",
+            "brandingCode": "SB",
+            "brandingInclusiveMethod": false,
+            "displayIndex": "1",
+            "maxPrintingSizeWidth": "130",
+            "maxPrintingSizeHeight": "100",
+            "numberOfColours": "1 Colour",
+            "brandingMultiplier": 1,
+            "exclusions": []
+          }
+        ]
+      },
+      {
+        "positionName": "On Back of Jacket",
+        "positionCode": "B",
+        "positionComment": null,
+        "positionMultiplier": 1,
+        "method": [
+          {
+            "brandingName": "Screen Print",
+            "brandingDepartment": "Screenprint",
+            "brandingCode": "SB",
+            "brandingInclusiveMethod": false,
+            "displayIndex": "1",
+            "maxPrintingSizeWidth": "200",
+            "maxPrintingSizeHeight": "150",
+            "numberOfColours": "1 Colour",
+            "brandingMultiplier": 1,
+            "exclusions": []
+          }
+        ]
+      }
+    ],
+    "isLogo24": false,
+    "logo24Branding": null,
+    "inclusiveBranding": [],
+    "variants": [
+      {
+        "simpleCode": "ALT-1603-Y",
+        "fullCode": "ALT-1603-Y-S",
+        "codeColour": "Y",
+        "codeColourName": "YELLOW",
+        "codeSize": "S",
+        "codeSizeName": "S",
+        "categorisedAttribute": null,
+        "packagingAndDimension": {
+          "cartonSizeDimensionL": 47,
+          "cartonSizeDimensionW": 30,
+          "cartonSizeDimensionH": 22,
+          "piecesPerCarton": 20,
+          "cartonWeight": 11.14
+        },
+        "productDimension": { "length": 30.4, "width": 26.6, "weight": 0.622 },
+        "isLogo24": false,
+        "components": null
+      },
+      {
+        "simpleCode": "ALT-1603-Y",
+        "fullCode": "ALT-1603-Y-M",
+        "codeColour": "Y",
+        "codeColourName": "YELLOW",
+        "codeSize": "M",
+        "codeSizeName": "M",
+        "categorisedAttribute": null,
+        "packagingAndDimension": {
+          "cartonSizeDimensionL": 47,
+          "cartonSizeDimensionW": 30,
+          "cartonSizeDimensionH": 22,
+          "piecesPerCarton": 20,
+          "cartonWeight": 13
+        },
+        "productDimension": { "length": 30.4, "width": 26.6, "weight": 0.622 },
+        "isLogo24": false,
+        "components": null
+      },
+      {
+        "simpleCode": "ALT-1603-Y",
+        "fullCode": "ALT-1603-Y-L",
+        "codeColour": "Y",
+        "codeColourName": "YELLOW",
+        "codeSize": "L",
+        "codeSizeName": "L",
+        "categorisedAttribute": null,
+        "packagingAndDimension": {
+          "cartonSizeDimensionL": 47,
+          "cartonSizeDimensionW": 30,
+          "cartonSizeDimensionH": 22,
+          "piecesPerCarton": 20,
+          "cartonWeight": 13
+        },
+        "productDimension": { "length": 31.3, "width": 27.3, "weight": 0.642 },
+        "isLogo24": false,
+        "components": null
+      },
+      {
+        "simpleCode": "ALT-1603-Y",
+        "fullCode": "ALT-1603-Y-XL",
+        "codeColour": "Y",
+        "codeColourName": "YELLOW",
+        "codeSize": "XL",
+        "codeSizeName": "XL",
+        "categorisedAttribute": null,
+        "packagingAndDimension": {
+          "cartonSizeDimensionL": 47,
+          "cartonSizeDimensionW": 30,
+          "cartonSizeDimensionH": 22,
+          "piecesPerCarton": 20,
+          "cartonWeight": 13
+        },
+        "productDimension": { "length": 29.6, "width": 25.2, "weight": 0.698 },
+        "isLogo24": false,
+        "components": null
+      },
+      {
+        "simpleCode": "ALT-1603-Y",
+        "fullCode": "ALT-1603-Y-2XL",
+        "codeColour": "Y",
+        "codeColourName": "YELLOW",
+        "codeSize": "2XL",
+        "codeSizeName": "2XL",
+        "categorisedAttribute": null,
+        "packagingAndDimension": {
+          "cartonSizeDimensionL": 47,
+          "cartonSizeDimensionW": 30,
+          "cartonSizeDimensionH": 22,
+          "piecesPerCarton": 20,
+          "cartonWeight": 15.26
+        },
+        "productDimension": { "length": 31.9, "width": 25.6, "weight": 0.738 },
+        "isLogo24": false,
+        "components": null
+      },
+      {
+        "simpleCode": "ALT-1603-Y",
+        "fullCode": "ALT-1603-Y-3XL",
+        "codeColour": "Y",
+        "codeColourName": "YELLOW",
+        "codeSize": "3XL",
+        "codeSizeName": "3XL",
+        "categorisedAttribute": null,
+        "packagingAndDimension": {
+          "cartonSizeDimensionL": 47,
+          "cartonSizeDimensionW": 30,
+          "cartonSizeDimensionH": 22,
+          "piecesPerCarton": 20,
+          "cartonWeight": 16
+        },
+        "productDimension": { "length": 32.5, "width": 27.6, "weight": 0.732 },
+        "isLogo24": false,
+        "components": null
+      },
+      {
+        "simpleCode": "ALT-1603-Y",
+        "fullCode": "ALT-1603-Y-4XL",
+        "codeColour": "Y",
+        "codeColourName": "YELLOW",
+        "codeSize": "4XL",
+        "codeSizeName": "4XL",
+        "categorisedAttribute": null,
+        "packagingAndDimension": {
+          "cartonSizeDimensionL": 47,
+          "cartonSizeDimensionW": 30,
+          "cartonSizeDimensionH": 22,
+          "piecesPerCarton": 20,
+          "cartonWeight": 13
+        },
+        "productDimension": { "length": 31.5, "width": 27.6, "weight": 0.732 },
+        "isLogo24": false,
+        "components": null
+      },
+      {
+        "simpleCode": "ALT-1603-Y",
+        "fullCode": "ALT-1603-Y-5XL",
+        "codeColour": "Y",
+        "codeColourName": "YELLOW",
+        "codeSize": "5XL",
+        "codeSizeName": "5XL",
+        "categorisedAttribute": null,
+        "packagingAndDimension": {
+          "cartonSizeDimensionL": 47,
+          "cartonSizeDimensionW": 30,
+          "cartonSizeDimensionH": 22,
+          "piecesPerCarton": 20,
+          "cartonWeight": 16.12
+        },
+        "productDimension": { "length": 31.2, "width": 1, "weight": 1 },
+        "isLogo24": false,
+        "components": null
+      }
+    ],
+    "requiredBrandingPositions": [],
+    "noCoBrandingPositions": [],
+    "brandingTemplates": [],
+    "decoupled": true,
+    "type": "Product"
+  },
+  {
+    "another-product": "same as above"
+  }
+]

@@ -1,0 +1,62 @@
+[
+  {
+    "name": "Andy Cartwright",
+    "code": "AC",
+    "order": 99999,
+    "image": "https://amrcdn.amrod.co.za/amrodprod-blob/_default_upload_bucket/Andy-Cartwright.png"
+  },
+  {
+    "name": "Altitude",
+    "code": "AL",
+    "order": 99999,
+    "image": "https://amrcdn.amrod.co.za/amrodprod-blob/_default_upload_bucket/Altitude.png"
+  },
+  {
+    "name": "Alex Varga",
+    "code": "AV",
+    "order": 99999,
+    "image": "https://amrcdn.amrod.co.za/amrodprod-blob/_default_upload_bucket/Alex-Varga.png"
+  },
+  {
+    "name": "Biz Collection",
+    "code": "BC",
+    "order": 99999,
+    "image": "https://amrcdn.amrod.co.za/amrodprod-blob/_default_upload_bucket/BizCollection_1.png"
+  },
+  {
+    "name": "Cutter and Buck Collection",
+    "code": "CB",
+    "order": 99999,
+    "image": "https://amrcdn.amrod.co.za/amrodprod-blob/_default_upload_bucket/Cutter&Buck.png"
+  },
+  {
+    "name": "Eva and Elm",
+    "code": "EE",
+    "order": 99999,
+    "image": "https://amrcdn.amrod.co.za/amrodprod-blob/_default_upload_bucket/Eva&Elm-Web-Logo-Colour-250px-x-40px.jpg"
+  },
+  {
+    "name": "Elevate",
+    "code": "EL",
+    "order": 99999,
+    "image": "https://amrcdn.amrod.co.za/amrodprod-blob/_default_upload_bucket/Elevate.png"
+  },
+  {
+    "name": "Gary Player",
+    "code": "GP",
+    "order": 99999,
+    "image": "https://amrcdn.amrod.co.za/amrodprod-blob/_default_upload_bucket/Gary-Player.png"
+  },
+  {
+    "name": "Kooshty",
+    "code": "KS",
+    "order": 99999,
+    "image": "https://amrcdn.amrod.co.za/amrodprod-blob/_default_upload_bucket/Kooshty.png"
+  },
+  {
+    "name": "Okiyo",
+    "code": "OK",
+    "order": 99999,
+    "image": "https://amrcdn.amrod.co.za/amrodprod-blob/_default_upload_bucket/Okiyo.png"
+  }
+]

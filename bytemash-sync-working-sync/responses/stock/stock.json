@@ -1,0 +1,27 @@
+[
+  {
+    "simpleCode": "AF-AM-7-D",
+    "fullCode": "AF-AM-7-D",
+    "stockType": 0,
+    "colourCode": null,
+    "stock": 10000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-10T12:25:33.8291143+02:00"
+  },
+  {
+    "simpleCode": "FRAME-2140",
+    "fullCode": "FRAME-2140",
+    "stockType": 3,
+    "colourCode": null,
+    "stock": 29,
+    "reservedStock": 0,
+    "incomingStock": [
+      {
+        "total": 10,
+        "date": "2025-12-04T02:00:00+02:00"
+      }
+    ],
+    "modifiedDate": "2025-10-10T12:25:58.833247+02:00"
+  }
+]

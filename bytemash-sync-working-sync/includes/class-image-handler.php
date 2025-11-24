@@ -27,17 +27,6 @@ class ByteMash_Image_Handler {
      * Sync product images
      */
     public function sync_product_images($product_id, $images) {
-        // DISABLED: Images should use CDN URLs, not be downloaded
-        // The actual image sync is handled by ByteMash_Product_Sync::sync_product_images()
-        // which stores CDN URLs in post meta instead of downloading
-        
-        $this->logger->log('info', 'Image download disabled - using CDN URLs via ByteMash_Product_Sync instead', array(
-            'product_id' => $product_id,
-        ), 'image_sync');
-        
-        return;
-        
-        /* ORIGINAL CODE DISABLED - DO NOT RE-ENABLE
         if (empty($images) || !is_array($images)) {
             return;
         }
@@ -73,7 +62,6 @@ class ByteMash_Image_Handler {
             'product_id' => $product_id,
             'count' => count($image_ids),
         ), 'image_sync');
-        */
     }
     
     /**
@@ -93,16 +81,6 @@ class ByteMash_Image_Handler {
      * Upload image from URL
      */
     private function upload_image($image_url, $product_id) {
-        // DISABLED: Images should use CDN URLs, not be downloaded
-        // This method is kept for compatibility but does nothing
-        $this->logger->log('info', 'Image download disabled - using CDN URLs instead', array(
-            'url' => $image_url,
-            'product_id' => $product_id,
-        ), 'image_sync');
-        
-        return false;
-        
-        /* ORIGINAL CODE DISABLED - DO NOT RE-ENABLE
         // Validate image URL
         if (empty($image_url) || !filter_var($image_url, FILTER_VALIDATE_URL)) {
             $this->logger->log('warning', 'Skipping image - invalid URL', array(
@@ -158,7 +136,6 @@ class ByteMash_Image_Handler {
         update_post_meta($attachment_id, '_amrod_image_url', $image_url);
         
         return $attachment_id;
-        */
     }
     
     /**

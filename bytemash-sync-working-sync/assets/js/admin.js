@@ -220,29 +220,16 @@
                 },
                 success: function(response) {
                     if (response.success) {
-                        let statusHtml = '<div class="notice notice-success"><p>' + response.data.message;
-                        if (response.data.next_full_sync) {
-                            statusHtml += '<br><strong>Next full sync:</strong> ' + response.data.next_full_sync;
-                        }
-                        if (response.data.next_incremental_sync) {
-                            statusHtml += '<br><strong>Next incremental sync:</strong> ' + response.data.next_incremental_sync;
-                        }
-                        statusHtml += '</p></div>';
-                        $('#production-full-sync-status').html(statusHtml);
+                        $('#production-full-sync-status').html(
+                            '<div class="notice notice-success"><p>' + response.data.message + 
+                            (response.data.next_full_sync ? ' Next sync: ' + response.data.next_full_sync + '</p></div>' : '</p></div>')
+                        );
                         
                         // Update button text and class
                         if (response.data.enabled) {
                             $button.text('Disable Production Full Sync').removeClass('button-primary').addClass('button-secondary');
                         } else {
                             $button.text('Enable Production Full Sync').removeClass('button-secondary').addClass('button-primary');
-                        }
-                        
-                        // Update badge
-                        const $badge = $('.production-full-sync-section .test-mode-badge');
-                        if (response.data.enabled) {
-                            $badge.removeClass('disabled').addClass('enabled').text('Enabled');
-                        } else {
-                            $badge.removeClass('enabled').addClass('disabled').text('Disabled');
                         }
                         
                         // Reload page after 2 seconds to show updated status
@@ -621,40 +608,6 @@
                 html += '<span class="skipped">' + sync.skipped + ' skipped</span>';
             }
             html += '</div>';
-            
-            // Show cleanup/deletion status if available
-            if (sync.cleanup_status || sync.status === 'deleting_excess') {
-                let cleanupClass = 'info';
-                let cleanupIcon = '🔄';
-                let cleanupTitle = 'Cleanup';
-                
-                if (sync.status === 'deleting_excess') {
-                    cleanupTitle = 'Deleting Excess Products';
-                    cleanupIcon = '🗑️';
-                    cleanupClass = 'warning';
-                } else if (sync.cleanup_status === 'completed') {
-                    cleanupClass = 'success';
-                    cleanupIcon = '✓';
-                } else if (sync.cleanup_status === 'starting') {
-                    cleanupIcon = '🔄';
-                } else if (sync.cleanup_status === 'in_progress') {
-                    cleanupIcon = '🗑️';
-                    cleanupClass = 'warning';
-                }
-                
-                let message = sync.cleanup_message || (sync.status === 'deleting_excess' ? 'Deleting excess products...' : 'Checking for excess products...');
-                
-                html += '<div class="cleanup-status ' + cleanupClass + '" style="margin-top: 10px; padding: 10px; background: #fff3cd; border-left: 4px solid #ffc107; border-radius: 4px;">';
-                html += '<strong>' + cleanupIcon + ' ' + cleanupTitle + ': </strong>';
-                html += '<span>' + message + '</span>';
-                if (sync.cleanup_deleted !== undefined && sync.cleanup_deleted > 0) {
-                    html += ' <span style="color: #dc3545; font-weight: bold;">(' + sync.cleanup_deleted + ' products deleted)</span>';
-                }
-                if (sync.cleanup_checked !== undefined && sync.cleanup_checked > 0) {
-                    html += ' <span style="color: #6c757d;">(' + sync.cleanup_checked + ' checked)</span>';
-                }
-                html += '</div>';
-            }
             html += '<div class="batch-list">';
             
             // Show individual batches
@@ -1027,18 +980,59 @@
             html += '<div id="batch_progress_overall" class="batch-progress-overall"></div>';
             html += '<div id="batch_list" class="batch-items">';
             
-            for (let i = 0; i < batchCount; i++) {
+            // Show first 10 batches initially
+            for (let i = 0; i < Math.min(batchCount, 10); i++) {
                 html += '<div class="batch-item" id="batch_' + i + '" data-batch="' + i + '">';
-                html += '<div class="batch-head">';
                 html += '<span class="batch-number">Batch ' + (i + 1) + '</span>';
                 html += '<span class="batch-status">Waiting...</span>';
                 html += '</div>';
-                html += '</div>';
+            }
+            
+            if (batchCount > 10) {
+                html += '<div class="batch-item more" id="batch_more">... and ' + (batchCount - 10) + ' more batches</div>';
             }
             
             html += '</div></div>';
             
             $container.html(html);
+        }
+        
+        /**
+         * Update batch window (slide to show current batches)
+         */
+        function updateBatchWindow(currentBatch, totalBatches) {
+            // Determine which window to show (batches 0-9, 10-19, 20-29, etc.)
+            const windowStart = Math.floor(currentBatch / 10) * 10;
+            const windowEnd = Math.min(windowStart + 10, totalBatches);
+            
+            // Only update if we've moved to a new window
+            if (currentBatch % 10 === 0 && currentBatch > 0) {
+                console.log('📊 Updating batch window:', windowStart, '-', windowEnd);
+                
+                const $batchList = $('#batch_list');
+                let html = '';
+                
+                // Show current window of 10 batches
+                for (let i = windowStart; i < windowEnd; i++) {
+                    html += '<div class="batch-item" id="batch_' + i + '" data-batch="' + i + '">';
+                    html += '<span class="batch-number">Batch ' + (i + 1) + '</span>';
+                    html += '<span class="batch-status">Waiting...</span>';
+                    html += '</div>';
+                }
+                
+                // Show "more batches" indicator
+                const remaining = totalBatches - windowEnd;
+                if (remaining > 0) {
+                    html += '<div class="batch-item more" id="batch_more">... and ' + remaining + ' more batches</div>';
+                }
+                
+                $batchList.html(html);
+                
+                // Mark already completed batches in this window
+                for (let i = windowStart; i < currentBatch; i++) {
+                    $('#batch_' + i).addClass('completed').find('.batch-status').text('✓ Done');
+                }
+            }
         }
         
         /**
@@ -1108,25 +1102,28 @@
                     currentBatchIndex = batch;
                     
                     // Update batch window FIRST (slide to show current batches if needed)
-                    // Safety check: Ensure batch element exists
+                    updateBatchWindow(batch, totalBatches);
+                    
+                    // Safety check: Ensure batch element exists AFTER window update
                     if ($('#batch_' + batch).length === 0) {
-                        const batchHtml = '<div class="batch-item" id="batch_' + batch + '" data-batch="' + batch + '">' +
-                            '<div class="batch-head">' +
+                        console.error('❌ Batch element STILL not found for batch ' + batch + ' after window update!');
+                        // Try to create it dynamically
+                        const windowStart = Math.floor(batch / 10) * 10;
+                        if (batch >= windowStart && batch < windowStart + 10) {
+                            console.log('Creating missing batch element dynamically');
+                            const batchHtml = '<div class="batch-item" id="batch_' + batch + '" data-batch="' + batch + '">' +
                                 '<span class="batch-number">Batch ' + (batch + 1) + '</span>' +
                                 '<span class="batch-status">Processing...</span>' +
-                            '</div>' +
-                        '</div>';
-                        $('#batch_list').append(batchHtml);
+                                '</div>';
+                            $('#batch_list').append(batchHtml);
+                        }
                     }
-                                        
+                    
                     // Update UI for completed batch with detailed status
                     const batchErrors = response.data.errors || 0;
                     const batchSkipped = response.data.skipped || 0;
                     const totalSkipped = response.data.total_skipped || 0;
                     const totalErrors = response.data.total_errors || 0;
-                    const lastChangedFields = response.data.last_changed_fields || [];
-                    const lastProcessingReason = response.data.last_processing_reason || '';
-                    const lastSkipReason = response.data.last_skip_reason || '';
                     
                     // Calculate percentage based on ALL attempted items (processed + skipped + errors)
                     const totalAttempted = totalProcessed + totalSkipped + totalErrors;
@@ -1146,29 +1143,7 @@
                         batchStatusText += 'No items';
                     }
                     
-                    const $batchItem = $('#batch_' + batch);
-                    $batchItem.removeClass('processing').addClass('completed').find('.batch-status').text(batchStatusText);
-
-                    // Append meta details (reasons / changed fields) for product sync batches
-                    let metaLines = [];
-                    if (lastProcessingReason && batchSkipped === 0) {
-                        metaLines.push('<strong>Reason:</strong> ' + formatReasonLabel(lastProcessingReason));
-                    }
-                    if (batchSkipped > 0 && lastSkipReason) {
-                        metaLines.push('<strong>Skipped:</strong> ' + formatReasonLabel(lastSkipReason));
-                    }
-                    if (lastChangedFields.length > 0) {
-                        metaLines.push('<strong>Changed:</strong> ' + lastChangedFields.join(', '));
-                    }
-                    if (metaLines.length > 0) {
-                        const metaHtml = '<div class="batch-meta">' + metaLines.join('<br>') + '</div>';
-                        const $existingMeta = $batchItem.find('.batch-meta');
-                        if ($existingMeta.length) {
-                            $existingMeta.html(metaHtml);
-                        } else {
-                            $batchItem.append(metaHtml);
-                        }
-                    }
+                    $('#batch_' + batch).removeClass('processing').addClass('completed').find('.batch-status').text(batchStatusText);
                     
                     // Update overall progress
                     let statsHtml = '<strong>' + totalAttempted.toLocaleString() + '/' + totalProducts.toLocaleString() + '</strong> items attempted (' + percentage + '%)';
@@ -1427,18 +1402,6 @@
                 "'": '&#039;'
             };
             return text.replace(/[&<>"']/g, function(m) { return map[m]; });
-        }
-
-        function formatReasonLabel(reason) {
-            if (!reason) {
-                return '';
-            }
-            try {
-                const label = reason.toString().replace(/_/g, ' ');
-                return label.charAt(0).toUpperCase() + label.slice(1);
-            } catch (err) {
-                return reason;
-            }
         }
         
         // On page load, check if there are any active syncs to resume

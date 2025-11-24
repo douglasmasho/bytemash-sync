@@ -1,0 +1,432 @@
+[
+  {
+    "simpleCode": "BC-HP-1-G",
+    "fullCode": "BC-HP-1-G",
+    "stockType": 0,
+    "colourCode": null,
+    "stock": 80000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8343308+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-1-G",
+    "fullCode": "BC-HP-1-G-BL",
+    "stockType": 1,
+    "colourCode": "BL",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8344109+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-1-G",
+    "fullCode": "BC-HP-1-G-GY",
+    "stockType": 1,
+    "colourCode": "GY",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8344764+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-1-G",
+    "fullCode": "BC-HP-1-G-N",
+    "stockType": 1,
+    "colourCode": "N",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8345399+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-1-G",
+    "fullCode": "BC-HP-1-G-R",
+    "stockType": 1,
+    "colourCode": "R",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8346015+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-1-G",
+    "fullCode": "BC-HP-1-G-BL-0",
+    "stockType": 2,
+    "colourCode": "BL",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8372532+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-1-G",
+    "fullCode": "BC-HP-1-G-GY-0",
+    "stockType": 2,
+    "colourCode": "GY",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8388358+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-1-G",
+    "fullCode": "BC-HP-1-G-N-0",
+    "stockType": 2,
+    "colourCode": "N",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8399874+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-1-G",
+    "fullCode": "BC-HP-1-G-R-0",
+    "stockType": 2,
+    "colourCode": "R",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8442074+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-10-G",
+    "fullCode": "BC-HP-10-G",
+    "stockType": 0,
+    "colourCode": null,
+    "stock": 80000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8444394+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-10-G",
+    "fullCode": "BC-HP-10-G-BL",
+    "stockType": 1,
+    "colourCode": "BL",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8447554+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-10-G",
+    "fullCode": "BC-HP-10-G-GY",
+    "stockType": 1,
+    "colourCode": "GY",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8448268+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-10-G",
+    "fullCode": "BC-HP-10-G-N",
+    "stockType": 1,
+    "colourCode": "N",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8448919+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-10-G",
+    "fullCode": "BC-HP-10-G-R",
+    "stockType": 1,
+    "colourCode": "R",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8449545+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-10-G",
+    "fullCode": "BC-HP-10-G-BL-0",
+    "stockType": 2,
+    "colourCode": "BL",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8478226+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-10-G",
+    "fullCode": "BC-HP-10-G-GY-0",
+    "stockType": 2,
+    "colourCode": "GY",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8491384+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-10-G",
+    "fullCode": "BC-HP-10-G-N-0",
+    "stockType": 2,
+    "colourCode": "N",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8502881+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-10-G",
+    "fullCode": "BC-HP-10-G-R-0",
+    "stockType": 2,
+    "colourCode": "R",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8513818+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-101-G",
+    "fullCode": "BC-HP-101-G",
+    "stockType": 0,
+    "colourCode": null,
+    "stock": 80000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8515389+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-101-G",
+    "fullCode": "BC-HP-101-G-BL",
+    "stockType": 1,
+    "colourCode": "BL",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8517763+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-101-G",
+    "fullCode": "BC-HP-101-G-GY",
+    "stockType": 1,
+    "colourCode": "GY",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8518477+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-101-G",
+    "fullCode": "BC-HP-101-G-N",
+    "stockType": 1,
+    "colourCode": "N",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8519128+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-101-G",
+    "fullCode": "BC-HP-101-G-R",
+    "stockType": 1,
+    "colourCode": "R",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.851976+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-101-G",
+    "fullCode": "BC-HP-101-G-BL-0",
+    "stockType": 2,
+    "colourCode": "BL",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8531903+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-101-G",
+    "fullCode": "BC-HP-101-G-GY-0",
+    "stockType": 2,
+    "colourCode": "GY",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8542381+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-101-G",
+    "fullCode": "BC-HP-101-G-N-0",
+    "stockType": 2,
+    "colourCode": "N",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8552984+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-101-G",
+    "fullCode": "BC-HP-101-G-R-0",
+    "stockType": 2,
+    "colourCode": "R",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8565785+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-103-G",
+    "fullCode": "BC-HP-103-G",
+    "stockType": 0,
+    "colourCode": null,
+    "stock": 80000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.856711+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-103-G",
+    "fullCode": "BC-HP-103-G-BL",
+    "stockType": 1,
+    "colourCode": "BL",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8569025+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-103-G",
+    "fullCode": "BC-HP-103-G-GY",
+    "stockType": 1,
+    "colourCode": "GY",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8569713+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-103-G",
+    "fullCode": "BC-HP-103-G-N",
+    "stockType": 1,
+    "colourCode": "N",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8570346+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-103-G",
+    "fullCode": "BC-HP-103-G-R",
+    "stockType": 1,
+    "colourCode": "R",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8570968+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-103-G",
+    "fullCode": "BC-HP-103-G-BL-0",
+    "stockType": 2,
+    "colourCode": "BL",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8582134+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-103-G",
+    "fullCode": "BC-HP-103-G-GY-0",
+    "stockType": 2,
+    "colourCode": "GY",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8592438+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-103-G",
+    "fullCode": "BC-HP-103-G-N-0",
+    "stockType": 2,
+    "colourCode": "N",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8602963+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-103-G",
+    "fullCode": "BC-HP-103-G-R-0",
+    "stockType": 2,
+    "colourCode": "R",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8613382+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-11-G",
+    "fullCode": "BC-HP-11-G",
+    "stockType": 0,
+    "colourCode": null,
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.861445+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-11-G",
+    "fullCode": "BC-HP-11-G-BL",
+    "stockType": 1,
+    "colourCode": "BL",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8615843+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-11-G",
+    "fullCode": "BC-HP-11-G-BL-0",
+    "stockType": 2,
+    "colourCode": "BL",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8626861+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-12-G",
+    "fullCode": "BC-HP-12-G",
+    "stockType": 0,
+    "colourCode": null,
+    "stock": 80000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.862764+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-12-G",
+    "fullCode": "BC-HP-12-G-BL",
+    "stockType": 1,
+    "colourCode": "BL",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8628692+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-12-G",
+    "fullCode": "BC-HP-12-G-GY",
+    "stockType": 1,
+    "colourCode": "GY",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.862935+02:00"
+  },
+  {
+    "simpleCode": "BC-HP-12-G",
+    "fullCode": "BC-HP-12-G-N",
+    "stockType": 1,
+    "colourCode": "N",
+    "stock": 20000,
+    "reservedStock": 0,
+    "incomingStock": null,
+    "modifiedDate": "2025-10-29T06:25:35.8629972+02:00"
+  }
+]

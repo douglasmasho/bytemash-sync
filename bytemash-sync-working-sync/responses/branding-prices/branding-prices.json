@@ -1,0 +1,131 @@
+[
+    {
+        "brandingCode": "DCB",
+        "brandingMethod": "Digital Custom Gift Bag",
+        "data": [
+            {
+                "printCode": "DCB-CHG-2",
+                "minQuantity": 1,
+                "maxQuantity": -1,
+                "numberOfColours": -1,
+                "setup": 185.63,
+                "price": 2.60
+            },
+            {
+                "printCode": "DCB-CHG-3",
+                "minQuantity": 1,
+                "maxQuantity": -1,
+                "numberOfColours": -1,
+                "setup": 185.63,
+                "price": 3.47
+            },
+            {
+                "printCode": "DCB-CHG-1",
+                "minQuantity": 1,
+                "maxQuantity": -1,
+                "numberOfColours": -1,
+                "setup": 185.63,
+                "price": 1.73
+            }
+        ]
+    },
+    {
+        "brandingCode": "DCP",
+        "brandingMethod": "Digital Custom Packaging",
+        "data": [
+            {
+                "printCode": "DCP-CHG-6",
+                "minQuantity": 1,
+                "maxQuantity": -1,
+                "numberOfColours": -1,
+                "setup": 185.63,
+                "price": 4.33
+            },
+            {
+                "printCode": "DCP-CHG-4",
+                "minQuantity": 1,
+                "maxQuantity": -1,
+                "numberOfColours": -1,
+                "setup": 185.63,
+                "price": 4.33
+            },
+            {
+                "printCode": "DCP-CHG-1",
+                "minQuantity": 1,
+                "maxQuantity": -1,
+                "numberOfColours": -1,
+                "setup": 185.63,
+                "price": 2.19
+            },
+            {
+                "printCode": "DCP-CHG-2",
+                "minQuantity": 1,
+                "maxQuantity": -1,
+                "numberOfColours": -1,
+                "setup": 185.63,
+                "price": 2.19
+            },
+            {
+                "printCode": "DCP-CHG-3",
+                "minQuantity": 1,
+                "maxQuantity": -1,
+                "numberOfColours": -1,
+                "setup": 185.63,
+                "price": 2.19
+            },
+            {
+                "printCode": "DCP-CHG-5",
+                "minQuantity": 1,
+                "maxQuantity": -1,
+                "numberOfColours": -1,
+                "setup": 185.63,
+                "price": 4.33
+            }
+        ]
+    },
+    {
+        "brandingCode": "DP-B",
+        "brandingMethod": "Direct to Product",
+        "data": [
+            {
+                "printCode": "DP-B-2",
+                "minQuantity": 100,
+                "maxQuantity": 499,
+                "numberOfColours": -1,
+                "setup": 268.13,
+                "price": 6.19
+            },
+            {
+                "printCode": "DP-B-1",
+                "minQuantity": 1,
+                "maxQuantity": 99,
+                "numberOfColours": -1,
+                "setup": 268.13,
+                "price": 6.60
+            },
+            {
+                "printCode": "DP-B-4",
+                "minQuantity": 1000,
+                "maxQuantity": 2499,
+                "numberOfColours": -1,
+                "setup": 268.13,
+                "price": 5.36
+            },
+            {
+                "printCode": "DP-B-5",
+                "minQuantity": 2500,
+                "maxQuantity": -1,
+                "numberOfColours": -1,
+                "setup": 268.13,
+                "price": 4.95
+            },
+            {
+                "printCode": "DP-B-3",
+                "minQuantity": 500,
+                "maxQuantity": 999,
+                "numberOfColours": -1,
+                "setup": 268.13,
+                "price": 5.78
+            }
+        ]
+    }]

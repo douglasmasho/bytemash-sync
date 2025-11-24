@@ -1,0 +1,307 @@
+/**
+ * Color Swatches for WooCommerce Variations
+ * 
+ * Displays visual color swatches instead of dropdown for color attribute
+ */
+
+/* Restructure variation form from table to div layout */
+.bytemash-variations-container {
+    margin: 20px 0;
+}
+
+.bytemash-variation-attribute {
+    margin-bottom: 20px;
+}
+
+.bytemash-attribute-label {
+    font-weight: 600;
+    margin-bottom: 8px;
+    color: #333;
+    font-size: 14px;
+}
+
+.bytemash-attribute-value {
+    /* Container for the swatches/buttons */
+}
+
+/* Hide original WooCommerce table structure */
+.bytemash-variations-container .variations table,
+.bytemash-variations-container table.variations,
+.bytemash-variations-container ~ table.variations {
+    display: none;
+}
+
+/* Also hide table if it still exists in variations form */
+.variations_form .variations table,
+.variations_form table.variations,
+.variations table {
+    display: none !important;
+}
+
+/* Show our restructured container */
+.bytemash-variations-container {
+    display: block !important;
+}
+
+/* Ensure the new structure is visible and properly styled */
+.bytemash-variation-attribute {
+    display: block !important;
+}
+
+.bytemash-attribute-label {
+    display: block !important;
+}
+
+.bytemash-attribute-value {
+    display: block !important;
+}
+
+/* Hide default color select dropdown */
+.variations .value select[name="attribute_color"],
+.bytemash-variations-container select[name="attribute_color"] {
+    display: none;
+}
+
+/* Swatch container */
+.bytemash-color-swatches {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 10px 0;
+}
+
+/* Individual swatch */
+.bytemash-color-swatch {
+    position: relative;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 2px solid #000;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.15);
+}
+
+.bytemash-color-swatch:hover {
+    transform: scale(1.1);
+    border-color: #000;
+    border-width: 3px;
+    box-shadow: 0 3px 8px rgba(0,0,0,0.25);
+}
+
+/* Selected state */
+.bytemash-color-swatch.selected {
+    border: 3px solid #000;
+    box-shadow: 0 0 0 2px #fff, 0 0 0 4px #000;
+    transform: scale(1.05);
+}
+
+/* Checkmark for selected */
+.bytemash-color-swatch.selected::after {
+    content: '✓';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: var(--tick-color, #fff);
+    font-weight: bold;
+    font-size: 20px;
+    text-shadow: 0 0 2px rgba(0,0,0,0.5);
+}
+
+/* Disabled state */
+.bytemash-color-swatch.disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.bytemash-color-swatch.disabled:hover {
+    transform: none;
+    border-color: #000;
+    border-width: 2px;
+}
+
+/* Tooltip on hover */
+.bytemash-color-swatch::before {
+    content: attr(data-color-name);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #333;
+    color: #fff;
+    padding: 5px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+    margin-bottom: 8px;
+}
+
+.bytemash-color-swatch::after {
+    content: '';
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-top-color: #333;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+    margin-bottom: 2px;
+}
+
+.bytemash-color-swatch:hover::before,
+.bytemash-color-swatch:hover::after {
+    opacity: 1;
+}
+
+/* Swatch label */
+.bytemash-color-swatches-label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 600;
+    color: #333;
+}
+
+/* Selected color name display */
+.bytemash-selected-color {
+    margin-top: 10px;
+    font-size: 14px;
+    color: #666;
+}
+
+.bytemash-selected-color strong {
+    color: #000;
+}
+
+/* Size Buttons */
+/* Hide default size select dropdown */
+.variations .value select[name="attribute_size"],
+.bytemash-variations-container select[name="attribute_size"] {
+    display: none;
+}
+
+/* Size button container */
+.bytemash-size-buttons {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin: 10px 0;
+}
+
+/* Individual size button - circular with label */
+.bytemash-size-button {
+    width: 50px;
+    height: 50px;
+    min-width: 50px;
+    padding: 0;
+    border: 2px solid #ddd;
+    background: #fff;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 14px;
+    font-weight: 600;
+    color: #333;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.05);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    text-align: center;
+    line-height: 1;
+}
+
+.bytemash-size-button:hover:not(.disabled) {
+    border-color: #999;
+    background: #f8f8f8;
+    transform: scale(1.1);
+    box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+}
+
+/* Selected state */
+.bytemash-size-button.selected {
+    border: 3px solid #000;
+    background: #000;
+    color: #fff;
+    font-weight: 700;
+    box-shadow: 0 0 0 2px #fff, 0 0 0 4px #000;
+    transform: scale(1.05);
+}
+
+/* Disabled state */
+.bytemash-size-button.disabled {
+    opacity: 0.4;
+    cursor: not-allowed;
+    background: #f5f5f5;
+    color: #999;
+}
+
+.bytemash-size-button.disabled:hover {
+    transform: none;
+    border-color: #ddd;
+    background: #f5f5f5;
+}
+
+/* Selected size name display */
+.bytemash-selected-size {
+    margin-top: 10px;
+    font-size: 14px;
+    color: #666;
+}
+
+.bytemash-selected-size strong {
+    color: #000;
+}
+
+/* Shop page color swatches (from [amrod_color_swatches] shortcode) */
+.amrod-color-swatch-circle {
+    position: relative;
+    width: 30px;
+    height: 30px;
+    border-radius: 50%;
+    border: 2px solid #000 !important;
+    cursor: pointer;
+    display: inline-block;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.15) !important;
+}
+
+.amrod-color-swatch-circle:hover {
+    transform: scale(1.15);
+    box-shadow: 0 3px 8px rgba(0,0,0,0.25) !important;
+    border-width: 3px !important;
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+    .bytemash-color-swatch {
+        width: 35px;
+        height: 35px;
+    }
+    
+    .bytemash-color-swatches {
+        gap: 8px;
+    }
+    
+    .bytemash-size-button {
+        width: 45px;
+        height: 45px;
+        min-width: 45px;
+        font-size: 13px;
+    }
+    
+    .bytemash-size-buttons {
+        gap: 6px;
+    }
+    
+    .amrod-color-swatch-circle {
+        width: 28px;
+        height: 28px;
+    }
+}
+
+
