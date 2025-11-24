@@ -1105,7 +1105,40 @@
                     });
                     
                     // Track batch index
+                    const previousBatchIndex = currentBatchIndex;
                     currentBatchIndex = batch;
+                    
+                    // Get list of all completed batches from server response
+                    const completedBatches = response.data.completed_batches || [];
+                    
+                    // Mark all completed batches (handles out-of-order completion)
+                    completedBatches.forEach(function(completedBatchIndex) {
+                        const $completedBatch = $('#batch_' + completedBatchIndex);
+                        if ($completedBatch.length && !$completedBatch.hasClass('completed')) {
+                            // Only update if not already completed (to preserve detailed status)
+                            if (!$completedBatch.hasClass('completed')) {
+                                $completedBatch.removeClass('processing').addClass('completed');
+                                // If it was just "Waiting...", mark as completed with generic status
+                                const $status = $completedBatch.find('.batch-status');
+                                if ($status.text() === 'Waiting...' || $status.text().indexOf('Processing...') !== -1) {
+                                    $status.text('✓ Completed');
+                                }
+                            }
+                        }
+                    });
+                    
+                    // If server processed a batch out of order, mark any gaps as completed
+                    // (they were likely stuck and got reset by the timeout mechanism)
+                    if (previousBatchIndex !== null && previousBatchIndex !== undefined && batch > previousBatchIndex + 1) {
+                        console.log('⚠️ Batch ' + batch + ' completed, but expected batch ' + (previousBatchIndex + 1) + '. Marking intermediate batches as completed.');
+                        for (let i = previousBatchIndex + 1; i < batch; i++) {
+                            const $gapBatch = $('#batch_' + i);
+                            if ($gapBatch.length && !$gapBatch.hasClass('completed')) {
+                                $gapBatch.removeClass('processing').addClass('completed');
+                                $gapBatch.find('.batch-status').text('✓ Completed (auto)');
+                            }
+                        }
+                    }
                     
                     // Update batch window FIRST (slide to show current batches if needed)
                     // Safety check: Ensure batch element exists

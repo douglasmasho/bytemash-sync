@@ -3226,6 +3226,27 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         global $wpdb;
         $table_name = $wpdb->prefix . 'bytemash_sync_queue';
         
+        // Ensure updated_at column exists (for timeout detection)
+        $column_exists = $wpdb->get_results($wpdb->prepare(
+            "SHOW COLUMNS FROM {$table_name} LIKE 'updated_at'"
+        ));
+        if (empty($column_exists)) {
+            $wpdb->query("ALTER TABLE {$table_name} ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
+        }
+        
+        // First, reset any stuck "processing" batches (older than 5 minutes)
+        // This handles cases where a batch was marked as processing but the request timed out
+        $timeout_seconds = 300; // 5 minutes
+        $wpdb->query($wpdb->prepare(
+            "UPDATE {$table_name} 
+             SET status = 'pending', updated_at = NOW() 
+             WHERE sync_id = %s 
+             AND status = 'processing' 
+             AND (updated_at < DATE_SUB(NOW(), INTERVAL %d SECOND) OR updated_at IS NULL)",
+            $sync_id,
+            $timeout_seconds
+        ));
+        
         $batch_row = $wpdb->get_row($wpdb->prepare(
             "SELECT * FROM {$table_name} WHERE sync_id = %s AND status = 'pending' ORDER BY batch_index ASC LIMIT 1",
             $sync_id
@@ -3252,9 +3273,12 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         $batch_data = json_decode($batch_row->batch_data, true);
         $batch_index = $batch_row->batch_index;
         
-        // Mark batch as processing
+        // Mark batch as processing (with timestamp for timeout detection)
         $wpdb->update($table_name, 
-            array('status' => 'processing'),
+            array(
+                'status' => 'processing',
+                'updated_at' => current_time('mysql')
+            ),
             array('id' => $batch_row->id)
         );
         
@@ -3312,7 +3336,10 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         
         // Mark batch as complete
         $wpdb->update($table_name,
-            array('status' => 'completed'),
+            array(
+                'status' => 'completed',
+                'updated_at' => current_time('mysql')
+            ),
             array('id' => $batch_row->id)
         );
         
@@ -3332,6 +3359,14 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         // Get current WooCommerce product counts for dashboard update
         $product_counts = wp_count_posts('product');
         
+        // Get list of all completed batch indices for frontend gap detection
+        $completed_batches = $wpdb->get_col($wpdb->prepare(
+            "SELECT batch_index FROM {$table_name} 
+             WHERE sync_id = %s AND status = 'completed' 
+             ORDER BY batch_index ASC",
+            $sync_id
+        ));
+        
         wp_send_json_success(array(
             'batch' => $batch_index,
             'processed' => $processed,
@@ -3346,6 +3381,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             'last_changed_fields' => $last_changed_fields,
             'last_processing_reason' => $last_processing_reason,
             'last_skip_reason' => $last_skip_reason,
+            'completed_batches' => array_map('intval', $completed_batches), // All completed batch indices
         ));
     }
     
