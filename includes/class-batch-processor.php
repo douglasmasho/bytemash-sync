@@ -30,11 +30,12 @@ class ByteMash_Batch_Processor {
     /**
      * Find matching variation for stock update
      */
-    private function find_matching_variation($variable_product, $full_code, $simple_code, $colour_code) {
+    private function find_matching_variation($variable_product, $full_code, $simple_code, $colour_code, $variations_cache = array()) {
         $variations = $variable_product->get_children();
         
         foreach ($variations as $variation_id) {
-            $variation = wc_get_product($variation_id);
+            // Use cache if available, otherwise load
+            $variation = isset($variations_cache[$variation_id]) ? $variations_cache[$variation_id] : wc_get_product($variation_id);
             if (!$variation) continue;
             
             $variation_sku = $variation->get_sku();
@@ -555,7 +556,7 @@ class ByteMash_Batch_Processor {
         }
         
         $total = count($stock_data);
-        $batches = array_chunk($stock_data, 50); // Larger batches for stock (simpler data)
+        $batches = array_chunk($stock_data, 100); // Larger batches for stock (simpler data)
         $batch_count = count($batches);
         
         $this->logger->log('info', "Scheduling {$batch_count} batches for {$total} stock items", array(), 'batch_processor');
@@ -568,6 +569,7 @@ class ByteMash_Batch_Processor {
             'total' => $total,
             'processed' => 0,
             'batch_count' => $batch_count,
+            'batch_size' => 100,
             'current_batch' => 0,
             'status' => 'scheduled',
             'started' => current_time('mysql'),
@@ -587,7 +589,7 @@ class ByteMash_Batch_Processor {
         }
         
         $total = count($stock_data);
-        $batches = array_chunk($stock_data, 50);
+        $batches = array_chunk($stock_data, 100);
         $batch_count = count($batches);
         
         $this->logger->log('info', "Processing {$batch_count} stock batches immediately for {$total} items", array(), 'batch_processor');
@@ -601,6 +603,7 @@ class ByteMash_Batch_Processor {
             'total' => $total,
             'processed' => 0,
             'batch_count' => $batch_count,
+            'batch_size' => 100,
             'current_batch' => 0,
             'errors' => 0,
             'status' => 'processing',
@@ -701,7 +704,9 @@ class ByteMash_Batch_Processor {
             return;
         }
         
-        $batches = array_chunk($stock_data, 50);
+        // Get batch size from progress data, or default to 100
+        $batch_size = isset($progress['batch_size']) ? (int) $progress['batch_size'] : 100;
+        $batches = array_chunk($stock_data, $batch_size);
         if (!isset($batches[$batch_index])) {
             $ctx = array('sync_id' => $sync_id, 'batch_index' => $batch_index, 'total_batches' => count($batches));
             $this->logger->log('error', "Stock batch index out of range; skipping batch", $ctx, 'batch_processor');
@@ -814,6 +819,7 @@ class ByteMash_Batch_Processor {
         
         // Batch load all products once (avoid repeated wc_get_product calls)
         $products_cache = array();
+        $variations_cache = array(); // Cache for variation lookups
         $product_ids_to_load = array();
         foreach ($product_ids_map as $sku => $ids) {
             foreach ($ids as $id) {
@@ -823,7 +829,18 @@ class ByteMash_Batch_Processor {
         $product_ids_to_load = array_unique($product_ids_to_load);
         if (!empty($product_ids_to_load)) {
             foreach ($product_ids_to_load as $product_id) {
-                $products_cache[$product_id] = wc_get_product($product_id);
+                $product = wc_get_product($product_id);
+                $products_cache[$product_id] = $product;
+                
+                // Pre-cache variations for variable products to avoid loading them later
+                if ($product && $product->is_type('variable')) {
+                    $variation_ids = $product->get_children();
+                    foreach ($variation_ids as $variation_id) {
+                        if (!isset($variations_cache[$variation_id])) {
+                            $variations_cache[$variation_id] = wc_get_product($variation_id);
+                        }
+                    }
+                }
             }
         }
         
@@ -844,7 +861,7 @@ class ByteMash_Batch_Processor {
                 if ($full_code && isset($product_ids_map[$full_code])) {
                     $candidate_ids = $product_ids_map[$full_code];
                     foreach ($candidate_ids as $pid) {
-                        $candidate = wc_get_product($pid);
+                        $candidate = $products_cache[$pid] ?? wc_get_product($pid);
                         if ($candidate && !$candidate->is_type('variable')) {
                             // Found a simple product or variation with this SKU
                             $product_id = $pid;
@@ -858,7 +875,7 @@ class ByteMash_Batch_Processor {
                 if (!$product && $stock_type >= 1 && $simple_code && isset($product_ids_map[$simple_code])) {
                     $parent_ids = $product_ids_map[$simple_code];
                     foreach ($parent_ids as $pid) {
-                        $candidate = wc_get_product($pid);
+                        $candidate = $products_cache[$pid] ?? wc_get_product($pid);
                         if ($candidate && $candidate->is_type('variable')) {
                             // Found parent variable product - will find variation below
                             $product_id = $pid;
@@ -924,10 +941,10 @@ class ByteMash_Batch_Processor {
                         $processed++;
                     } else {
                         // Try to find and update matching variation by fullCode
-                        $variation_id = $this->find_matching_variation($product, $full_code, $simple_code, $colour_code);
+                        $variation_id = $this->find_matching_variation($product, $full_code, $simple_code, $colour_code, $variations_cache);
                         
                         if ($variation_id) {
-                            $variation = wc_get_product($variation_id);
+                            $variation = $products_cache[$variation_id] ?? wc_get_product($variation_id);
                             if ($variation) {
                                 $current_qty = (int) $variation->get_stock_quantity();
                                 $current_status = $variation->get_stock_status();

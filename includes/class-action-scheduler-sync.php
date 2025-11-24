@@ -624,7 +624,7 @@ class ByteMash_Action_Scheduler_Sync {
         }
         
         $total = count($stock_data);
-        $batches = array_chunk($stock_data, 50);
+        $batches = array_chunk($stock_data, 100);
         $batch_count = count($batches);
         
         $this->logger->log('info', "Scheduling {$batch_count} stock batches with Action Scheduler", array(
@@ -643,6 +643,7 @@ class ByteMash_Action_Scheduler_Sync {
             'total' => $total,
             'processed' => 0,
             'batch_count' => $batch_count,
+            'batch_size' => 100,
             'current_batch' => 0,
             'status' => 'scheduled',
             'started' => current_time('mysql'),

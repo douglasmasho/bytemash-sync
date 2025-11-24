@@ -224,6 +224,15 @@ class ByteMash_Admin_Settings {
                             </tr>
                             <tr>
                                 <th scope="row">
+                                    <code style="background: #f0f0f1; padding: 5px 10px; border-radius: 3px; font-size: 14px;">[amrod_category_filter]</code>
+                                </th>
+                                <td>
+                                    <p style="margin: 5px 0;"><strong><?php esc_html_e('Category Filter:', 'bytemash-woo-sync'); ?></strong> <?php esc_html_e('Displays a filter widget showing relevant subcategories based on the current page context. On category pages, shows child categories. On product pages, shows sibling categories. On shop pages, shows top-level categories.', 'bytemash-woo-sync'); ?></p>
+                                    <p style="margin: 5px 0; color: #646970;"><em><?php esc_html_e('Perfect for sidebars and category archive pages. Attributes: title (filter title), show_count (show product counts), hide_empty (hide empty categories).', 'bytemash-woo-sync'); ?></em></p>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row">
                                     <code style="background: #f0f0f1; padding: 5px 10px; border-radius: 3px; font-size: 14px;">[amrod_before_title]</code>
                                 </th>
                                 <td>
@@ -284,6 +293,15 @@ class ByteMash_Admin_Settings {
                                 <td>
                                     <p style="margin: 5px 0;"><strong><?php esc_html_e('Total Stock:', 'bytemash-woo-sync'); ?></strong> <?php esc_html_e('Displays the total stock quantity (sum of all variations) and total incoming stock for the product. Only shows if stock data is available.', 'bytemash-woo-sync'); ?></p>
                                     <p style="margin: 5px 0; color: #646970;"><em><?php esc_html_e('Auto-displayed on product pages by default. For variable products, calculates the sum of stock from all variations.', 'bytemash-woo-sync'); ?></em></p>
+                                </td>
+                            </tr>
+                            <tr>
+                                <th scope="row">
+                                    <code style="background: #f0f0f1; padding: 5px 10px; border-radius: 3px; font-size: 14px;">[amrod_category_filter]</code>
+                                </th>
+                                <td>
+                                    <p style="margin: 5px 0;"><strong><?php esc_html_e('Category Filter:', 'bytemash-woo-sync'); ?></strong> <?php esc_html_e('Displays a filter widget showing relevant subcategories based on the current page context. On category pages, shows child categories. On product pages, shows sibling categories. On shop pages, shows top-level categories.', 'bytemash-woo-sync'); ?></p>
+                                    <p style="margin: 5px 0; color: #646970;"><em><?php esc_html_e('Perfect for sidebars and category archive pages. Attributes: title (filter title), show_count (show product counts), hide_empty (hide empty categories).', 'bytemash-woo-sync'); ?></em></p>
                                 </td>
                             </tr>
                             <tr>
