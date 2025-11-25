@@ -33,6 +33,20 @@
                 );
             }
         });
+
+        $('#bytemash_delete_excess_button').on('click', function(e) {
+            e.preventDefault();
+            e.stopImmediatePropagation();
+
+            const confirmDelete = 'This will fetch the latest Amrod catalog and permanently delete WooCommerce products that are no longer returned by the API. Continue?';
+            if (!confirm(confirmDelete)) {
+                return;
+            }
+
+            requestExcessCleanup('manual_cleanup', {
+                button: $(this)
+            });
+        });
         
         // Stop execution - don't try to run without proper data
         return;
@@ -1054,13 +1068,22 @@
                 $btn.prop('disabled', true);
             });
             
+            const isProductSyncAction = actionName === 'manual_sync' || actionName === 'sync_products_incremental';
+            cleanupQueuedForCurrentRun = isProductSyncAction ? $('#queue_cleanup_after_product_sync').is(':checked') : false;
+
+            const requestData = {
+                action: action,
+                nonce: bytemashWooSync.nonce
+            };
+
+            if (isProductSyncAction) {
+                requestData.cleanup_after_sync = cleanupQueuedForCurrentRun ? 1 : 0;
+            }
+
             $.ajax({
                 url: bytemashWooSync.ajax_url,
                 type: 'POST',
-                data: {
-                    action: action,
-                    nonce: bytemashWooSync.nonce
-                },
+                data: requestData,
                 success: function(response) {
                     console.log('🔥 SYNC RESPONSE:', response);
                     
@@ -1100,6 +1123,7 @@
                                 total: response.data.total,
                                 type: syncType
                             });
+                            currentSyncTypeLabel = syncType;
                             startBatchSyncFromQueue(response.data.sync_id, response.data.batch_count, response.data.total, syncType);
                         } else {
                             // No batches to process (e.g., no updates available, or simple sync complete)
@@ -1122,6 +1146,7 @@
                     } else {
                         console.log('❌ Sync failed:', response.data.message);
                         showSyncMessage('error', response.data.message);
+                        cleanupQueuedForCurrentRun = false;
                         $('[data-ajax-action]').prop('disabled', false).each(function() {
                             const $btn = $(this);
                             const originalText = $btn.data('original-text') || $btn.text();
@@ -1131,6 +1156,7 @@
                 },
                 error: function(xhr) {
                     showSyncMessage('error', 'Sync failed. Please try again. Error: ' + xhr.statusText);
+                    cleanupQueuedForCurrentRun = false;
                     $('[data-ajax-action]').prop('disabled', false).each(function() {
                         const $btn = $(this);
                         const originalText = $btn.data('original-text') || $btn.text();
@@ -1154,10 +1180,99 @@
                 'brands_sync': 'This will sync all brands from Amrod with progress tracking. Continue?',
                 'branding_departments_sync': 'This will sync branding departments (methods and file types) with progress tracking. Continue?',
                 'branding_prices_sync': 'This will sync branding pricing information with progress tracking. Continue?',
-                'inclusive_brandings_sync': 'This will sync inclusive branding options with progress tracking. Continue?'
+                'inclusive_brandings_sync': 'This will sync inclusive branding options with progress tracking. Continue?',
+                'delete_excess_products': 'This will delete WooCommerce products that are no longer present in the Amrod API. Continue?'
             };
             
             return messages[actionName] || null;
+        }
+
+        /**
+         * Trigger the excess product cleanup AJAX request.
+         *
+         * @param {string} contextLabel
+         * @param {object} options
+         * @returns {Promise}
+         */
+        function requestExcessCleanup(contextLabel, options = {}) {
+            const opts = Object.assign({
+                button: null,
+                messageTarget: null,
+                showStatus: false,
+                startText: 'Deleting excess products...'
+            }, options);
+
+            if (cleanupRequestInFlight) {
+                return Promise.resolve();
+            }
+
+            cleanupRequestInFlight = true;
+            const $button = opts.button;
+            const originalText = $button ? $button.html() : '';
+            if ($button) {
+                $button.prop('disabled', true)
+                    .data('original-text', originalText)
+                    .html('<span class="bytemash-spinner"></span> ' + opts.startText);
+            }
+
+            const $messageTarget = opts.messageTarget ? $(opts.messageTarget) : $('#sync_message');
+            if (opts.showStatus && $messageTarget.length) {
+                $messageTarget.html('<div class="info">🧹 ' + opts.startText + '</div>');
+            } else {
+                showSyncMessage('info', opts.startText);
+            }
+
+            return new Promise((resolve, reject) => {
+                $.ajax({
+                    url: bytemashWooSync.ajax_url,
+                    type: 'POST',
+                    data: {
+                        action: 'bytemash_delete_excess_products',
+                        nonce: bytemashWooSync.nonce,
+                        context: contextLabel
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            const message = response.data && response.data.message
+                                ? response.data.message
+                                : 'Cleanup completed successfully.';
+
+                            if (opts.showStatus && $messageTarget.length) {
+                                $messageTarget.html('<div class="success">✅ ' + message + '</div>');
+                            } else {
+                                showSyncMessage('success', message);
+                            }
+                            resolve(response);
+                        } else {
+                            const errorMessage = response.data && response.data.message
+                                ? response.data.message
+                                : 'Cleanup failed. Please try again.';
+                            if (opts.showStatus && $messageTarget.length) {
+                                $messageTarget.html('<div class="error">❌ ' + errorMessage + '</div>');
+                            } else {
+                                showSyncMessage('error', errorMessage);
+                            }
+                            reject(errorMessage);
+                        }
+                    },
+                    error: function(xhr) {
+                        const errorMessage = 'Cleanup failed: ' + xhr.statusText;
+                        if (opts.showStatus && $messageTarget.length) {
+                            $messageTarget.html('<div class="error">❌ ' + errorMessage + '</div>');
+                        } else {
+                            showSyncMessage('error', errorMessage);
+                        }
+                        reject(errorMessage);
+                    },
+                    complete: function() {
+                        if ($button) {
+                            const previousText = $button.data('original-text') || originalText;
+                            $button.prop('disabled', false).html(previousText);
+                        }
+                        cleanupRequestInFlight = false;
+                    }
+                });
+            });
         }
         
         /**
@@ -1167,6 +1282,9 @@
         let isStopped = false;
         let currentBatchIndex = 0;
         let isProcessingBatch = false; // Lock to prevent parallel processing
+        let cleanupQueuedForCurrentRun = false;
+        let currentSyncTypeLabel = 'Products';
+        let cleanupRequestInFlight = false;
         
         function startBatchSyncFromQueue(syncId, batchCount, totalProducts, syncType) {
             currentSyncId = syncId;
@@ -1478,31 +1596,47 @@
                             return;
                         }
                         
-                        // Build completion message with detailed breakdown
-                        let completionMsg = '✅ All ' + totalBatches + ' batches completed! ';
-                        completionMsg += totalAttempted.toLocaleString() + ' total items: ';
-                        
-                        let parts = [];
-                        if (totalProcessed > 0) {
-                            parts.push('<span style="color: #5cb85c;">' + totalProcessed.toLocaleString() + ' synced</span>');
+                        const finalizeSyncUI = () => {
+                            let completionMsg = '✅ All ' + totalBatches + ' batches completed! ';
+                            completionMsg += totalAttempted.toLocaleString() + ' total items: ';
+                            
+                            let parts = [];
+                            if (totalProcessed > 0) {
+                                parts.push('<span style="color: #5cb85c;">' + totalProcessed.toLocaleString() + ' synced</span>');
+                            }
+                            if (totalSkipped > 0) {
+                                parts.push('<span style="color: #f0ad4e;">' + totalSkipped.toLocaleString() + ' skipped</span>');
+                            }
+                            if (totalErrors > 0) {
+                                parts.push('<span style="color: #d9534f;">' + totalErrors.toLocaleString() + ' errors</span>');
+                            }
+                            
+                            completionMsg += parts.join(', ') + '.';
+                            
+                            if (totalSkipped > 0 && totalSkipped > totalProcessed) {
+                                completionMsg += '<br><small style="color: #f0ad4e;">ℹ️ Note: Skipped items are products that don\'t exist in WooCommerce yet. Sync products from Amrod first.</small>';
+                            }
+                            
+                            $('#batch_progress_overall').html('<div class="success">' + completionMsg + '</div>');
+                            $('#stop_sync_container').hide();
+                            setTimeout(() => location.reload(), 3000);
+                        };
+
+                        if (cleanupQueuedForCurrentRun && currentSyncTypeLabel === 'Products') {
+                            cleanupQueuedForCurrentRun = false;
+                            requestExcessCleanup('post_sync_cleanup', {
+                                showStatus: true,
+                                messageTarget: '#batch_progress_overall',
+                                startText: 'Deleting excess products after sync...'
+                            }).then(() => {
+                                finalizeSyncUI();
+                            }).catch(() => {
+                                finalizeSyncUI();
+                            });
+                            return;
                         }
-                        if (totalSkipped > 0) {
-                            parts.push('<span style="color: #f0ad4e;">' + totalSkipped.toLocaleString() + ' skipped</span>');
-                        }
-                        if (totalErrors > 0) {
-                            parts.push('<span style="color: #d9534f;">' + totalErrors.toLocaleString() + ' errors</span>');
-                        }
-                        
-                        completionMsg += parts.join(', ') + '.';
-                        
-                        // Add helpful note if many items were skipped
-                        if (totalSkipped > 0 && totalSkipped > totalProcessed) {
-                            completionMsg += '<br><small style="color: #f0ad4e;">ℹ️ Note: Skipped items are products that don\'t exist in WooCommerce yet. Sync products from Amrod first.</small>';
-                        }
-                        
-                        $('#batch_progress_overall').html('<div class="success">' + completionMsg + '</div>');
-                        $('#stop_sync_container').hide();
-                        setTimeout(() => location.reload(), 3000);
+
+                        finalizeSyncUI();
                         return; // Stop processing
                     }
                     

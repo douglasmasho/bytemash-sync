@@ -263,6 +263,7 @@ class ByteMash_Woo_Sync {
             add_action('wp_ajax_bytemash_process_batch', array($this, 'ajax_process_batch'));
             add_action('wp_ajax_bytemash_get_batch', array($this, 'ajax_get_batch'));
             add_action('wp_ajax_bytemash_cleanup_zero_prices', array($this, 'ajax_cleanup_zero_prices'));
+            add_action('wp_ajax_bytemash_delete_excess_products', array($this, 'ajax_delete_excess_products'));
             
             // Cron manager AJAX handlers
             add_action('wp_ajax_bytemash_toggle_test_mode', array($this, 'ajax_toggle_test_mode'));
@@ -2991,6 +2992,48 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         } else {
             wp_send_json_success(array('message' => $result['message']));
         }
+    }
+
+    /**
+     * AJAX: Delete WooCommerce products that no longer exist in the Amrod API.
+     */
+    public function ajax_delete_excess_products() {
+        check_ajax_referer('bytemash_woo_sync_nonce', 'nonce');
+
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(array('message' => __('Insufficient permissions', 'bytemash-woo-sync')));
+        }
+
+        $with_branding = !empty($_POST['with_branding']);
+        $context = isset($_POST['context'])
+            ? sanitize_key(wp_unslash($_POST['context']))
+            : 'manual_cleanup';
+
+        $logger = new ByteMash_Logger();
+        $logger->log('info', 'Delete excess products requested', array(
+            'with_branding' => $with_branding,
+            'context' => $context,
+            'user' => get_current_user_id(),
+        ), 'product_cleanup');
+
+        $product_sync = new ByteMash_Product_Sync();
+        $result = $product_sync->delete_excess_products(array(
+            'with_branding' => $with_branding,
+            'context' => $context,
+            'track_progress' => false,
+        ));
+
+        if (!empty($result['success'])) {
+            wp_send_json_success(array(
+                'message' => $result['message'],
+                'checked' => $result['checked'],
+                'deleted' => $result['deleted'],
+            ));
+        }
+
+        wp_send_json_error(array(
+            'message' => $result['message'] ?? __('Cleanup failed. Please try again.', 'bytemash-woo-sync'),
+        ));
     }
     
     /**

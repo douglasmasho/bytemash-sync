@@ -1664,15 +1664,14 @@ class ByteMash_Batch_Processor {
         }
         
         $placeholders = implode(',', array_fill(0, count($skus), '%s'));
-        $results = $wpdb->get_results(
-            $wpdb->prepare(
-                "SELECT post_id, meta_value as sku 
-                 FROM {$wpdb->postmeta} 
-                 WHERE meta_key = '_sku' 
-                 AND meta_value IN ($placeholders)",
-                 $skus
-            )
+        $prepared_sql = $wpdb->prepare(
+            "SELECT post_id, meta_value as sku 
+             FROM {$wpdb->postmeta} 
+             WHERE meta_key = '_sku' 
+             AND meta_value IN ($placeholders)",
+            ...$skus
         );
+        $results = $wpdb->get_results($prepared_sql);
         
         $map = array();
         

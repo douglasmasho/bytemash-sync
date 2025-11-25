@@ -141,6 +141,20 @@ class ByteMash_Admin_Dashboard {
                                     <?php esc_html_e('Clear All Products', 'bytemash-woo-sync'); ?>
                                 </a>
                             </div>
+                            <div class="bytemash-cleanup-controls" style="margin-top:8px; display:flex; flex-wrap:wrap; gap:10px; align-items:center;">
+                                <button type="button"
+                                        id="bytemash_delete_excess_button"
+                                        class="button button-secondary"
+                                        data-action="delete_excess_products"
+                                        data-ajax-action="bytemash_delete_excess_products">
+                                    <span class="dashicons dashicons-trash"></span>
+                                    <?php esc_html_e('Delete Excess Products', 'bytemash-woo-sync'); ?>
+                                </button>
+                                <label for="queue_cleanup_after_product_sync" style="display:flex; align-items:center; gap:6px; font-weight:500; cursor:pointer;">
+                                    <input type="checkbox" id="queue_cleanup_after_product_sync" />
+                                    <?php esc_html_e('Run deletion after product sync', 'bytemash-woo-sync'); ?>
+                                </label>
+                            </div>
                         </div>
                         
                         <div class="bytemash-sync-section">
