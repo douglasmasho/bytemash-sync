@@ -777,6 +777,10 @@ class ByteMash_Admin_Settings {
                                             <div id="production-full-sync-status">
                                                 <?php
                                                 if ($production_full_sync_enabled && class_exists('ByteMash_Action_Scheduler_Sync') && function_exists('as_get_scheduled_actions')) {
+                                                    $last_full_sync_time = get_option('bytemash_last_full_sync', '');
+                                                    $last_incremental_sync_time = get_option('bytemash_last_incremental_sync', '');
+                                                    $last_full_display = $last_full_sync_time ? esc_html($last_full_sync_time) : '<em>' . esc_html__('Never', 'bytemash-woo-sync') . '</em>';
+                                                    $last_incremental_display = $last_incremental_sync_time ? esc_html($last_incremental_sync_time) : '<em>' . esc_html__('Never', 'bytemash-woo-sync') . '</em>';
                                                     // Always fetch scheduled actions when production sync is enabled
                                                     $full_sync_actions = as_get_scheduled_actions(array(
                                                         'hook' => 'bytemash_action_scheduler_full_sync',
@@ -830,6 +834,12 @@ class ByteMash_Admin_Settings {
                                                         echo '<strong>' . esc_html__('Next incremental sync:', 'bytemash-woo-sync') . '</strong> <em>' . esc_html__('Every 5 hours (schedule pending)', 'bytemash-woo-sync') . '</em>';
                                                     }
                                                     
+                                                    echo '<br>';
+                                                    
+                                                    echo '<strong>' . esc_html__('Last full sync:', 'bytemash-woo-sync') . '</strong> ' . $last_full_display;
+                                                    echo '<br>';
+                                                    echo '<strong>' . esc_html__('Last incremental sync:', 'bytemash-woo-sync') . '</strong> ' . $last_incremental_display;
+                                                    
                                                     echo '</p></div>';
                                                 }
                                                 ?>
@@ -837,6 +847,17 @@ class ByteMash_Admin_Settings {
                                             <p class="description">
                                                 <?php esc_html_e('Enables production sync schedules: Full sync daily at 01:30, Incremental sync every 5 hours. Syncs only the attributes selected above. Uses Action Scheduler, same as test mode but with production schedule.', 'bytemash-woo-sync'); ?>
                                             </p>
+                                            <div id="production-full-sync-progress" class="production-full-sync-progress">
+                                                <?php if ($production_full_sync_enabled) : ?>
+                                                    <p class="description">
+                                                        <?php esc_html_e('Live progress from Action Scheduler will appear here during the scheduled full sync window. This updates even if nobody is browsing the site.', 'bytemash-woo-sync'); ?>
+                                                    </p>
+                                                <?php else : ?>
+                                                    <p class="description">
+                                                        <?php esc_html_e('Enable production full sync to start receiving background progress updates.', 'bytemash-woo-sync'); ?>
+                                                    </p>
+                                                <?php endif; ?>
+                                            </div>
                                         </div>
                                     </div>
                                 </td>

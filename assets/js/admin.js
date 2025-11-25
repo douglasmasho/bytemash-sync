@@ -43,12 +43,188 @@
     console.log('AJAX URL:', bytemashWooSync.ajax_url);
     console.log('Plugin URL:', bytemashWooSync.debug.plugin_url);
     
+    const PRODUCTION_PROGRESS_SELECTOR = '#production-full-sync-progress';
+    let productionSyncIntervalId = null;
+    let productionProgressHasData = false;
+    const productionSyncConfig = bytemashWooSync.production_full_sync || {};
+    const uiStrings = bytemashWooSync.strings || {};
+    
+    const escapeHtml = (value) => {
+        if (value === null || value === undefined) {
+            return '';
+        }
+        return String(value)
+            .replace(/&/g, '&amp;')
+            .replace(/</g, '&lt;')
+            .replace(/>/g, '&gt;')
+            .replace(/"/g, '&quot;')
+            .replace(/'/g, '&#39;');
+    };
+    
+    const formatValueOrFallback = (value, fallbackText) => {
+        const fallback = fallbackText || uiStrings.never || 'Never';
+        if (!value) {
+            return '<em>' + escapeHtml(fallback) + '</em>';
+        }
+        return '<span class="bytemash-timestamp">' + escapeHtml(value) + '</span>';
+    };
+    
+    const formatHookName = (hook) => {
+        if (!hook) {
+            return 'unknown';
+        }
+        return hook.replace('bytemash_action_scheduler_', '').replace(/[_-]/g, ' ').trim() || hook;
+    };
+    
+    const buildProgressBar = (percentage) => {
+        const normalized = Math.min(100, Math.max(0, Number(percentage) || 0));
+        return '' +
+            '<div class="production-sync-progress-bar">' +
+            '<span class="progress-fill" style="width:' + normalized + '%;"></span>' +
+            '</div>' +
+            '<p class="progress-label">' + escapeHtml(normalized.toFixed(2)) + '%</p>';
+    };
+    
+    const renderProductionFullSyncError = (message) => {
+        const $container = $(PRODUCTION_PROGRESS_SELECTOR);
+        if (!$container.length) {
+            return;
+        }
+        productionProgressHasData = true;
+        const displayMessage = message || uiStrings.monitor_error || 'Unable to fetch Action Scheduler status.';
+        $container.html(
+            '<div class="notice notice-error inline"><p>' + escapeHtml(displayMessage) + '</p></div>'
+        );
+    };
+    
+    const renderProductionFullSyncProgress = (payload) => {
+        const $container = $(PRODUCTION_PROGRESS_SELECTOR);
+        if (!$container.length) {
+            return;
+        }
+        if (!payload || !payload.action_scheduler_available) {
+            renderProductionFullSyncError(uiStrings.action_scheduler_missing || 'Action Scheduler is not available on this site.');
+            return;
+        }
+        
+        productionProgressHasData = true;
+        
+        const progress = payload.progress || {};
+        const next = payload.next_scheduled || {};
+        const last = payload.last_completed || {};
+        const recent = payload.recent_activity || {};
+        
+        const runningCount = Number(progress.running) || 0;
+        const pendingCount = Number(progress.pending) || 0;
+        const failedCount = Number(progress.failed) || 0;
+        const completedCount = Number(progress.completed) || 0;
+        const normalizedPercentage = Math.min(100, Math.max(0, Number(progress.percentage) || 0));
+        
+        let html = '<div class="production-progress-card">';
+        const statusText = runningCount > 0
+            ? (uiStrings.scheduler_running || 'Action Scheduler is running now')
+            : (uiStrings.scheduler_idle || 'Action Scheduler is waiting for the next schedule');
+        html += '<p><strong>Status:</strong> ' + escapeHtml(statusText) + '</p>';
+        html += '<div class="production-progress-meta">';
+        html += '<p><strong>Next full sync:</strong> ' + formatValueOrFallback(next.full_sync, uiStrings.schedule_pending || 'Schedule pending') + '</p>';
+        html += '<p><strong>Next incremental sync:</strong> ' + formatValueOrFallback(next.incremental_sync, uiStrings.schedule_pending || 'Schedule pending') + '</p>';
+        html += '<p><strong>Last full sync:</strong> ' + formatValueOrFallback(last.full_sync, uiStrings.never || 'Never') + '</p>';
+        html += '<p><strong>Last incremental sync:</strong> ' + formatValueOrFallback(last.incremental_sync, uiStrings.never || 'Never') + '</p>';
+        html += '</div>';
+        
+        if (runningCount > 0 || normalizedPercentage > 0) {
+            html += buildProgressBar(normalizedPercentage);
+            const summaryText = runningCount + ' running · ' + pendingCount + ' pending · ' + failedCount + ' failed';
+            html += '<p class="production-progress-summary">' + escapeHtml(summaryText) + '</p>';
+        } else {
+            const summaryText = completedCount + ' completed actions recorded';
+            html += '<p class="production-progress-summary">' + escapeHtml(summaryText) + '</p>';
+        }
+        
+        const runningList = Array.isArray(recent.running) ? recent.running.slice(0, 3) : [];
+        if (runningList.length) {
+            html += '<div class="production-progress-list"><strong>Running tasks:</strong><ul>';
+            runningList.forEach((action) => {
+                const hookLabel = escapeHtml(formatHookName(action.hook));
+                html += '<li>' + hookLabel + ' — ' + formatValueOrFallback(action.scheduled_at, uiStrings.schedule_pending || 'Schedule pending') + '</li>';
+            });
+            html += '</ul></div>';
+        } else if (Array.isArray(recent.completed) && recent.completed.length) {
+            const latest = recent.completed[0];
+            const hookLabel = escapeHtml(formatHookName(latest.hook));
+            html += '<p><strong>Last completed action:</strong> ' + hookLabel + ' — ' + formatValueOrFallback(latest.scheduled_at, uiStrings.schedule_pending || 'Schedule pending') + '</p>';
+        }
+        
+        html += '</div>';
+        $container.html(html);
+    };
+    
+    const showProductionProgressLoading = () => {
+        if (productionProgressHasData) {
+            return;
+        }
+        const $container = $(PRODUCTION_PROGRESS_SELECTOR);
+        if (!$container.length) {
+            return;
+        }
+        const loadingMessage = uiStrings.monitor_loading || 'Checking Action Scheduler status...';
+        $container.html('<p class="description">' + escapeHtml(loadingMessage) + '</p>');
+    };
+    
+    const fetchProductionFullSyncProgress = () => {
+        if (!productionSyncConfig.enabled || !productionSyncConfig.action_scheduler_available) {
+            return;
+        }
+        const $container = $(PRODUCTION_PROGRESS_SELECTOR);
+        if (!$container.length) {
+            return;
+        }
+        
+        showProductionProgressLoading();
+        
+        jQuery.ajax({
+            url: bytemashWooSync.ajax_url,
+            type: 'POST',
+            data: {
+                action: 'bytemash_get_sync_status_progress',
+                nonce: bytemashWooSync.nonce
+            },
+            success: function(response) {
+                if (response && response.success && response.data) {
+                    renderProductionFullSyncProgress(response.data);
+                } else {
+                    renderProductionFullSyncError((response && response.data && response.data.message) || (uiStrings.monitor_error || 'Unable to fetch Action Scheduler status.'));
+                }
+            },
+            error: function() {
+                renderProductionFullSyncError(uiStrings.monitor_error || 'Unable to fetch Action Scheduler status.');
+            }
+        });
+    };
+    
+    const initProductionFullSyncMonitor = () => {
+        if (!productionSyncConfig.enabled || productionSyncIntervalId) {
+            return;
+        }
+        fetchProductionFullSyncProgress();
+        const interval = Number(productionSyncConfig.poll_interval) || 30000;
+        productionSyncIntervalId = setInterval(fetchProductionFullSyncProgress, interval);
+    };
+    
     $(document).ready(function() {
         
         // Add modern loading states and animations
         $('.bytemash-card').each(function() {
             $(this).css('opacity', '0').animate({opacity: 1}, 300);
         });
+        
+        if (productionSyncConfig.enabled) {
+            if (productionSyncConfig.action_scheduler_available) {
+                initProductionFullSyncMonitor();
+            } else {
+                renderProductionFullSyncError(uiStrings.action_scheduler_missing || 'Action Scheduler is not available on this site.');
+            }
+        }
         
         // Add hover effects for cards
         $('.bytemash-card').hover(

@@ -1228,6 +1228,55 @@
     line-height: 1.4;
 }
 
+.production-full-sync-progress {
+    margin-top: 15px;
+}
+
+.production-full-sync-progress .production-progress-card {
+    background: #fff;
+    border: 1px solid #dcdcde;
+    border-radius: 6px;
+    padding: 15px;
+    box-shadow: 0 1px 1px rgba(0, 0, 0, 0.05);
+}
+
+.production-progress-meta p {
+    margin: 4px 0;
+}
+
+.production-sync-progress-bar {
+    background: #f0f0f1;
+    border-radius: 4px;
+    height: 10px;
+    margin: 10px 0 4px;
+    overflow: hidden;
+}
+
+.production-sync-progress-bar .progress-fill {
+    display: block;
+    height: 100%;
+    background: #2271b1;
+    transition: width 0.3s ease;
+}
+
+.production-progress-summary {
+    font-size: 13px;
+    color: #50575e;
+}
+
+.production-progress-list {
+    margin-top: 8px;
+}
+
+.production-progress-list ul {
+    margin: 6px 0 0;
+    padding-left: 18px;
+}
+
+.production-progress-list li {
+    margin-bottom: 4px;
+}
+
 /* ===== MODAL STYLES ===== */
 .bytemash-modal {
     display: none;

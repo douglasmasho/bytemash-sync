@@ -1262,7 +1262,7 @@ class ByteMash_Sync_Scheduler {
         }
         
         if ($this->use_action_scheduler && $this->action_scheduler) {
-            $result = $this->action_scheduler->enable_production_sync();
+            $result = $this->action_scheduler->enable_production_full_sync();
             wp_send_json_success($result);
         } else {
             wp_send_json_error(array('message' => 'Action Scheduler not available'));

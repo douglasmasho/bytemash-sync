@@ -172,6 +172,11 @@ class ByteMash_Action_Scheduler_Sync {
             'with_branding' => $with_branding,
         ), 'action_scheduler');
         
+        $this->logger->log('info', 'Production full sync triggered via Action Scheduler', array(
+            'phases' => $phases,
+            'with_branding' => $with_branding,
+        ), 'full_sync');
+        
         try {
             // Get enabled sync attributes
             $sync_products = get_option('bytemash_sync_products', true);
@@ -377,10 +382,21 @@ class ByteMash_Action_Scheduler_Sync {
             $next_index = $current_index + 1;
             
             if ($next_index >= count($phases)) {
+                $completed_at = current_time('mysql');
+                
                 $this->logger->log('success', "All phases completed for sync {$sync_id}", array(
                     'sync_id' => $sync_id,
                     'total_phases' => count($phases),
+                    'completed_at' => $completed_at,
                 ), 'action_scheduler');
+                
+                update_option('bytemash_last_full_sync', $completed_at);
+                
+                $this->logger->log('success', 'Daily production full sync completed via Action Scheduler', array(
+                    'sync_id' => $sync_id,
+                    'completed_at' => $completed_at,
+                ), 'full_sync');
+                
                 delete_transient("bytemash_as_sync_{$sync_id}_phases");
                 delete_transient("bytemash_as_sync_{$sync_id}_with_branding");
                 delete_transient("bytemash_as_sync_{$sync_id}_current_phase");
@@ -540,6 +556,12 @@ class ByteMash_Action_Scheduler_Sync {
             }
             
             $this->logger->log('success', 'Action Scheduler incremental sync completed', array(), 'action_scheduler');
+            
+            $completed_at = current_time('mysql');
+            update_option('bytemash_last_incremental_sync', $completed_at);
+            $this->logger->log('success', 'Incremental sync timestamp updated (Action Scheduler)', array(
+                'completed_at' => $completed_at,
+            ), 'incremental_sync');
             
         } catch (Exception $e) {
             $this->logger->log('error', 'Action Scheduler incremental sync failed', array(
@@ -1368,50 +1390,9 @@ class ByteMash_Action_Scheduler_Sync {
      * @deprecated Use enable_production_full_sync() instead
      */
     public function enable_production_sync() {
-        $this->clear_schedules();
-        
-        // Schedule full sync daily at 01:30 (South Africa time) - avoiding API downtime 00:00-01:00
-        $timezone = new DateTimeZone('Africa/Johannesburg');
-        $now = new DateTime('now', $timezone);
-        
-        // Set to 01:30 today
-        $next_sync = clone $now;
-        $next_sync->setTime(1, 30, 0);
-        
-        // If it's already past 01:30 today, schedule for tomorrow
-        if ($next_sync <= $now) {
-            $next_sync->add(new DateInterval('P1D'));
-        }
-        
-        // Convert to WordPress timezone
-        $wp_timestamp = $next_sync->getTimestamp() - (get_option('gmt_offset') * HOUR_IN_SECONDS);
-        
-        // Schedule full sync daily at 00:30
-        as_schedule_recurring_action(
-            $wp_timestamp,
-            DAY_IN_SECONDS, // Daily
-            'bytemash_action_scheduler_full_sync',
-            array('with_branding' => true),
-            'bytemash-sync'
-        );
-        
-        // Schedule incremental sync every 5 hours (starts after first full sync)
-        as_schedule_recurring_action(
-            $wp_timestamp + (5 * HOUR_IN_SECONDS), // Start 5 hours after full sync
-            5 * HOUR_IN_SECONDS, // Then every 5 hours
-            'bytemash_action_scheduler_incremental_sync',
-            array('with_branding' => true),
-            'bytemash-sync'
-        );
-        
-        $this->logger->log('info', "Production sync enabled - Full sync daily at 01:30, Incremental every 5 hours", array(), 'action_scheduler');
-        
-        return array(
-            'success' => true,
-            'message' => 'Production sync enabled - Full sync daily at 01:30, Incremental every 5 hours',
-            'next_full_sync' => $next_sync->format('Y-m-d H:i:s'),
-            'next_incremental_sync' => date('Y-m-d H:i:s', $wp_timestamp + (5 * HOUR_IN_SECONDS)),
-        );
+        // Backward compatibility: older endpoints still call this method.
+        // Delegate to the new implementation so schedules and options stay in sync.
+        return $this->enable_production_full_sync();
     }
     
     /**
@@ -1622,15 +1603,29 @@ class ByteMash_Action_Scheduler_Sync {
         $total_failed = count($failed_actions);
         $total_running = count($running_actions);
         
-        $progress_percentage = $total_scheduled > 0 ? round(($total_completed / $total_scheduled) * 100, 2) : 0;
+        $progress_percentage = $total_scheduled > 0 ? min(100, round(($total_completed / $total_scheduled) * 100, 2)) : 0;
+        $pending_count = max(0, $total_scheduled - $total_completed - $total_failed - $total_running);
         
         // Get next scheduled times
-        $next_full_sync = !empty($full_sync_actions) ? $full_sync_actions[0]->get_schedule()->get_date()->format('Y-m-d H:i:s') : null;
-        $next_incremental_sync = !empty($incremental_sync_actions) ? $incremental_sync_actions[0]->get_schedule()->get_date()->format('Y-m-d H:i:s') : null;
+        $next_full_sync = null;
+        if (!empty($full_sync_actions)) {
+            $summary = $this->format_action_for_output($full_sync_actions[0]);
+            $next_full_sync = $summary ? $summary['scheduled_at'] : null;
+        }
+        
+        $next_incremental_sync = null;
+        if (!empty($incremental_sync_actions)) {
+            $summary = $this->format_action_for_output($incremental_sync_actions[0]);
+            $next_incremental_sync = $summary ? $summary['scheduled_at'] : null;
+        }
         
         // Get last sync times from options
         $last_full_sync = get_option('bytemash_last_full_sync', null);
         $last_incremental_sync = get_option('bytemash_last_incremental_sync', null);
+        
+        $recent_completed = $this->map_actions_for_output(array_slice($completed_actions, 0, 10));
+        $recent_failed = $this->map_actions_for_output(array_slice($failed_actions, 0, 10));
+        $recent_running = $this->map_actions_for_output($running_actions);
         
         return array(
             'scheduled_actions' => array(
@@ -1643,7 +1638,7 @@ class ByteMash_Action_Scheduler_Sync {
                 'completed' => $total_completed,
                 'failed' => $total_failed,
                 'running' => $total_running,
-                'pending' => $total_scheduled - $total_completed - $total_failed - $total_running,
+                'pending' => $pending_count,
                 'percentage' => $progress_percentage,
             ),
             'next_scheduled' => array(
@@ -1655,9 +1650,9 @@ class ByteMash_Action_Scheduler_Sync {
                 'incremental_sync' => $last_incremental_sync,
             ),
             'recent_activity' => array(
-                'completed' => array_slice($completed_actions, 0, 10),
-                'failed' => array_slice($failed_actions, 0, 10),
-                'running' => $running_actions,
+                'completed' => $recent_completed,
+                'failed' => $recent_failed,
+                'running' => $recent_running,
             ),
             'action_scheduler_available' => $this->is_action_scheduler_available(),
         );
@@ -1702,6 +1697,47 @@ class ByteMash_Action_Scheduler_Sync {
             'progress_percentage' => $progress_percentage,
             'next_batch' => !empty($batch_actions) ? $batch_actions[0]->get_schedule()->get_date()->format('Y-m-d H:i:s') : null,
         );
+    }
+    
+    /**
+     * Normalize an Action Scheduler action for output
+     */
+    private function format_action_for_output($action) {
+        if (!is_object($action)) {
+            return null;
+        }
+        
+        $schedule = method_exists($action, 'get_schedule') ? $action->get_schedule() : null;
+        $date = ($schedule && method_exists($schedule, 'get_date')) ? $schedule->get_date() : null;
+        
+        return array(
+            'id' => method_exists($action, 'get_id') ? $action->get_id() : null,
+            'hook' => method_exists($action, 'get_hook') ? $action->get_hook() : null,
+            'status' => method_exists($action, 'get_status') ? $action->get_status() : null,
+            'group' => method_exists($action, 'get_group') ? $action->get_group() : null,
+            'scheduled_at' => $date ? $date->format('Y-m-d H:i:s') : null,
+            'args' => method_exists($action, 'get_args') ? $action->get_args() : array(),
+        );
+    }
+    
+    /**
+     * Convert a list of Action Scheduler actions to normalized arrays
+     */
+    private function map_actions_for_output($actions) {
+        if (empty($actions) || !is_array($actions)) {
+            return array();
+        }
+        
+        $formatted = array();
+        
+        foreach ($actions as $action) {
+            $normalized = $this->format_action_for_output($action);
+            if ($normalized) {
+                $formatted[] = $normalized;
+            }
+        }
+        
+        return $formatted;
     }
     
     /**
