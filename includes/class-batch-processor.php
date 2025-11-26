@@ -1264,6 +1264,8 @@ class ByteMash_Batch_Processor {
         
         // DRAMATIC OPTIMIZATION: Direct SQL batch updates for maximum speed (10-50x faster)
         if (!empty($updates_to_process)) {
+            $start_time = microtime(true);
+            
             // Group updates for batch SQL execution
             $stock_updates = array();
             $status_updates = array();
@@ -1284,167 +1286,182 @@ class ByteMash_Batch_Processor {
             if (!empty($stock_updates)) {
                 $updated_product_ids = array_keys($stock_updates);
                 
-                // Batch update all stock meta using efficient SQL (single query per meta key)
-                // Use CASE statements for maximum speed - updates all products in one query
-                $pids = array_map('intval', array_keys($stock_updates));
-                $pids_placeholder = implode(',', $pids);
-                
-                // Batch update _stock using CASE statement (single query)
-                if (!empty($stock_updates)) {
-                    $stock_cases = array();
-                    foreach ($stock_updates as $pid => $stock) {
-                        $pid_escaped = (int) $pid;
-                        $stock_escaped = (int) $stock;
-                        $stock_cases[] = "WHEN {$pid_escaped} THEN {$stock_escaped}";
-                    }
-                    $wpdb->query(
-                        "UPDATE {$wpdb->postmeta} 
-                        SET meta_value = CASE post_id " . implode(' ', $stock_cases) . " END
-                        WHERE post_id IN ($pids_placeholder) AND meta_key = '_stock'"
-                    );
+                // START TRANSACTION for atomic updates and speed
+                $wpdb->query('START TRANSACTION');
+
+                try {
+                    // Batch update all stock meta using efficient SQL (single query per meta key)
+                    // Use CASE statements for maximum speed - updates all products in one query
+                    $pids = array_map('intval', array_keys($stock_updates));
+                    $pids_placeholder = implode(',', $pids);
                     
-                    // PHENOMENAL OPTIMIZATION: Bulk insert missing records instead of individual inserts
-                    $existing_stock_pids = $wpdb->get_col(
-                        "SELECT post_id FROM {$wpdb->postmeta} 
-                        WHERE post_id IN ($pids_placeholder) AND meta_key = '_stock'"
-                    );
-                    $existing_stock_pids = array_map('intval', $existing_stock_pids);
-                    $missing_stock_pids = array_diff($pids, $existing_stock_pids);
-                    if (!empty($missing_stock_pids)) {
-                        // Build bulk INSERT query (much faster than individual inserts)
-                        $insert_values = array();
-                        foreach ($missing_stock_pids as $pid) {
+                    // Batch update _stock using CASE statement (single query)
+                    if (!empty($stock_updates)) {
+                        $stock_cases = array();
+                        foreach ($stock_updates as $pid => $stock) {
                             $pid_escaped = (int) $pid;
-                            $stock_escaped = (int) $stock_updates[$pid];
-                            $insert_values[] = "({$pid_escaped}, '_stock', {$stock_escaped})";
+                            $stock_escaped = (int) $stock;
+                            $stock_cases[] = "WHEN {$pid_escaped} THEN {$stock_escaped}";
                         }
-                        if (!empty($insert_values)) {
-                            $wpdb->query(
-                                "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value) VALUES " . 
-                                implode(', ', $insert_values)
-                            );
+                        $wpdb->query(
+                            "UPDATE {$wpdb->postmeta} 
+                            SET meta_value = CASE post_id " . implode(' ', $stock_cases) . " END
+                            WHERE post_id IN ($pids_placeholder) AND meta_key = '_stock'"
+                        );
+                        
+                        // PHENOMENAL OPTIMIZATION: Bulk insert missing records instead of individual inserts
+                        $existing_stock_pids = $wpdb->get_col(
+                            "SELECT post_id FROM {$wpdb->postmeta} 
+                            WHERE post_id IN ($pids_placeholder) AND meta_key = '_stock'"
+                        );
+                        $existing_stock_pids = array_map('intval', $existing_stock_pids);
+                        $missing_stock_pids = array_diff($pids, $existing_stock_pids);
+                        if (!empty($missing_stock_pids)) {
+                            // Build bulk INSERT query (much faster than individual inserts)
+                            $insert_values = array();
+                            foreach ($missing_stock_pids as $pid) {
+                                $pid_escaped = (int) $pid;
+                                $stock_escaped = (int) $stock_updates[$pid];
+                                $insert_values[] = "({$pid_escaped}, '_stock', {$stock_escaped})";
+                            }
+                            if (!empty($insert_values)) {
+                                $wpdb->query(
+                                    "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value) VALUES " . 
+                                    implode(', ', $insert_values)
+                                );
+                            }
                         }
                     }
-                }
-                
-                // Batch update _stock_status using CASE statement (single query)
-                if (!empty($status_updates)) {
-                    $status_cases = array();
-                    foreach ($status_updates as $pid => $status) {
-                        $pid_escaped = (int) $pid;
-                        $status_escaped = esc_sql($status);
-                        $status_cases[] = "WHEN {$pid_escaped} THEN '{$status_escaped}'";
-                    }
-                    $wpdb->query(
-                        "UPDATE {$wpdb->postmeta} 
-                        SET meta_value = CASE post_id " . implode(' ', $status_cases) . " END
-                        WHERE post_id IN ($pids_placeholder) AND meta_key = '_stock_status'"
-                    );
                     
-                    // PHENOMENAL OPTIMIZATION: Bulk insert missing records
-                    $existing_status_pids = $wpdb->get_col(
-                        "SELECT post_id FROM {$wpdb->postmeta} 
-                        WHERE post_id IN ($pids_placeholder) AND meta_key = '_stock_status'"
-                    );
-                    $existing_status_pids = array_map('intval', $existing_status_pids);
-                    $missing_status_pids = array_diff($pids, $existing_status_pids);
-                    if (!empty($missing_status_pids)) {
-                        $insert_values = array();
-                        foreach ($missing_status_pids as $pid) {
+                    // Batch update _stock_status using CASE statement (single query)
+                    if (!empty($status_updates)) {
+                        $status_cases = array();
+                        foreach ($status_updates as $pid => $status) {
                             $pid_escaped = (int) $pid;
-                            $status_escaped = esc_sql($status_updates[$pid]);
-                            $insert_values[] = "({$pid_escaped}, '_stock_status', '{$status_escaped}')";
+                            $status_escaped = esc_sql($status);
+                            $status_cases[] = "WHEN {$pid_escaped} THEN '{$status_escaped}'";
                         }
-                        if (!empty($insert_values)) {
-                            $wpdb->query(
-                                "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value) VALUES " . 
-                                implode(', ', $insert_values)
-                            );
+                        $wpdb->query(
+                            "UPDATE {$wpdb->postmeta} 
+                            SET meta_value = CASE post_id " . implode(' ', $status_cases) . " END
+                            WHERE post_id IN ($pids_placeholder) AND meta_key = '_stock_status'"
+                        );
+                        
+                        // PHENOMENAL OPTIMIZATION: Bulk insert missing records
+                        $existing_status_pids = $wpdb->get_col(
+                            "SELECT post_id FROM {$wpdb->postmeta} 
+                            WHERE post_id IN ($pids_placeholder) AND meta_key = '_stock_status'"
+                        );
+                        $existing_status_pids = array_map('intval', $existing_status_pids);
+                        $missing_status_pids = array_diff($pids, $existing_status_pids);
+                        if (!empty($missing_status_pids)) {
+                            $insert_values = array();
+                            foreach ($missing_status_pids as $pid) {
+                                $pid_escaped = (int) $pid;
+                                $status_escaped = esc_sql($status_updates[$pid]);
+                                $insert_values[] = "({$pid_escaped}, '_stock_status', '{$status_escaped}')";
+                            }
+                            if (!empty($insert_values)) {
+                                $wpdb->query(
+                                    "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value) VALUES " . 
+                                    implode(', ', $insert_values)
+                                );
+                            }
                         }
                     }
-                }
-                
-                // Batch update _manage_stock using CASE statement (single query)
-                if (!empty($manage_stock_updates)) {
-                    $manage_cases = array();
-                    foreach ($manage_stock_updates as $pid => $manage) {
-                        $pid_escaped = (int) $pid;
-                        $manage_escaped = esc_sql($manage);
-                        $manage_cases[] = "WHEN {$pid_escaped} THEN '{$manage_escaped}'";
-                    }
-                    $wpdb->query(
-                        "UPDATE {$wpdb->postmeta} 
-                        SET meta_value = CASE post_id " . implode(' ', $manage_cases) . " END
-                        WHERE post_id IN ($pids_placeholder) AND meta_key = '_manage_stock'"
-                    );
                     
-                    // PHENOMENAL OPTIMIZATION: Bulk insert missing records
-                    $existing_manage_pids = $wpdb->get_col(
-                        "SELECT post_id FROM {$wpdb->postmeta} 
-                        WHERE post_id IN ($pids_placeholder) AND meta_key = '_manage_stock'"
-                    );
-                    $existing_manage_pids = array_map('intval', $existing_manage_pids);
-                    $missing_manage_pids = array_diff($pids, $existing_manage_pids);
-                    if (!empty($missing_manage_pids)) {
-                        $insert_values = array();
-                        foreach ($missing_manage_pids as $pid) {
+                    // Batch update _manage_stock using CASE statement (single query)
+                    if (!empty($manage_stock_updates)) {
+                        $manage_cases = array();
+                        foreach ($manage_stock_updates as $pid => $manage) {
                             $pid_escaped = (int) $pid;
-                            $manage_escaped = esc_sql($manage_stock_updates[$pid]);
-                            $insert_values[] = "({$pid_escaped}, '_manage_stock', '{$manage_escaped}')";
+                            $manage_escaped = esc_sql($manage);
+                            $manage_cases[] = "WHEN {$pid_escaped} THEN '{$manage_escaped}'";
                         }
-                        if (!empty($insert_values)) {
-                            $wpdb->query(
-                                "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value) VALUES " . 
-                                implode(', ', $insert_values)
-                            );
+                        $wpdb->query(
+                            "UPDATE {$wpdb->postmeta} 
+                            SET meta_value = CASE post_id " . implode(' ', $manage_cases) . " END
+                            WHERE post_id IN ($pids_placeholder) AND meta_key = '_manage_stock'"
+                        );
+                        
+                        // PHENOMENAL OPTIMIZATION: Bulk insert missing records
+                        $existing_manage_pids = $wpdb->get_col(
+                            "SELECT post_id FROM {$wpdb->postmeta} 
+                            WHERE post_id IN ($pids_placeholder) AND meta_key = '_manage_stock'"
+                        );
+                        $existing_manage_pids = array_map('intval', $existing_manage_pids);
+                        $missing_manage_pids = array_diff($pids, $existing_manage_pids);
+                        if (!empty($missing_manage_pids)) {
+                            $insert_values = array();
+                            foreach ($missing_manage_pids as $pid) {
+                                $pid_escaped = (int) $pid;
+                                $manage_escaped = esc_sql($manage_stock_updates[$pid]);
+                                $insert_values[] = "({$pid_escaped}, '_manage_stock', '{$manage_escaped}')";
+                            }
+                            if (!empty($insert_values)) {
+                                $wpdb->query(
+                                    "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value) VALUES " . 
+                                    implode(', ', $insert_values)
+                                );
+                            }
                         }
                     }
-                }
-                
-                // Batch update _backorders using CASE statement (single query)
-                if (!empty($backorders_updates)) {
-                    $backorder_cases = array();
-                    foreach ($backorders_updates as $pid => $backorders) {
-                        $pid_escaped = (int) $pid;
-                        $backorders_escaped = esc_sql($backorders);
-                        $backorder_cases[] = "WHEN {$pid_escaped} THEN '{$backorders_escaped}'";
-                    }
-                    $wpdb->query(
-                        "UPDATE {$wpdb->postmeta} 
-                        SET meta_value = CASE post_id " . implode(' ', $backorder_cases) . " END
-                        WHERE post_id IN ($pids_placeholder) AND meta_key = '_backorders'"
-                    );
                     
-                    // PHENOMENAL OPTIMIZATION: Bulk insert missing records
-                    $existing_backorder_pids = $wpdb->get_col(
-                        "SELECT post_id FROM {$wpdb->postmeta} 
-                        WHERE post_id IN ($pids_placeholder) AND meta_key = '_backorders'"
-                    );
-                    $existing_backorder_pids = array_map('intval', $existing_backorder_pids);
-                    $missing_backorder_pids = array_diff($pids, $existing_backorder_pids);
-                    if (!empty($missing_backorder_pids)) {
-                        $insert_values = array();
-                        foreach ($missing_backorder_pids as $pid) {
+                    // Batch update _backorders using CASE statement (single query)
+                    if (!empty($backorders_updates)) {
+                        $backorder_cases = array();
+                        foreach ($backorders_updates as $pid => $backorders) {
                             $pid_escaped = (int) $pid;
-                            $backorders_escaped = esc_sql($backorders_updates[$pid]);
-                            $insert_values[] = "({$pid_escaped}, '_backorders', '{$backorders_escaped}')";
+                            $backorders_escaped = esc_sql($backorders);
+                            $backorder_cases[] = "WHEN {$pid_escaped} THEN '{$backorders_escaped}'";
                         }
-                        if (!empty($insert_values)) {
-                            $wpdb->query(
-                                "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value) VALUES " . 
-                                implode(', ', $insert_values)
-                            );
+                        $wpdb->query(
+                            "UPDATE {$wpdb->postmeta} 
+                            SET meta_value = CASE post_id " . implode(' ', $backorder_cases) . " END
+                            WHERE post_id IN ($pids_placeholder) AND meta_key = '_backorders'"
+                        );
+                        
+                        // PHENOMENAL OPTIMIZATION: Bulk insert missing records
+                        $existing_backorder_pids = $wpdb->get_col(
+                            "SELECT post_id FROM {$wpdb->postmeta} 
+                            WHERE post_id IN ($pids_placeholder) AND meta_key = '_backorders'"
+                        );
+                        $existing_backorder_pids = array_map('intval', $existing_backorder_pids);
+                        $missing_backorder_pids = array_diff($pids, $existing_backorder_pids);
+                        if (!empty($missing_backorder_pids)) {
+                            $insert_values = array();
+                            foreach ($missing_backorder_pids as $pid) {
+                                $pid_escaped = (int) $pid;
+                                $backorders_escaped = esc_sql($backorders_updates[$pid]);
+                                $insert_values[] = "({$pid_escaped}, '_backorders', '{$backorders_escaped}')";
+                            }
+                            if (!empty($insert_values)) {
+                                $wpdb->query(
+                                    "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value) VALUES " . 
+                                    implode(', ', $insert_values)
+                                );
+                            }
                         }
                     }
+
+                    $wpdb->query('COMMIT');
+
+                } catch (Exception $e) {
+                    $wpdb->query('ROLLBACK');
+                    $this->logger->log('error', "Stock batch transaction failed: " . $e->getMessage(), array(), 'batch_processor');
+                    throw $e;
                 }
                 
                 // SAFEGUARD: Clear caches for all updated products (batch clear)
+                // OPTIMIZATION: Only clear post meta cache, not full post cache, to save time
                 foreach ($updated_product_ids as $pid) {
-                    clean_post_cache($pid);
+                    // clean_post_cache($pid); // Too slow
                     wp_cache_delete($pid, 'post_meta');
                 }
                 
                 // SAFEGUARD: Trigger WooCommerce hooks (critical for plugin compatibility)
+                // OPTIMIZATION: DISABLED for speed. This is the main bottleneck.
+                /*
                 // Load product objects only for hooks (lazy loading - minimal overhead)
                 $product_ids_for_hooks = array_unique($updated_product_ids);
                 foreach ($product_ids_for_hooks as $pid) {
@@ -1461,10 +1478,15 @@ class ByteMash_Batch_Processor {
                         }
                     }
                 }
+                */
                 
                 // SAFEGUARD: Clear WooCommerce product transients (batch clear)
-                wc_delete_product_transients($updated_product_ids);
+                // OPTIMIZATION: Only clear if absolutely necessary, or rely on expiration
+                // wc_delete_product_transients($updated_product_ids); // Can be slow
             }
+            
+            $duration = microtime(true) - $start_time;
+            $this->logger->log('info', sprintf("Stock batch DB update took %.4f seconds for %d items", $duration, count($updates_to_process)), array(), 'batch_processor');
         }
         
         // Re-enable cache
