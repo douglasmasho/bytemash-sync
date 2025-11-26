@@ -50,12 +50,15 @@ class ByteMash_Logger {
             array('%s', '%s', '%s', '%s', '%s')
         );
         
-        // Also log to WordPress debug.log for warnings and errors only
-        if (defined('WP_DEBUG_LOG') && WP_DEBUG_LOG && in_array($level, array(self::LEVEL_ERROR, self::LEVEL_WARNING), true)) {
+        // Also log to WordPress debug log if enabled
+        if (defined('WP_DEBUG') && WP_DEBUG === true) {
             $log_message = sprintf('[ByteMash Amrod Sync] [%s] %s: %s', strtoupper($level), $sync_type, $message);
+            
+            // Add data if available
             if (!empty($data)) {
-                $log_message .= ' | Data: ' . wp_json_encode($data);
+                $log_message .= ' | Data: ' . json_encode($data);
             }
+            
             error_log($log_message);
         }
     }

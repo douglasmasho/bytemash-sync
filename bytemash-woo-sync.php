@@ -176,11 +176,19 @@ class ByteMash_Woo_Sync {
         // Include child category products when viewing parent categories
         add_action('pre_get_posts', array($this, 'include_child_category_products'));
         
+        // Bust category filter caches whenever product categories change
+        add_action('created_product_cat', array($this, 'bust_category_filter_cache'));
+        add_action('edited_product_cat', array($this, 'bust_category_filter_cache'));
+        add_action('delete_product_cat', array($this, 'bust_category_filter_cache'));
+        
         // Filter products based on category filter parameter
         add_action('woocommerce_product_query', array($this, 'filter_products_by_category_parameter'));
         
         // Filter Bricks product queries
         add_filter('bricks/posts/query_vars', array($this, 'filter_bricks_product_query'), 10, 2);
+        
+        // PHENOMENAL OPTIMIZATION: Optimize all WooCommerce product queries for large categories
+        add_action('woocommerce_product_query', array($this, 'optimize_product_query'), 1);
         
         // Hook into WooCommerce product images
         add_filter('woocommerce_product_get_image_id', array($this, 'use_external_image_url'), 10, 2);
@@ -264,6 +272,7 @@ class ByteMash_Woo_Sync {
             add_action('wp_ajax_bytemash_get_batch', array($this, 'ajax_get_batch'));
             add_action('wp_ajax_bytemash_cleanup_zero_prices', array($this, 'ajax_cleanup_zero_prices'));
             add_action('wp_ajax_bytemash_delete_excess_products', array($this, 'ajax_delete_excess_products'));
+            add_action('wp_ajax_bytemash_process_cleanup_batch', array($this, 'ajax_process_cleanup_batch'));
             
             // Cron manager AJAX handlers
             add_action('wp_ajax_bytemash_toggle_test_mode', array($this, 'ajax_toggle_test_mode'));
@@ -522,25 +531,25 @@ class ByteMash_Woo_Sync {
             return;
         }
         
-        // Get all child category IDs (recursive)
-        $child_categories = get_term_children($category->term_id, 'product_cat');
+        // PHENOMENAL OPTIMIZATION: Optimize query for large categories
+        // Reduce meta queries and improve performance
+        $query->set('update_post_meta_cache', false);
+        $query->set('update_post_term_cache', false);
+        $query->set('no_found_rows', false); // Keep for pagination
         
-        if (empty($child_categories) || is_wp_error($child_categories)) {
-            return;
-        }
-        
-        // Include the parent category and all child categories in the query
-        $category_ids = array_merge(array($category->term_id), $child_categories);
-        
-        // Modify the tax_query to include all categories
+        // Modify the tax_query to include all categories without fetching children manually
         $tax_query = $query->get('tax_query') ?: array();
         
         // Find and modify the product_cat query
         $found_product_cat = false;
         foreach ($tax_query as $key => $tax) {
             if (isset($tax['taxonomy']) && $tax['taxonomy'] === 'product_cat') {
-                $tax_query[$key]['terms'] = $category_ids;
-                $tax_query[$key]['operator'] = 'IN';
+                $tax_query[$key]['terms'] = array($category->term_id);
+                $tax_query[$key]['field'] = 'term_id';
+                $tax_query[$key]['include_children'] = true;
+                if (!isset($tax_query[$key]['operator'])) {
+                    $tax_query[$key]['operator'] = 'IN';
+                }
                 $found_product_cat = true;
                 break;
             }
@@ -551,8 +560,9 @@ class ByteMash_Woo_Sync {
             $tax_query[] = array(
                 'taxonomy' => 'product_cat',
                 'field' => 'term_id',
-                'terms' => $category_ids,
+                'terms' => array($category->term_id),
                 'operator' => 'IN',
+                'include_children' => true,
             );
         }
         
@@ -569,26 +579,35 @@ class ByteMash_Woo_Sync {
             return;
         }
         
-        // Check if filter_category parameter is set
-        if (!isset($_GET['filter_category']) || empty($_GET['filter_category'])) {
+        // Determine category via slug or legacy ID parameter
+        $category = null;
+        $category_id = 0;
+        
+        if (isset($_GET['product_cat']) && $_GET['product_cat'] !== '') {
+            $category_slug = sanitize_title(wp_unslash($_GET['product_cat']));
+            if ($category_slug !== '') {
+                $category = get_term_by('slug', $category_slug, 'product_cat');
+            }
+        } elseif (isset($_GET['filter_category']) && !empty($_GET['filter_category'])) {
+            $category_id = intval($_GET['filter_category']);
+            $category = get_term($category_id, 'product_cat');
+        } else {
             return;
         }
         
-        $category_id = intval($_GET['filter_category']);
-        
-        // Validate category exists
-        $category = get_term($category_id, 'product_cat');
         if (!$category || is_wp_error($category)) {
             return;
         }
         
-        // Get the category and all its children
-        $category_ids = array($category_id);
-        $child_categories = get_term_children($category_id, 'product_cat');
-        
-        if (!empty($child_categories) && !is_wp_error($child_categories)) {
-            $category_ids = array_merge($category_ids, $child_categories);
+        if (!$category_id && isset($category->term_id)) {
+            $category_id = (int) $category->term_id;
         }
+        
+        // PHENOMENAL OPTIMIZATION: Optimize query for large categories
+        // Reduce meta queries and improve performance
+        $query->set('update_post_meta_cache', false);
+        $query->set('update_post_term_cache', false);
+        $query->set('no_found_rows', false); // Keep for pagination
         
         // Get existing tax_query
         $tax_query = $query->get('tax_query') ?: array();
@@ -604,8 +623,9 @@ class ByteMash_Woo_Sync {
         $tax_query[] = array(
             'taxonomy' => 'product_cat',
             'field' => 'term_id',
-            'terms' => $category_ids,
+            'terms' => array($category_id),
             'operator' => 'IN',
+            'include_children' => true,
         );
         
         // Normalize array keys
@@ -615,9 +635,33 @@ class ByteMash_Woo_Sync {
     }
     
     /**
+     * PHENOMENAL OPTIMIZATION: Optimize WooCommerce product queries for large categories
+     * Reduces unnecessary meta queries and improves performance significantly
+     */
+    public function optimize_product_query($query) {
+        // Only optimize frontend queries, not admin
+        if (is_admin()) {
+            return;
+        }
+        
+        // Disable expensive cache updates for better performance
+        // WooCommerce will load meta/terms on-demand when needed
+        $query->set('update_post_meta_cache', false);
+        $query->set('update_post_term_cache', false);
+        
+        // Ensure pagination works correctly
+        $query->set('no_found_rows', false);
+        
+        // Optimize orderby for better index usage
+        if (!$query->get('orderby')) {
+            $query->set('orderby', 'menu_order title');
+        }
+    }
+    
+    /**
      * Filter Bricks product queries based on category filter parameter
      * Works with Bricks Query Loop element
-     * Supports both Bricks format (brx_vqxomj[0]=slug) and our format (filter_category=ID)
+     * Supports both Bricks format (brx_vqxomj[0]=slug), WooCommerce product_cat, and legacy filter_category=ID
      */
     public function filter_bricks_product_query($query_vars, $settings) {
         // Only filter if post type is product
@@ -628,15 +672,26 @@ class ByteMash_Woo_Sync {
         $category_id = null;
         $category_slug = null;
         
-        // Check for Bricks format first: brx_vqxomj[0]=category_slug
-        if (isset($_GET['brx_vqxomj']) && is_array($_GET['brx_vqxomj']) && !empty($_GET['brx_vqxomj'][0])) {
+        // Preferred format: WooCommerce product_cat slug in query string
+        if (isset($_GET['product_cat']) && $_GET['product_cat'] !== '') {
+            $requested_slug = sanitize_title(wp_unslash($_GET['product_cat']));
+            if ($requested_slug !== '') {
+                $category = get_term_by('slug', $requested_slug, 'product_cat');
+                if ($category && !is_wp_error($category)) {
+                    $category_id = $category->term_id;
+                    $category_slug = $category->slug;
+                }
+            }
+        }
+        // Check for Bricks format: brx_vqxomj[0]=category_slug
+        elseif (isset($_GET['brx_vqxomj']) && is_array($_GET['brx_vqxomj']) && !empty($_GET['brx_vqxomj'][0])) {
             $category_slug = sanitize_text_field($_GET['brx_vqxomj'][0]);
             $category = get_term_by('slug', $category_slug, 'product_cat');
             if ($category && !is_wp_error($category)) {
                 $category_id = $category->term_id;
             }
         }
-        // Fallback to our format: filter_category=ID
+        // Legacy fallback: filter_category=ID
         elseif (isset($_GET['filter_category']) && !empty($_GET['filter_category'])) {
             $category_id = intval($_GET['filter_category']);
             $category = get_term($category_id, 'product_cat');
@@ -648,14 +703,6 @@ class ByteMash_Woo_Sync {
         // If no valid category found, return unchanged
         if (!$category_id || !$category || is_wp_error($category)) {
             return $query_vars;
-        }
-        
-        // Get the category and all its children
-        $category_ids = array($category_id);
-        $child_categories = get_term_children($category_id, 'product_cat');
-        
-        if (!empty($child_categories) && !is_wp_error($child_categories)) {
-            $category_ids = array_merge($category_ids, $child_categories);
         }
         
         // Initialize tax_query if it doesn't exist
@@ -674,8 +721,9 @@ class ByteMash_Woo_Sync {
         $query_vars['tax_query'][] = array(
             'taxonomy' => 'product_cat',
             'field' => 'term_id',
-            'terms' => $category_ids,
+            'terms' => array($category_id),
             'operator' => 'IN',
+            'include_children' => true,
         );
         
         // Normalize array keys
@@ -3020,7 +3068,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         $result = $product_sync->delete_excess_products(array(
             'with_branding' => $with_branding,
             'context' => $context,
-            'track_progress' => false,
+            'track_progress' => true, // Enable progress tracking
         ));
 
         if (!empty($result['success'])) {
@@ -3028,12 +3076,40 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                 'message' => $result['message'],
                 'checked' => $result['checked'],
                 'deleted' => $result['deleted'],
+                'sync_id' => $result['sync_id'] ?? '',
             ));
         }
 
         wp_send_json_error(array(
             'message' => $result['message'] ?? __('Cleanup failed. Please try again.', 'bytemash-woo-sync'),
         ));
+    }
+    
+    /**
+     * AJAX: Process cleanup batch (for progress tracking)
+     */
+    public function ajax_process_cleanup_batch() {
+        check_ajax_referer('bytemash_woo_sync_nonce', 'nonce');
+
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(array('message' => __('Insufficient permissions', 'bytemash-woo-sync')));
+        }
+
+        $sync_id = isset($_POST['sync_id']) ? sanitize_text_field($_POST['sync_id']) : '';
+        $batch_size = isset($_POST['batch_size']) ? (int) $_POST['batch_size'] : 50;
+
+        if (empty($sync_id)) {
+            wp_send_json_error(array('message' => __('Sync ID required', 'bytemash-woo-sync')));
+        }
+
+        $product_sync = new ByteMash_Product_Sync();
+        $result = $product_sync->process_cleanup_batch($sync_id, $batch_size);
+
+        if (!empty($result['success'])) {
+            wp_send_json_success($result);
+        } else {
+            wp_send_json_error($result);
+        }
     }
     
     /**
@@ -3483,10 +3559,19 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         
         $sync_type = $sync_info['type'] ?? 'products';
         
-        foreach ($batch_data as $item_data) {
-            if ($sync_type === 'stock') {
+        if ($sync_type === 'stock') {
+            foreach ($batch_data as $item_data) {
                 $result = $product_sync->update_single_stock($item_data);
-            } elseif ($sync_type === 'prices') {
+                if (!empty($result['success'])) {
+                    $processed++;
+                } else {
+                    $errors++;
+                }
+            }
+        } else {
+            // Process other sync types normally
+            foreach ($batch_data as $item_data) {
+                if ($sync_type === 'prices') {
                 $result = $product_sync->update_single_price($item_data);
             } elseif ($sync_type === 'orphan_prices') {
                     $prices_lookup = get_option("bytemash_sync_{$sync_id}_prices_lookup");
@@ -3522,6 +3607,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                 } else {
                     $errors++;
                 }
+            }
         }
         
         // Mark batch as complete
@@ -4969,6 +5055,73 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         $fallback = filter_var($atts['fallback'], FILTER_VALIDATE_BOOLEAN);
         $debug = filter_var($atts['debug'], FILTER_VALIDATE_BOOLEAN);
         
+        // Build base URL for filter links (preserve other active query params)
+        $request_uri = isset($_SERVER['REQUEST_URI']) ? sanitize_text_field(wp_unslash($_SERVER['REQUEST_URI'])) : '';
+        if (!empty($request_uri)) {
+            $absolute_current_url = home_url($request_uri);
+        } else {
+            if (function_exists('wc_get_page_permalink')) {
+                $absolute_current_url = wc_get_page_permalink('shop');
+            } else {
+                $absolute_current_url = home_url('/shop/');
+            }
+        }
+        
+        $filter_url_base = remove_query_arg(
+            array('filter_category', 'product_cat', 'brx_vqxomj', 'brx_vqxomj%5B0%5D', 'brx_vqxomj[0]', 'paged'),
+            $absolute_current_url
+        );
+        
+        $build_filter_url = static function($slug) use ($filter_url_base) {
+            if (empty($slug)) {
+                return esc_url($filter_url_base);
+            }
+            
+            $url = add_query_arg('product_cat', $slug, $filter_url_base);
+            return esc_url($url);
+        };
+        
+        $cache_version = $this->get_category_filter_cache_version();
+        $cache_ttl = 15 * MINUTE_IN_SECONDS;
+        
+        // Cached term loader to avoid repeated heavy taxonomy queries on large categories
+        $get_terms_cached = function(array $args) use ($cache_version, $cache_ttl) {
+            static $request_cache = array();
+            
+            $defaults = array(
+                'taxonomy' => 'product_cat',
+                'hide_empty' => false,
+                'update_term_meta_cache' => false,
+                'pad_counts' => false,
+            );
+            
+            $query_args = array_merge($defaults, $args);
+            ksort($query_args);
+            $cache_key = md5(wp_json_encode($query_args));
+            
+            if (isset($request_cache[$cache_key])) {
+                return $request_cache[$cache_key];
+            }
+            
+            $transient_key = 'bytemash_cf_' . $cache_version . '_' . $cache_key;
+            $cached_terms = get_transient($transient_key);
+            if ($cached_terms !== false) {
+                $request_cache[$cache_key] = $cached_terms;
+                return $cached_terms;
+            }
+            
+            $terms = get_terms($query_args);
+            if (is_wp_error($terms)) {
+                $terms = array();
+            } else {
+                set_transient($transient_key, $terms, $cache_ttl);
+            }
+            
+            $request_cache[$cache_key] = $terms;
+            
+            return $terms;
+        };
+        
         // Helper: deduplicate terms and optionally remove zero-count categories
         $normalize_terms = static function($terms, $remove_zero_count = false) {
             if (empty($terms) || is_wp_error($terms)) {
@@ -5035,13 +5188,24 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         // Get current category context
         $current_category = null;
         $current_category_id = null; // ID of category to highlight
+        $parent_navigation = null;
         $categories_to_show = array();
         
         // Check for filter parameters (both formats) - this takes priority
         $filtered_category_id = null;
         
-        // Check Bricks format first: brx_vqxomj[0]=slug
-        if (isset($_GET['brx_vqxomj']) && is_array($_GET['brx_vqxomj']) && !empty($_GET['brx_vqxomj'][0])) {
+        // Preferred format: WooCommerce product_cat slug
+        if (isset($_GET['product_cat']) && $_GET['product_cat'] !== '') {
+            $filtered_category_slug = sanitize_title(wp_unslash($_GET['product_cat']));
+            if ($filtered_category_slug !== '') {
+                $filtered_category = get_term_by('slug', $filtered_category_slug, 'product_cat');
+                if ($filtered_category && !is_wp_error($filtered_category)) {
+                    $filtered_category_id = $filtered_category->term_id;
+                }
+            }
+        }
+        // Check Bricks format: brx_vqxomj[0]=slug
+        elseif (isset($_GET['brx_vqxomj']) && is_array($_GET['brx_vqxomj']) && !empty($_GET['brx_vqxomj'][0])) {
             $filtered_category_slug = sanitize_text_field($_GET['brx_vqxomj'][0]);
             $filtered_category = get_term_by('slug', $filtered_category_slug, 'product_cat');
             if ($filtered_category && !is_wp_error($filtered_category)) {
@@ -5060,9 +5224,28 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         if ($filtered_category_id && $filtered_category && !is_wp_error($filtered_category)) {
             $current_category = $filtered_category;
             $current_category_id = $filtered_category_id;
+            
+            if (isset($filtered_category->parent) && $filtered_category->parent) {
+                $parent_term = get_term($filtered_category->parent, 'product_cat');
+                if ($parent_term && !is_wp_error($parent_term)) {
+                    $parent_navigation = array(
+                        'url' => $build_filter_url($parent_term->slug),
+                        'label' => sprintf(
+                            /* translators: %s = parent category name */
+                            __('Back to %s', 'bytemash-woo-sync'),
+                            $parent_term->name
+                        ),
+                    );
+                }
+            } else {
+                $parent_navigation = array(
+                    'url' => esc_url($filter_url_base),
+                    'label' => __('Back to all categories', 'bytemash-woo-sync'),
+                );
+            }
+            
             // Get direct child categories of the filtered category
-            $categories_to_show = get_terms(array(
-                'taxonomy' => 'product_cat',
+            $categories_to_show = $get_terms_cached(array(
                 'parent' => $filtered_category_id,
                 'hide_empty' => $hide_empty,
             ));
@@ -5073,9 +5256,27 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             $current_category = get_queried_object();
             if ($current_category && isset($current_category->term_id)) {
                 $current_category_id = $current_category->term_id;
+                
+                if (isset($current_category->parent) && $current_category->parent) {
+                    $parent_term = get_term($current_category->parent, 'product_cat');
+                    if ($parent_term && !is_wp_error($parent_term)) {
+                        $parent_navigation = array(
+                            'url' => $build_filter_url($parent_term->slug),
+                            'label' => sprintf(
+                                __('Back to %s', 'bytemash-woo-sync'),
+                                $parent_term->name
+                            ),
+                        );
+                    }
+                } else {
+                    $parent_navigation = array(
+                        'url' => esc_url($filter_url_base),
+                        'label' => __('Back to all categories', 'bytemash-woo-sync'),
+                    );
+                }
+                
                 // Get direct child categories
-                $categories_to_show = get_terms(array(
-                    'taxonomy' => 'product_cat',
+                $categories_to_show = $get_terms_cached(array(
                     'parent' => $current_category->term_id,
                     'hide_empty' => $hide_empty,
                 ));
@@ -5093,9 +5294,26 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                     $current_category_id = $primary_category->term_id; // Highlight this category
                     $current_category = $primary_category;
                     
+                    if (isset($primary_category->parent) && $primary_category->parent) {
+                        $parent_term = get_term($primary_category->parent, 'product_cat');
+                        if ($parent_term && !is_wp_error($parent_term)) {
+                            $parent_navigation = array(
+                                'url' => $build_filter_url($parent_term->slug),
+                                'label' => sprintf(
+                                    __('Back to %s', 'bytemash-woo-sync'),
+                                    $parent_term->name
+                                ),
+                            );
+                        }
+                    } else {
+                        $parent_navigation = array(
+                            'url' => esc_url($filter_url_base),
+                            'label' => __('Back to all categories', 'bytemash-woo-sync'),
+                        );
+                    }
+                    
                     // Show children of the primary category
-                    $categories_to_show = get_terms(array(
-                        'taxonomy' => 'product_cat',
+                    $categories_to_show = $get_terms_cached(array(
                         'parent' => $primary_category->term_id,
                         'hide_empty' => $hide_empty,
                     ));
@@ -5106,8 +5324,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         // Fallback: Show top-level categories if nothing found yet
         if ((empty($categories_to_show) || is_wp_error($categories_to_show)) && $fallback) {
             // Show top-level categories
-            $categories_to_show = get_terms(array(
-                'taxonomy' => 'product_cat',
+            $categories_to_show = $get_terms_cached(array(
                 'parent' => 0,
                 'hide_empty' => $hide_empty,
             ));
@@ -5116,8 +5333,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         // If still no categories found, try one more fallback - show all top-level categories
         if ((empty($categories_to_show) || is_wp_error($categories_to_show)) && $fallback) {
             // Last resort: show all top-level categories regardless of empty status
-            $categories_to_show = get_terms(array(
-                'taxonomy' => 'product_cat',
+            $categories_to_show = $get_terms_cached(array(
                 'parent' => 0,
                 'hide_empty' => false, // Force show all
             ));
@@ -5145,8 +5361,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         // If we have a current/filtered category, show IT with its children in the accordion
         if ($current_category && isset($current_category->term_id)) {
             // Get children of the current category
-            $child_categories = get_terms(array(
-                'taxonomy' => 'product_cat',
+            $child_categories = $get_terms_cached(array(
                 'parent' => $current_category->term_id,
                 'hide_empty' => $hide_empty,
             ));
@@ -5162,8 +5377,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             foreach ($categories_to_show as $category) {
                 if (is_wp_error($category)) continue;
                 
-                $child_categories = get_terms(array(
-                    'taxonomy' => 'product_cat',
+                $child_categories = $get_terms_cached(array(
                     'parent' => $category->term_id,
                     'hide_empty' => $hide_empty,
                 ));
@@ -5200,6 +5414,17 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                 </h3>
             <?php endif; ?>
             
+            <?php if ($parent_navigation): ?>
+                <div class="amrod-category-filter-back" style="margin-bottom: 15px; display: inline-flex; align-items: center; gap: 8px;">
+                    <a href="<?php echo esc_url($parent_navigation['url']); ?>"
+                       class="amrod-category-back-link"
+                       style="text-decoration: none; color: #007bff; font-weight: 500; display: inline-flex; align-items: center; gap: 6px;">
+                        <span aria-hidden="true" style="font-size: 18px; line-height: 1;">←</span>
+                        <span><?php echo esc_html($parent_navigation['label']); ?></span>
+                    </a>
+                </div>
+            <?php endif; ?>
+            
             <div class="amrod-accordion-container">
                 <?php foreach ($categories_with_children as $index => $item): 
                     $category = $item['category'];
@@ -5229,9 +5454,6 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                     
                     if (is_wp_error($category)) continue;
                     
-                    $category_link = get_term_link($category);
-                    if (is_wp_error($category_link)) continue;
-                    
                     $is_current = ($current_category_id && $current_category_id === $category->term_id);
                     $accordion_id = 'amrod-accordion-' . $category->term_id;
                     // Always expand if it's the current/filtered category, or if it has children and is the first item
@@ -5240,7 +5462,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                     <div class="amrod-accordion-item" style="margin-bottom: 8px; border: 1px solid #e9ecef; border-radius: 8px; overflow: hidden; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.05); transition: all 0.3s ease;">
                         <div class="amrod-accordion-header" 
                              style="display: flex; align-items: center; justify-content: space-between; padding: 14px 16px; background: <?php echo $is_current ? '#007bff' : '#fff'; ?>; color: <?php echo $is_current ? '#fff' : '#212529'; ?>; transition: all 0.3s ease; user-select: none;">
-                            <a href="#" 
+                            <a href="<?php echo $build_filter_url($category->slug); ?>" 
                                data-category-id="<?php echo esc_attr($category->term_id); ?>"
                                data-category-slug="<?php echo esc_attr($category->slug); ?>"
                                class="amrod-accordion-link amrod-filter-link" 
@@ -5268,22 +5490,17 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                                 <ul style="list-style: none; margin: 0; padding: 0;">
                                     <?php foreach ($children as $child): 
                                         if (is_wp_error($child)) continue;
-                                        
-                                        $child_link = get_term_link($child);
-                                        if (is_wp_error($child_link)) continue;
-                                        
                                         $child_count = isset($child->count) ? (int) $child->count : 0;
                                         if ($child_count <= 0) continue;
                                         
                                         $is_child_current = ($current_category_id && $current_category_id === $child->term_id);
                                     ?>
                                         <li style="margin-bottom: 6px;">
-                                            <a href="#" 
+                                        <a href="<?php echo $build_filter_url($child->slug); ?>" 
                                                data-category-id="<?php echo esc_attr($child->term_id); ?>"
                                                data-category-slug="<?php echo esc_attr($child->slug); ?>"
                                                class="amrod-accordion-child-link amrod-filter-link"
-                                               style="display: block; padding: 10px 12px; color: <?php echo $is_child_current ? '#fff' : '#495057'; ?>; text-decoration: none; background: <?php echo $is_child_current ? '#007bff' : '#fff'; ?>; border: 1px solid <?php echo $is_child_current ? '#007bff' : '#e9ecef'; ?>; border-radius: 6px; transition: all 0.2s ease; font-size: 14px; cursor: pointer;"
-                                               onclick="event.preventDefault(); return false;">
+                                               style="display: block; padding: 10px 12px; color: <?php echo $is_child_current ? '#fff' : '#495057'; ?>; text-decoration: none; background: <?php echo $is_child_current ? '#007bff' : '#fff'; ?>; border: 1px solid <?php echo $is_child_current ? '#007bff' : '#e9ecef'; ?>; border-radius: 6px; transition: all 0.2s ease; font-size: 14px; cursor: pointer;">
                                                 <span class="category-name"><?php echo esc_html($child->name); ?></span>
                                                 <?php if ($show_count): ?>
                                                     <span class="count" style="float: right; font-size: 0.85em; opacity: 0.7;">
@@ -5333,57 +5550,10 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         <script>
         (function() {
             document.addEventListener('DOMContentLoaded', function() {
-                // Get Bricks status from PHP (most reliable)
-                var filterContainer = document.querySelector('.amrod-category-filter-accordion');
-                var isBricks = filterContainer && filterContainer.getAttribute('data-bricks-active') === '1';
-                
-                // Fallback: Detect if Bricks is being used - check multiple indicators
-                if (!isBricks) {
-                    // Check for Bricks global variables
-                    if (typeof bricksQueryLoop !== 'undefined' || 
-                        typeof bricks !== 'undefined' ||
-                        typeof BRICKS !== 'undefined') {
-                        isBricks = true;
-                    }
-                    
-                    // Check for Bricks elements in DOM
-                    if (!isBricks && (
-                        document.querySelector('[data-brxe-type="query-loop"]') ||
-                        document.querySelector('.brxe-query-loop') ||
-                        document.querySelector('[class*="brxe-"]') ||
-                        document.querySelector('[data-brxe-type]') ||
-                        document.body.classList.contains('bricks-is-frontend') ||
-                        document.documentElement.classList.contains('bricks-is-frontend')
-                    )) {
-                        isBricks = true;
-                    }
-                    
-                    // Check URL for Bricks indicators
-                    if (!isBricks && (
-                        window.location.search.indexOf('bricks_preview') !== -1 ||
-                        window.location.search.indexOf('brx_vqxomj') !== -1 ||
-                        window.location.search.indexOf('brx_') !== -1
-                    )) {
-                        isBricks = true;
-                    }
-                    
-                    // Check if Bricks builder is active
-                    if (!isBricks && window.location.search.indexOf('bricks=run') !== -1) {
-                        isBricks = true;
-                    }
-                    
-                    // If still not detected, check for Bricks-specific scripts
-                    if (!isBricks) {
-                        var bricksScripts = document.querySelectorAll('script[src*="bricks"]');
-                        if (bricksScripts.length > 0) {
-                            isBricks = true;
-                        }
-                    }
-                }
-                
-                // Get current filter category from URL (check both formats)
+                // Get current filter category from URL (support slug + legacy formats)
                 var urlParams = new URLSearchParams(window.location.search);
-                var currentFilterCategory = urlParams.get('filter_category');
+                var currentFilterCategorySlug = urlParams.get('product_cat');
+                var legacyFilterCategoryId = urlParams.get('filter_category');
                 var currentBricksCategory = null;
                 
                 // Check for Bricks format: brx_vqxomj[0]=slug
@@ -5411,9 +5581,11 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                         var categoryId = link.getAttribute('data-category-id');
                         var categorySlug = link.getAttribute('data-category-slug');
                         
-                        // Check both parameter formats
+                        // Check all supported parameter formats
                         var isActive = false;
-                        if (currentFilterCategory && categoryId === currentFilterCategory) {
+                        if (currentFilterCategorySlug && categorySlug === currentFilterCategorySlug) {
+                            isActive = true;
+                        } else if (legacyFilterCategoryId && categoryId === legacyFilterCategoryId) {
                             isActive = true;
                         } else if (currentBricksCategory && categorySlug === currentBricksCategory) {
                             isActive = true;
@@ -5427,56 +5599,6 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                             }
                         }
                         
-                        // Add click handler - use closure variable 'link' to avoid 'this' issues
-                        link.addEventListener('click', function(e) {
-                            e.preventDefault();
-                            e.stopPropagation();
-                            
-                            var catId = link.getAttribute('data-category-id');
-                            var catSlug = link.getAttribute('data-category-slug');
-                            if (!catId || !catSlug) return;
-                            
-                            // Update URL with filter parameter
-                            var url = new URL(window.location.href);
-                            
-                            // Use Bricks format if Bricks is detected
-                            if (isBricks) {
-                                // Build URL manually for Bricks array format: brx_vqxomj[0]=slug
-                                var baseUrl = url.origin + url.pathname;
-                                var currentSearch = url.search;
-                                
-                                // Remove old parameters from search string
-                                currentSearch = currentSearch.replace(/[?&]filter_category=[^&]*/g, '');
-                                currentSearch = currentSearch.replace(/[?&]paged=[^&]*/g, '');
-                                
-                                // Remove any existing Bricks parameters (try both formats)
-                                currentSearch = currentSearch.replace(/[?&]brx_vqxomj%5B0%5D=[^&]*/g, '');
-                                currentSearch = currentSearch.replace(/[?&]brx_vqxomj\[0\]=[^&]*/g, '');
-                                
-                                // Clean up multiple question marks or leading/trailing &s
-                                currentSearch = currentSearch.replace(/^&+/, '');
-                                currentSearch = currentSearch.replace(/&+/g, '&');
-                                
-                                // Add Bricks parameter (URL-encoded array notation)
-                                var bricksParam = 'brx_vqxomj%5B0%5D=' + encodeURIComponent(catSlug);
-                                var separator = currentSearch && !currentSearch.startsWith('?') ? '&' : '';
-                                if (currentSearch && !currentSearch.startsWith('?')) {
-                                    currentSearch = '?' + currentSearch;
-                                }
-                                var newUrl = baseUrl + (currentSearch || '?') + (currentSearch && currentSearch !== '?' ? separator : '') + bricksParam;
-                                
-                                // Reload with Bricks format
-                                window.location.href = newUrl;
-                                return;
-                            } else {
-                                // Use standard format: filter_category=ID
-                                url.searchParams.set('filter_category', catId);
-                                url.searchParams.delete('paged');
-                            }
-                            
-                            // Reload page with new filter
-                            window.location.href = url.toString();
-                        });
                     });
                 }
                 
@@ -5537,7 +5659,12 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                     var accordionId = toggle.getAttribute('data-accordion-id');
                     var content = document.getElementById(accordionId);
                     if (content) {
-                        var hasActiveChild = content.querySelector('[data-category-id="' + currentFilterCategory + '"]');
+                        var hasActiveChild = null;
+                        if (currentFilterCategorySlug) {
+                            hasActiveChild = content.querySelector('[data-category-slug="' + currentFilterCategorySlug + '"]');
+                        } else if (legacyFilterCategoryId) {
+                            hasActiveChild = content.querySelector('[data-category-id="' + legacyFilterCategoryId + '"]');
+                        }
                         var isExpanded = content.style.maxHeight && content.style.maxHeight !== '0px' && content.style.maxHeight !== '0';
                         
                         if (hasActiveChild || isExpanded) {
@@ -6601,6 +6728,27 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                 'debug' => $e->getMessage() // Include in response for debugging (remove in production)
             ));
         }
+    }
+
+    /**
+     * Retrieve the cache version for category filter term caching
+     */
+    private function get_category_filter_cache_version() {
+        $version = (int) get_option('bytemash_category_filter_cache_version', 1);
+        if ($version < 1) {
+            $version = 1;
+            update_option('bytemash_category_filter_cache_version', $version, false);
+        }
+        return $version;
+    }
+    
+    /**
+     * Bump the cache version so cached category filter data is regenerated
+     */
+    public function bust_category_filter_cache() {
+        $version = (int) get_option('bytemash_category_filter_cache_version', 1);
+        $version++;
+        update_option('bytemash_category_filter_cache_version', $version, false);
     }
 }
 

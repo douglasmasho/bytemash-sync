@@ -22,9 +22,6 @@ class ByteMash_Admin_Dashboard {
         if (!$is_authenticated) {
             ?>
             <div class="wrap bytemash-admin-wrap">
-                <div class="bytemash-brand" style="margin:10px 0;">
-                    <img src="<?php echo esc_url( BYTEMASH_WOO_SYNC_PLUGIN_URL . 'assets/bmlogoblack.svg' ); ?>" alt="ByteMash" style="height:36px; width:auto; display:block;" />
-                </div>
                 <h1>
                     <a href="https://byte.mashdev.org" target="_blank" rel="noopener noreferrer" style="text-decoration: none; color: inherit;">
                         <?php esc_html_e('Amrod Sync Dashboard', 'bytemash-woo-sync'); ?>
@@ -36,13 +33,10 @@ class ByteMash_Admin_Dashboard {
                         <span class="dashicons dashicons-lock"></span>
                         <h2><?php esc_html_e('Authentication Required', 'bytemash-woo-sync'); ?></h2>
                         <p><?php esc_html_e('Please authenticate with your Amrod account to access the sync dashboard.', 'bytemash-woo-sync'); ?></p>
-                        <form action="<?php echo esc_url(admin_url('admin.php')); ?>" method="get" style="display:inline-block;">
-                            <input type="hidden" name="page" value="bytemash-amrod-settings">
-                            <button type="submit" class="button button-primary button-hero">
-                               
-                                <?php esc_html_e('Authenticate & Connect', 'bytemash-woo-sync'); ?>
-                            </button>
-                        </form>
+                        <a href="<?php echo esc_url(admin_url('admin.php?page=bytemash-amrod-settings')); ?>" class="button button-primary button-large">
+                            <span class="dashicons dashicons-admin-network"></span>
+                            <?php esc_html_e('Go to Settings & Authenticate', 'bytemash-woo-sync'); ?>
+                        </a>
                     </div>
                 </div>
             </div>
@@ -79,9 +73,6 @@ class ByteMash_Admin_Dashboard {
         
         ?>
         <div class="wrap bytemash-admin-wrap">
-            <div class="bytemash-brand" style="margin:10px 0;">
-                <img src="<?php echo esc_url( BYTEMASH_WOO_SYNC_PLUGIN_URL . 'assets/bmlogoblack.svg' ); ?>" alt="ByteMash" style="height:36px; width:auto; display:block;" />
-            </div>
             <h1>
                 <a href="https://byte.mashdev.org" target="_blank" rel="noopener noreferrer" style="text-decoration: none; color: inherit;">
                     <?php esc_html_e('Amrod Sync Dashboard', 'bytemash-woo-sync'); ?>
@@ -311,8 +302,8 @@ class ByteMash_Admin_Dashboard {
                     </div>
                     
                     <div class="bytemash-card bytemash-stat-card">
-                        <div class="bytemash-stat-icon">
-                            <span class="dashicons dashicons-warning" style="font-size:28px; line-height:48px; text-align:center; width:48px; height:48px; display:inline-block; color:#d63638;"></span>
+                        <div class="bytemash-stat-icon bytemash-logo-icon">
+                            <a href="https://byte.mashdev.org" target="_blank" rel="noopener noreferrer" style="display: block; width: 100%; height: 100%; background: url('<?php echo BYTEMASH_WOO_SYNC_PLUGIN_URL; ?>assets/bmlogo.svg') no-repeat center; background-size: 48px 48px; cursor: pointer;" title="Visit ByteMash Development"></a>
                         </div>
                         <div class="bytemash-stat-content">
                             <div class="bytemash-stat-value"><?php echo number_format($stats['error']); ?></div>
@@ -490,19 +481,6 @@ class ByteMash_Admin_Dashboard {
                             <?php esc_html_e('View Logs', 'bytemash-woo-sync'); ?>
                         </a>
                         
-                        <?php if (class_exists('WooCommerce')) : ?>
-                            <a href="<?php echo esc_url(admin_url('edit.php?post_type=shop_order&post_status=wc-quote-request')); ?>" class="button">
-                                <span class="dashicons dashicons-email-alt"></span>
-                                <?php esc_html_e('Quote Requests', 'bytemash-woo-sync'); ?>
-                                <?php
-                                $quote_count = self::get_quote_request_count();
-                                if ($quote_count > 0) {
-                                    echo ' <span class="count">(' . esc_html($quote_count) . ')</span>';
-                                }
-                                ?>
-                            </a>
-                        <?php endif; ?>
-                        
                         <a href="https://newapidocs.amrod.co.za/" target="_blank" class="button">
                             <span class="dashicons dashicons-book"></span>
                             <?php esc_html_e('API Docs', 'bytemash-woo-sync'); ?>
@@ -649,25 +627,6 @@ class ByteMash_Admin_Dashboard {
         ");
         
         return (int) $count;
-    }
-    
-    /**
-     * Get count of quote requests
-     */
-    private static function get_quote_request_count() {
-        if (!class_exists('WooCommerce')) {
-            return 0;
-        }
-        
-        $args = array(
-            'post_type' => 'shop_order',
-            'post_status' => 'wc-quote-request',
-            'posts_per_page' => -1,
-            'fields' => 'ids',
-        );
-        
-        $query = new WP_Query($args);
-        return (int) $query->found_posts;
     }
 }
 

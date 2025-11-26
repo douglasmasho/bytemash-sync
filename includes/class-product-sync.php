@@ -3288,15 +3288,119 @@ class ByteMash_Product_Sync {
             'started' => current_time('mysql'),
         ), false);
         
-            return array(
-                'success' => true,
+        return array(
+            'success' => true,
             'message' => "Ready to sync {$total} stock items in {$batch_count} batches",
-                'sync_id' => $sync_id,
-                'total' => $total,
+            'sync_id' => $sync_id,
+            'total' => $total,
             'batch_count' => $batch_count,
             'batches' => $batches,
-            'data' => $stock_data,
-            );
+        );
+    }
+    
+    /**
+     * Pre-warm SKU cache for stock sync to dramatically speed up lookups
+     * Loads all relevant SKUs in bulk queries instead of individual lookups
+     * 
+     * @param array $stock_data Array of stock items
+     */
+    private function prewarm_sku_cache_for_stock($stock_data) {
+        if (empty($stock_data) || !is_array($stock_data)) {
+            return;
+        }
+        
+        // Extract all unique SKUs from stock data
+        $all_skus = array();
+        foreach ($stock_data as $item) {
+            $simple_code = $item['simpleCode'] ?? $item['simplecode'] ?? '';
+            $full_code = $item['fullCode'] ?? '';
+            
+            if ($simple_code) {
+                $all_skus[] = $simple_code;
+            }
+            if ($full_code && $full_code !== $simple_code) {
+                $all_skus[] = $full_code;
+            }
+            // Also try fullCode without "-0-0" suffix
+            if ($full_code && preg_match('/-0-0$/', $full_code)) {
+                $all_skus[] = preg_replace('/-0-0$/', '', $full_code);
+            }
+        }
+        
+        $all_skus = array_unique(array_filter($all_skus));
+        if (empty($all_skus)) {
+            return;
+        }
+        
+        // Batch load all SKU mappings in one query (MUCH faster than individual lookups)
+        global $wpdb;
+        $placeholders = implode(',', array_fill(0, count($all_skus), '%s'));
+        $query = $wpdb->prepare(
+            "SELECT pm.post_id, pm.meta_value as sku, p.post_type
+            FROM {$wpdb->postmeta} pm
+            INNER JOIN {$wpdb->posts} p ON pm.post_id = p.ID
+            WHERE pm.meta_key = '_sku' 
+            AND pm.meta_value IN ($placeholders)
+            AND p.post_status != 'trash'",
+            ...$all_skus
+        );
+        
+        $results = $wpdb->get_results($query, ARRAY_A);
+        
+        // Also check Amrod-specific meta keys for additional matches
+        $amrod_query = $wpdb->prepare(
+            "SELECT pm.post_id, pm.meta_value as code, pm.meta_key
+            FROM {$wpdb->postmeta} pm
+            INNER JOIN {$wpdb->posts} p ON pm.post_id = p.ID
+            WHERE pm.meta_key IN ('_amrod_simple_code', '_amrod_full_code')
+            AND pm.meta_value IN ($placeholders)
+            AND p.post_status != 'trash'",
+            ...$all_skus
+        );
+        
+        $amrod_results = $wpdb->get_results($amrod_query, ARRAY_A);
+        
+        // Build cache map
+        if (!$this->batch_mode) {
+            $this->batch_mode = true;
+            $this->sku_cache = array();
+        }
+        
+        // Cache standard SKU lookups
+        foreach ($results as $row) {
+            $sku = $row['sku'];
+            $pid = (int) $row['post_id'];
+            $type = $row['post_type'];
+            
+            if (!isset($this->sku_cache[$sku])) {
+                $this->sku_cache[$sku] = array(
+                    'product_id' => $pid,
+                    'type' => $type,
+                );
+            }
+        }
+        
+        // Cache Amrod code lookups
+        foreach ($amrod_results as $row) {
+            $code = $row['code'];
+            $pid = (int) $row['post_id'];
+            $key = $row['meta_key'];
+            
+            // Map Amrod codes to SKU cache for faster lookups
+            if (!isset($this->sku_cache[$code])) {
+                $this->sku_cache[$code] = array(
+                    'product_id' => $pid,
+                    'type' => 'product',
+                    'source' => $key,
+                );
+            }
+        }
+        
+        $cached_count = count($this->sku_cache);
+        $this->logger->log('info', "Pre-warmed SKU cache with {$cached_count} entries", array(
+            'unique_skus' => count($all_skus),
+            'cached_entries' => $cached_count,
+        ), 'stock_sync');
     }
     
     /**
@@ -3310,7 +3414,7 @@ class ByteMash_Product_Sync {
         // Fetch updated stock only
         $stock_data = $this->api_client->get_stock_updated();
             
-            if (is_wp_error($stock_data)) {
+        if (is_wp_error($stock_data)) {
             return array('success' => false, 'message' => $stock_data->get_error_message());
         }
         
@@ -3341,15 +3445,14 @@ class ByteMash_Product_Sync {
             'started' => current_time('mysql'),
         ), false);
         
-            return array(
-                'success' => true,
+        return array(
+            'success' => true,
             'message' => "Ready to sync {$total} stock updates in {$batch_count} batches",
-                'sync_id' => $sync_id,
-                'total' => $total,
+            'sync_id' => $sync_id,
+            'total' => $total,
             'batch_count' => $batch_count,
             'batches' => $batches,
-            'data' => $stock_data,
-            );
+        );
     }
     
     /**
@@ -3600,28 +3703,16 @@ class ByteMash_Product_Sync {
         $exact_match_found = false;
         
         // Try exact matches first
-        $exact_match_product_ids = array();
         foreach ($skus_to_try as $sku) {
-            $product_id = $this->get_product_id_by_sku_cached($sku);
+            $product_id = wc_get_product_id_by_sku($sku);
             if ($product_id) {
-                $exact_match_product_ids[] = $product_id;
+                $product_ids[] = $product_id;
                 $matched_sku = $sku;
                 $exact_match_found = true;
                 $this->logger->log('success', "✅ Exact SKU matched: {$sku}", array(), 'stock_sync');
                 break;
             }
         }
-        
-        // If we found an exact match, check if it's a simple product
-        // If so, only update that product (don't do pattern matching for variable parents)
-        if ($exact_match_found && !empty($exact_match_product_ids)) {
-            $exact_product = wc_get_product($exact_match_product_ids[0]);
-            if ($exact_product && !$exact_product->is_type('variable')) {
-                // Exact match is a simple product - only update this one
-                $product_ids = $exact_match_product_ids;
-            } else {
-                // Exact match is variable or not found - do pattern matching for variations
-                $product_ids = $exact_match_product_ids;
         
         // ALWAYS try pattern matching with simpleCode to catch all variants
         // Example: Even if "ALT-1603" exists, also update "ALT-1603-Y", "ALT-1603-R", etc.
@@ -3652,34 +3743,6 @@ class ByteMash_Product_Sync {
                         : "✅ Pattern matched {$pattern_matched_count} product(s) with SKU starting with: {$simpleCode}";
                     
                     $this->logger->log('success', $log_msg, array(), 'stock_sync');
-                        }
-                    }
-                }
-            }
-        } else {
-            // No exact match - try pattern matching
-            $product_ids = array();
-            if (!empty($simpleCode)) {
-                global $wpdb;
-                $like_pattern = $wpdb->esc_like($simpleCode) . '%';
-                
-                $matching_products = $wpdb->get_results($wpdb->prepare(
-                    "SELECT post_id, meta_value as sku FROM {$wpdb->postmeta} 
-                    WHERE meta_key = '_sku' AND meta_value LIKE %s",
-                    $like_pattern
-                ));
-                
-                if ($matching_products) {
-                    $pattern_matched_count = 0;
-                    foreach ($matching_products as $match) {
-                        $product_ids[] = $match->post_id;
-                        $pattern_matched_count++;
-                    }
-                    
-                    if ($pattern_matched_count > 0) {
-                        $matched_sku = $simpleCode . '*';
-                        $this->logger->log('success', "✅ Pattern matched {$pattern_matched_count} product(s) with SKU starting with: {$simpleCode}", array(), 'stock_sync');
-                    }
                 }
             }
         }
@@ -3722,50 +3785,7 @@ class ByteMash_Product_Sync {
                 
                 // For variable products, handle stock differently based on stockType
                 if ($product->is_type('variable')) {
-                    // Determine if this is base product stock or variation stock
-                    // Base product stock indicators (in priority order):
-                    // 1. fullCode === simpleCode AND no colourCode (definitely base product, not a variation)
-                    // 2. stockType === 0 (explicit base stock)
-                    // 3. fullCode === simpleCode AND product SKU matches simpleCode
-                    $is_base_stock = false;
-                    $product_sku = $product->get_sku();
-                    $colour_code = $stock_item['colourCode'] ?? null;
-                    
-                    // First check: if fullCode === simpleCode and no colourCode, it's ALWAYS base product stock
-                    if ($fullCode === $simpleCode && empty($colour_code)) {
-                        // This is definitely base product stock, not a variation
-                        $is_base_stock = true;
-                    } elseif ($stock_type === 0) {
-                        // StockType 0 is always base product stock
-                        $is_base_stock = true;
-                    } elseif ($fullCode === $simpleCode && $product_sku === $simpleCode) {
-                        // Product SKU matches = base product stock
-                        $is_base_stock = true;
-                    }
-                    
-                    if ($is_base_stock) {
-                        // Update base variable product stock directly
-                        $product->set_manage_stock(true);
-                        $product->set_stock_quantity($stock_qty);
-                        $product->set_stock_status($stock_qty > 0 ? 'instock' : 'outofstock');
-                        $this->save_product_safely($product);
-                        
-                        $detail = array(
-                            'stock' => $stock_qty,
-                            'reserved' => $reserved_qty,
-                            'incoming' => $incoming,
-                            'modified' => $modified,
-                            'fullCode' => $stock_item['fullCode'] ?? '',
-                            'simpleCode' => $simpleCode,
-                            'stockType' => 0,
-                        );
-                        update_post_meta($pid, '_amrod_stock_detail', $detail);
-                    } else {
-                        // Try to update as variation (existing logic)
-                        // Ensure simpleCode is passed correctly to the variation update method
-                        $stock_item['simpleCode'] = $simpleCode;
                     $this->update_variable_product_stock($product, $stock_item, $stock_qty, $reserved_qty, $incoming, $modified, $stock_type);
-                    }
                 } else {
                     // Simple product - update directly
                 $product->set_manage_stock(true);
@@ -5045,15 +5065,17 @@ class ByteMash_Product_Sync {
      * Cleanup WooCommerce products that are no longer present in the API snapshot
      *
      * @param string $sync_id Sync identifier
+     * @param int $batch_limit Maximum products to process in this batch (0 = all)
+     * @return array Result with checked/deleted/skipped counts
      */
-    public function cleanup_products_not_in_snapshot($sync_id) {
+    public function cleanup_products_not_in_snapshot($sync_id, $batch_limit = 0) {
         $sku_snapshot = get_transient("bytemash_sync_{$sync_id}_product_skus");
         
         if (empty($sku_snapshot) || !is_array($sku_snapshot)) {
             $this->logger->log('info', 'No SKU snapshot found for reconciliation', array(
                 'sync_id' => $sync_id,
             ), 'product_sync');
-            return;
+            return array('checked' => 0, 'deleted' => 0, 'skipped' => 0);
         }
         
         // Update progress to show cleanup is starting
@@ -5062,37 +5084,94 @@ class ByteMash_Product_Sync {
         if ($progress) {
             $progress['status'] = 'deleting_excess';
             $progress['cleanup_status'] = 'in_progress';
-            $progress['cleanup_message'] = 'Deleting excess products...';
+            $progress['cleanup_message'] = __('Deleting excess products...', 'bytemash-woo-sync');
             $batch_processor->save_sync_progress($sync_id, $progress);
         }
         
         $this->logger->log('info', 'Starting cleanup of products not in API snapshot', array(
             'sync_id' => $sync_id,
             'snapshot_count' => count($sku_snapshot),
+            'batch_limit' => $batch_limit,
         ), 'product_sync');
         
         $result = $this->reconcile_catalog_against_skus($sku_snapshot, array(
             'sync_id' => $sync_id,
             'context' => 'snapshot_cleanup',
-        ));
+        ), $batch_limit);
         
         // Update progress with cleanup results
-        if ($progress) {
-            $progress['status'] = 'completed';
-            $progress['cleanup_status'] = 'completed';
-            $progress['cleanup_message'] = sprintf(
-                'Deleting excess products completed: %d checked, %d deleted',
-                $result['checked'] ?? 0,
-                $result['deleted'] ?? 0
-            );
-            $progress['cleanup_checked'] = $result['checked'] ?? 0;
-            $progress['cleanup_deleted'] = $result['deleted'] ?? 0;
+        if ($progress && $result) {
+            $has_more = isset($result['has_more']) && $result['has_more'];
+            
+            if ($has_more) {
+                // More batches to process
+                $progress['cleanup_status'] = 'in_progress';
+                $progress['cleanup_message'] = sprintf(
+                    __('Deleting excess products... %d checked, %d deleted (processing...)', 'bytemash-woo-sync'),
+                    $result['total_checked'] ?? $result['checked'] ?? 0,
+                    $result['total_deleted'] ?? $result['deleted'] ?? 0
+                );
+            } else {
+                // All done
+                $progress['status'] = 'completed';
+                $progress['cleanup_status'] = 'completed';
+                $progress['cleanup_message'] = sprintf(
+                    __('Deleting excess products completed: %d checked, %d deleted', 'bytemash-woo-sync'),
+                    $result['total_checked'] ?? $result['checked'] ?? 0,
+                    $result['total_deleted'] ?? $result['deleted'] ?? 0
+                );
+            }
+            
+            $progress['cleanup_checked'] = $result['total_checked'] ?? $result['checked'] ?? 0;
+            $progress['cleanup_deleted'] = $result['total_deleted'] ?? $result['deleted'] ?? 0;
             $batch_processor->save_sync_progress($sync_id, $progress);
         }
         
-        delete_transient("bytemash_sync_{$sync_id}_product_skus");
+        // Only delete transient if we're completely done
+        if ($progress && (!isset($result['has_more']) || !$result['has_more'])) {
+            delete_transient("bytemash_sync_{$sync_id}_product_skus");
+        }
 
         return $result;
+    }
+    
+    /**
+     * Process a batch of deletion cleanup (for AJAX polling)
+     *
+     * @param string $sync_id Sync identifier
+     * @param int $batch_size Number of products to process per batch
+     * @return array Result with progress info
+     */
+    public function process_cleanup_batch($sync_id, $batch_size = 50) {
+        $sku_snapshot = get_transient("bytemash_sync_{$sync_id}_product_skus");
+        
+        if (empty($sku_snapshot) || !is_array($sku_snapshot)) {
+            return array(
+                'success' => false,
+                'message' => __('No SKU snapshot found', 'bytemash-woo-sync'),
+                'done' => true,
+            );
+        }
+        
+        $result = $this->cleanup_products_not_in_snapshot($sync_id, $batch_size);
+        
+        if (empty($result)) {
+            return array(
+                'success' => false,
+                'message' => __('Cleanup failed', 'bytemash-woo-sync'),
+                'done' => true,
+            );
+        }
+        
+        $has_more = isset($result['has_more']) && $result['has_more'];
+        
+        return array(
+            'success' => true,
+            'checked' => $result['total_checked'] ?? $result['checked'] ?? 0,
+            'deleted' => $result['total_deleted'] ?? $result['deleted'] ?? 0,
+            'skipped' => $result['skipped'] ?? 0,
+            'done' => !$has_more,
+        );
     }
     
     /**
@@ -5431,11 +5510,13 @@ class ByteMash_Product_Sync {
      *
      * @param array $allowed_skus
      * @param array $context
+     * @param int $limit Maximum products to process in this batch (0 = all)
+     * @return array Result with checked/deleted/skipped counts
      */
-    private function reconcile_catalog_against_skus(array $allowed_skus, $context = array()) {
+    private function reconcile_catalog_against_skus(array $allowed_skus, $context = array(), $limit = 0) {
         if (empty($allowed_skus)) {
             $this->logger->log('warning', 'Cannot reconcile catalog with empty SKU list', $context, 'product_sync');
-            return;
+            return array('checked' => 0, 'deleted' => 0, 'skipped' => 0);
         }
         
         $normalized_map = array();
@@ -5448,20 +5529,47 @@ class ByteMash_Product_Sync {
         
         if (empty($normalized_map)) {
             $this->logger->log('warning', 'No valid SKUs available for reconciliation after normalization', $context, 'product_sync');
-            return;
+            return array('checked' => 0, 'deleted' => 0, 'skipped' => 0);
         }
+        
+        $sync_id = $context['sync_id'] ?? '';
+        $batch_processor = !empty($sync_id) ? new ByteMash_Batch_Processor() : null;
+        $progress = $batch_processor ? $batch_processor->get_sync_progress($sync_id) : null;
+        
+        // Get already checked product IDs to avoid re-checking
+        $checked_products = isset($progress['cleanup_checked_product_ids']) 
+            ? $progress['cleanup_checked_product_ids'] 
+            : array();
         
         $this->logger->log('info', 'Starting catalog reconciliation', array_merge($context, array(
             'snapshot_total' => count($normalized_map),
+            'limit' => $limit,
+            'already_checked' => count($checked_products),
         )), 'product_sync');
         
         global $wpdb;
         $table_posts = $wpdb->posts;
         $table_meta = $wpdb->postmeta;
         
+        // Build WHERE clause to exclude already checked products
+        $where_conditions = array(
+            "p.post_type = 'product'",
+            "p.post_status NOT IN ('trash', 'auto-draft')"
+        );
+        
+        if (!empty($checked_products)) {
+            $checked_ids = array_map('intval', $checked_products);
+            if (!empty($checked_ids)) {
+                $checked_ids_str = implode(',', $checked_ids);
+                $where_conditions[] = "p.ID NOT IN ({$checked_ids_str})";
+            }
+        }
+        
+        $where_clause = implode(' AND ', $where_conditions);
+        $limit_clause = $limit > 0 ? "LIMIT {$limit}" : '';
+        
         // Find all Amrod products by checking _amrod_simple_code meta
         // Also check _sku meta as fallback for products that might not have _amrod_simple_code yet
-        // This ensures we catch all Amrod products, even if meta wasn't saved in a previous sync
         $query = "
             SELECT DISTINCT p.ID as post_id, 
                    COALESCE(pm_amrod.meta_value, pm_sku.meta_value) AS sku
@@ -5479,91 +5587,121 @@ class ByteMash_Product_Sync {
                 AND pm_sku.meta_value != ''
                 AND pm_amrod.meta_value IS NULL
             )
-            WHERE p.post_type = 'product'
-              AND p.post_status NOT IN ('trash', 'auto-draft')
+            WHERE {$where_clause}
               AND (pm_amrod.meta_value IS NOT NULL OR pm_sku.meta_value IS NOT NULL)
+            {$limit_clause}
         ";
         
         $rows = $wpdb->get_results($query);
         $checked = 0;
         $deleted = 0;
         $skipped = 0;
-        $sync_id = $context['sync_id'] ?? '';
-        $batch_processor = !empty($sync_id) ? new ByteMash_Batch_Processor() : null;
+        $total_checked = isset($progress['cleanup_checked']) ? (int) $progress['cleanup_checked'] : 0;
+        $total_deleted = isset($progress['cleanup_deleted']) ? (int) $progress['cleanup_deleted'] : 0;
         
         $this->logger->log('info', 'Catalog reconciliation query executed', array_merge($context, array(
             'products_found' => $rows ? count($rows) : 0,
             'snapshot_total' => count($normalized_map),
+            'limit' => $limit,
         )), 'product_sync');
         
-        if ($rows) {
-            foreach ($rows as $row) {
-                $checked++;
-                $product_sku = $this->normalize_sku($row->sku ?? '');
-                
-                // Skip if SKU is empty or if product is in the allowed list
-                if ($product_sku === '' || isset($normalized_map[$product_sku])) {
-                    $skipped++;
-                    continue;
-                }
-                
-                // Product is not in the API snapshot - delete it
-                $product_id = (int) $row->post_id;
-                $product = wc_get_product($product_id);
-                
-                if ($product) {
-                    $product_name = $product->get_name();
-                    $product_sku_display = $product->get_sku();
+        // Enable bulk operation mode for faster processing
+        wp_defer_term_counting(true);
+        wp_defer_comment_counting(true);
+        wp_suspend_cache_addition(true);
+        
+        try {
+            if ($rows) {
+                foreach ($rows as $row) {
+                    $product_id = (int) $row->post_id;
+                    $checked_products[] = $product_id; // Track that we've checked this
+                    $checked++;
+                    $total_checked++;
                     
-                    $this->logger->log('warning', 'Deleting product not in API snapshot', array(
-                        'product_id' => $product_id,
-                        'product_name' => $product_name,
-                        'sku' => $product_sku_display,
-                        'normalized_sku' => $product_sku,
-                        'snapshot_has_sku' => isset($normalized_map[$product_sku]),
-                    ), 'product_sync');
+                    $product_sku = $this->normalize_sku($row->sku ?? '');
                     
-                    // Update progress more frequently during deletion (every 5 deletions) to show real-time progress
-                    if ($batch_processor && ($deleted === 0 || $deleted % 5 === 0 || $checked % 50 === 0)) {
+                    // Skip if SKU is empty or if product is in the allowed list
+                    if ($product_sku === '' || isset($normalized_map[$product_sku])) {
+                        $skipped++;
+                        continue;
+                    }
+                    
+                    // Product is not in the API snapshot - delete it
+                    $product = wc_get_product($product_id);
+                    
+                    if ($product) {
+                        $product_name = $product->get_name();
+                        $product_sku_display = $product->get_sku();
+                        
+                        $this->logger->log('warning', 'Deleting product not in API snapshot', array(
+                            'product_id' => $product_id,
+                            'product_name' => $product_name,
+                            'sku' => $product_sku_display,
+                            'normalized_sku' => $product_sku,
+                        ), 'product_sync');
+                        
+                        // Delete the product (force delete, bypass trash)
+                        $delete_result = wp_delete_post($product_id, true);
+                        
+                        if ($delete_result) {
+                            $deleted++;
+                            $total_deleted++;
+                            $this->logger->log('success', 'Product deleted successfully', array(
+                                'product_id' => $product_id,
+                                'sku' => $product_sku_display,
+                            ), 'product_sync');
+                        } else {
+                            $this->logger->log('error', 'Failed to delete product', array(
+                                'product_id' => $product_id,
+                                'sku' => $product_sku_display,
+                            ), 'product_sync');
+                        }
+                    }
+                    
+                    // Update progress every 10 items or every deletion
+                    if ($batch_processor && ($checked % 10 === 0 || $deleted > 0)) {
                         $progress = $batch_processor->get_sync_progress($sync_id);
                         if ($progress) {
                             $progress['status'] = 'deleting_excess';
                             $progress['cleanup_status'] = 'in_progress';
                             $progress['cleanup_message'] = sprintf(
-                                'Deleting excess products... %d checked, %d deleted',
-                                $checked,
-                                $deleted
+                                __('Deleting excess products... %d checked, %d deleted', 'bytemash-woo-sync'),
+                                $total_checked,
+                                $total_deleted
                             );
-                            $progress['cleanup_checked'] = $checked;
-                            $progress['cleanup_deleted'] = $deleted;
+                            $progress['cleanup_checked'] = $total_checked;
+                            $progress['cleanup_deleted'] = $total_deleted;
+                            $progress['cleanup_checked_product_ids'] = $checked_products;
                             $batch_processor->save_sync_progress($sync_id, $progress);
                         }
                     }
-                    
-                    // Delete the product (force delete, bypass trash)
-                    $delete_result = wp_delete_post($product_id, true);
-                    
-                    if ($delete_result) {
-                        $deleted++;
-                        $this->logger->log('success', 'Product deleted successfully', array(
-                            'product_id' => $product_id,
-                            'sku' => $product_sku_display,
-                        ), 'product_sync');
-                    } else {
-                        $this->logger->log('error', 'Failed to delete product', array(
-                            'product_id' => $product_id,
-                            'sku' => $product_sku_display,
-                        ), 'product_sync');
-                    }
                 }
+            }
+        } finally {
+            // Re-enable counting and cache
+            wp_defer_term_counting(false);
+            wp_defer_comment_counting(false);
+            wp_suspend_cache_addition(false);
+        }
+        
+        // Final progress update
+        if ($batch_processor && $progress) {
+            $progress = $batch_processor->get_sync_progress($sync_id);
+            if ($progress) {
+                $progress['cleanup_checked'] = $total_checked;
+                $progress['cleanup_deleted'] = $total_deleted;
+                $progress['cleanup_checked_product_ids'] = $checked_products;
+                $batch_processor->save_sync_progress($sync_id, $progress);
             }
         }
         
-        $this->logger->log('info', 'Catalog reconciliation completed', array_merge($context, array(
+        $this->logger->log('info', 'Catalog reconciliation batch completed', array_merge($context, array(
             'snapshot_total' => count($normalized_map),
             'products_checked' => $checked,
             'products_skipped' => $skipped,
             'products_deleted' => $deleted,
+            'total_checked' => $total_checked,
+            'total_deleted' => $total_deleted,
         )), 'product_sync');
         
         // Return result for progress tracking
@@ -5571,7 +5709,10 @@ class ByteMash_Product_Sync {
             'checked' => $checked,
             'deleted' => $deleted,
             'skipped' => $skipped,
+            'total_checked' => $total_checked,
+            'total_deleted' => $total_deleted,
             'snapshot_total' => count($normalized_map),
+            'has_more' => $limit > 0 && count($rows) >= $limit, // Indicates if there are more to process
         );
     }
     
@@ -5635,18 +5776,12 @@ class ByteMash_Product_Sync {
                     ), 'product_sync');
                 }
             } else {
-                // Only log warning if this is actually a variation (stockType 1 or 2)
-                // If stockType is 0 or fullCode === simpleCode with no colourCode, 
-                // this should have been handled as base product stock earlier
-                if ($stock_type >= 1) {
                 $this->logger->log('warning', 'Could not find matching variation for stock update', array(
                     'parent_id' => $product_id,
                     'full_code' => $full_code,
                     'simple_code' => $simple_code,
                     'colour_code' => $colour_code,
-                        'stock_type' => $stock_type,
                 ), 'product_sync');
-                }
             }
         }
     }

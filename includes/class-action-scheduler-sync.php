@@ -172,11 +172,6 @@ class ByteMash_Action_Scheduler_Sync {
             'with_branding' => $with_branding,
         ), 'action_scheduler');
         
-        $this->logger->log('info', 'Production full sync triggered via Action Scheduler', array(
-            'phases' => $phases,
-            'with_branding' => $with_branding,
-        ), 'full_sync');
-        
         try {
             // Get enabled sync attributes
             $sync_products = get_option('bytemash_sync_products', true);
@@ -192,6 +187,11 @@ class ByteMash_Action_Scheduler_Sync {
             if ($sync_prices) $phases[] = 'prices';
             if ($sync_categories) $phases[] = 'categories';
             if ($sync_brands) $phases[] = 'brands';
+            
+            $this->logger->log('info', 'Production full sync triggered via Action Scheduler', array(
+                'phases' => $phases,
+                'with_branding' => $with_branding,
+            ), 'full_sync');
             
             $this->logger->log('info', "Action Scheduler full sync phases enabled (queue order)", array(
                 'phases' => $phases,
@@ -655,11 +655,10 @@ class ByteMash_Action_Scheduler_Sync {
             'batch_count' => $batch_count,
         ), 'action_scheduler');
         
-        // Cache stock data temporarily
-        set_transient("bytemash_sync_{$sync_id}_stock", $stock_data, 12 * HOUR_IN_SECONDS);
+        $batch_processor = new ByteMash_Batch_Processor();
+        $batch_processor->prime_stock_batches($sync_id, $batches, 12 * HOUR_IN_SECONDS);
         
         // Set up progress tracking
-        $batch_processor = new ByteMash_Batch_Processor();
         $batch_processor->save_sync_progress($sync_id, array(
             'type' => 'stock',
             'total' => $total,
@@ -1397,9 +1396,8 @@ class ByteMash_Action_Scheduler_Sync {
     
     /**
      * Enable production full sync schedule (daily full sync only)
-     * Works the same way as test mode but with production schedule
-     * Only syncs attributes selected by the user
-     * Uses Action Scheduler
+     * Works EXACTLY the same way as test mode but with production schedule
+     * Uses ONLY Action Scheduler - NO WP Cron
      */
     public function enable_production_full_sync() {
         $this->clear_full_sync_schedules();
@@ -1408,23 +1406,17 @@ class ByteMash_Action_Scheduler_Sync {
         // Disable test mode if enabled
         update_option('bytemash_cron_full_test_mode_enabled', false);
         
-        // Schedule full sync daily at 01:30 (South Africa time) - avoiding API downtime 00:00-01:00
+        // Calculate next 01:30 South Africa time (same logic as before but simplified)
         $timezone = new DateTimeZone('Africa/Johannesburg');
         $now = new DateTime('now', $timezone);
-        
-        // Set to 01:30 today
         $next_sync = clone $now;
         $next_sync->setTime(1, 30, 0);
-        
-        // If it's already past 01:30 today, schedule for tomorrow
         if ($next_sync <= $now) {
             $next_sync->add(new DateInterval('P1D'));
         }
+        $wp_timestamp = $next_sync->getTimestamp();
         
-        // Convert to WordPress timezone
-        $wp_timestamp = $next_sync->getTimestamp() - (get_option('gmt_offset') * HOUR_IN_SECONDS);
-        
-        // Schedule full sync daily - same as test mode but recurring daily
+        // Schedule full sync daily - EXACTLY like test mode but recurring daily
         as_schedule_recurring_action(
             $wp_timestamp,
             DAY_IN_SECONDS, // Daily
@@ -1433,10 +1425,10 @@ class ByteMash_Action_Scheduler_Sync {
             'bytemash-sync'
         );
         
-        // Schedule incremental sync every 5 hours (starts after first full sync)
+        // Schedule incremental sync every 5 hours (starts after first full sync) - EXACTLY like test incremental
         $next_incremental = clone $next_sync;
         $next_incremental->add(new DateInterval('PT5H')); // Add 5 hours
-        $incremental_wp_timestamp = $next_incremental->getTimestamp() - (get_option('gmt_offset') * HOUR_IN_SECONDS);
+        $incremental_wp_timestamp = $next_incremental->getTimestamp();
         
         as_schedule_recurring_action(
             $incremental_wp_timestamp,

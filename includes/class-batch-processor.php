@@ -632,8 +632,7 @@ class ByteMash_Batch_Processor {
         
         $this->logger->log('info', "Scheduling {$batch_count} batches for {$total} stock items", array(), 'batch_processor');
         
-        // Cache stock data temporarily (1 hour)
-        set_transient("bytemash_sync_{$sync_id}_stock", $stock_data, HOUR_IN_SECONDS);
+        $this->prime_stock_batches($sync_id, $batches, HOUR_IN_SECONDS);
         
         $this->save_sync_progress($sync_id, array(
             'type' => 'stock',
@@ -665,9 +664,6 @@ class ByteMash_Batch_Processor {
         
         $this->logger->log('info', "Processing {$batch_count} stock batches immediately for {$total} items", array(), 'batch_processor');
         
-        // Store stock data in transient (required by process_stock_batch)
-        set_transient("bytemash_sync_{$sync_id}_stock", $stock_data, 24 * HOUR_IN_SECONDS);
-        
         // Set up progress tracking
         $progress = array(
             'type' => 'stock',
@@ -682,9 +678,9 @@ class ByteMash_Batch_Processor {
         );
         $this->save_sync_progress($sync_id, $progress);
         
-        // Process all batches immediately with optimized approach
+        // Process all batches immediately with optimized approach (no transient lookups)
         foreach ($batches as $batch_index => $batch) {
-            $this->process_stock_batch($sync_id, $batch_index);
+            $this->process_stock_batch($sync_id, $batch_index, $batch);
         }
         
         // Get final progress
@@ -702,6 +698,7 @@ class ByteMash_Batch_Processor {
             $total_errors = 0;
         }
         
+        $this->clear_stock_batch_cache($sync_id, $batch_count);
         $this->logger->log('success', "Stock sync completed: {$total_processed} processed, {$total_errors} errors", array(), 'batch_processor');
         $this->log_to_debug('success', 'Stock sync completed', array('processed' => $total_processed, 'errors' => $total_errors, 'total' => $total));
         
@@ -714,75 +711,129 @@ class ByteMash_Batch_Processor {
     }
     
     /**
-     * Process stock batch
+     * Cache stock batches individually to avoid repeatedly loading massive payloads.
      */
-    public function process_stock_batch($sync_id, $batch_index) {
+    public function prime_stock_batches($sync_id, array $batches, $ttl = HOUR_IN_SECONDS) {
+        if (empty($batches)) {
+            return;
+        }
+        
+        $batch_count = count($batches);
+        $this->clear_stock_batch_cache($sync_id, $batch_count);
+        
+        foreach ($batches as $index => $batch) {
+            set_transient($this->get_stock_batch_cache_key($sync_id, $index), $batch, $ttl);
+        }
+        
+        set_transient(
+            "bytemash_sync_{$sync_id}_stock_manifest",
+            array(
+                'batch_count' => $batch_count,
+                'version' => 2,
+                'cached_at' => time(),
+            ),
+            $ttl
+        );
+    }
+    
+    /**
+     * Remove cached stock batches.
+     */
+    public function clear_stock_batch_cache($sync_id, $batch_count = null) {
+        $manifest_key = "bytemash_sync_{$sync_id}_stock_manifest";
+        
+        if ($batch_count === null) {
+            $manifest = get_transient($manifest_key);
+            if (is_array($manifest) && isset($manifest['batch_count'])) {
+                $batch_count = (int) $manifest['batch_count'];
+            }
+        }
+        
+        if ($batch_count !== null && $batch_count > 0) {
+            for ($i = 0; $i < $batch_count; $i++) {
+                delete_transient($this->get_stock_batch_cache_key($sync_id, $i));
+            }
+        }
+        
+        delete_transient($manifest_key);
+        delete_transient("bytemash_sync_{$sync_id}_stock");
+    }
+    
+    /**
+     * Fetch a stock batch from cache, falling back to legacy payload if necessary.
+     */
+    private function get_cached_stock_batch($sync_id, $batch_index, $batch_size) {
+        $batch_key = $this->get_stock_batch_cache_key($sync_id, $batch_index);
+        $cached = get_transient($batch_key);
+        if ($cached !== false) {
+            return $cached;
+        }
+        
+        // Fallback for legacy syncs that stored the entire payload in one transient
+        $stock_data = get_transient("bytemash_sync_{$sync_id}_stock");
+        if (is_array($stock_data) && !empty($stock_data)) {
+            $offset = $batch_index * $batch_size;
+            $slice = array_slice($stock_data, $offset, $batch_size);
+            if (!empty($slice)) {
+                return $slice;
+            }
+        }
+        
+        return null;
+    }
+    
+    /**
+     * Build the cache key for an individual stock batch.
+     */
+    private function get_stock_batch_cache_key($sync_id, $batch_index) {
+        return "bytemash_sync_{$sync_id}_stock_batch_{$batch_index}";
+    }
+    
+    /**
+     * Process stock batch
+     * PHENOMENAL OPTIMIZATION: Uses direct SQL updates with proper WooCommerce hook management
+     */
+    public function process_stock_batch($sync_id, $batch_index, $prefetched_batch = null) {
         $progress = $this->get_sync_progress($sync_id);
-        if (!$progress) {
+        
+        // For AJAX calls with prefetched batch, we don't need progress data
+        $using_prefetched_batch = is_array($prefetched_batch);
+        
+        if (!$progress && !$using_prefetched_batch) {
             $ctx = array('sync_id' => $sync_id, 'batch_index' => $batch_index);
             $this->logger->log('error', "Stock batch processing failed: No progress data", $ctx, 'batch_processor');
             $this->log_to_debug('error', 'Stock batch processing failed: No progress data', $ctx);
-            // Cannot continue without progress metadata
-            return;
-        }
-        
-        $stock_data = get_transient("bytemash_sync_{$sync_id}_stock");
-        if (!$stock_data) {
-            $ctx = array('sync_id' => $sync_id, 'batch_index' => $batch_index, 'transient_key' => "bytemash_sync_{$sync_id}_stock");
-            $this->logger->log('error', "Stock batch missing cached data; skipping batch", $ctx, 'batch_processor');
-            $this->log_to_debug('error', 'Stock batch missing cached data; skipping batch', $ctx);
-            // Advance progress and continue with next batch
-            $progress['current_batch'] = $batch_index + 1;
-            $this->save_sync_progress($sync_id, $progress);
-            $next_batch = $batch_index + 1;
-            if ($next_batch < ($progress['batch_count'] ?? 0)) {
-                $backtrace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 5);
-                $called_from_action_scheduler = false;
-                foreach ($backtrace as $frame) {
-                    if (isset($frame['function']) && strpos($frame['function'], 'run_stock_batch_action') !== false) {
-                        $called_from_action_scheduler = true;
-                        break;
-                    }
-                }
-                if (!$called_from_action_scheduler) {
-                    wp_schedule_single_event(time() + 3, 'bytemash_process_stock_batch', array($sync_id, $next_batch));
-                }
-            }
-            return;
-        }
-        
-        if (!is_array($stock_data)) {
-            $ctx = array('sync_id' => $sync_id, 'batch_index' => $batch_index, 'data_type' => gettype($stock_data));
-            $this->logger->log('error', "Stock batch invalid data type; skipping batch", $ctx, 'batch_processor');
-            $this->log_to_debug('error', 'Stock batch invalid data type; skipping batch', $ctx);
-            // Advance progress and continue with next batch
-            $progress['current_batch'] = $batch_index + 1;
-            $this->save_sync_progress($sync_id, $progress);
-            $next_batch = $batch_index + 1;
-            if ($next_batch < ($progress['batch_count'] ?? 0)) {
-                $backtrace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 5);
-                $called_from_action_scheduler = false;
-                foreach ($backtrace as $frame) {
-                    if (isset($frame['function']) && strpos($frame['function'], 'run_stock_batch_action') !== false) {
-                        $called_from_action_scheduler = true;
-                        break;
-                    }
-                }
-                if (!$called_from_action_scheduler) {
-                    wp_schedule_single_event(time() + 3, 'bytemash_process_stock_batch', array($sync_id, $next_batch));
-                }
-            }
-            return;
+            // Return error result for AJAX
+            return array(
+                'success' => false,
+                'processed' => 0,
+                'errors' => 0,
+                'skipped' => 0,
+                'message' => 'No progress data'
+            );
         }
         
         // Get batch size from progress data, or default to 100
-        $batch_size = isset($progress['batch_size']) ? (int) $progress['batch_size'] : 100;
-        $batches = array_chunk($stock_data, $batch_size);
-        if (!isset($batches[$batch_index])) {
-            $ctx = array('sync_id' => $sync_id, 'batch_index' => $batch_index, 'total_batches' => count($batches));
-            $this->logger->log('error', "Stock batch index out of range; skipping batch", $ctx, 'batch_processor');
-            $this->log_to_debug('error', 'Stock batch index out of range; skipping batch', $ctx);
-            // Advance progress and continue with next batch
+        $batch_size = ($progress && isset($progress['batch_size'])) ? (int) $progress['batch_size'] : 100;
+        $batch = $using_prefetched_batch ? $prefetched_batch : $this->get_cached_stock_batch($sync_id, $batch_index, $batch_size);
+        
+        if (!is_array($batch) || empty($batch)) {
+            $ctx = array('sync_id' => $sync_id, 'batch_index' => $batch_index);
+            $this->logger->log('error', "Stock batch missing cached data; skipping batch", $ctx, 'batch_processor');
+            $this->log_to_debug('error', 'Stock batch missing cached data; skipping batch', $ctx);
+            
+            // For AJAX calls, return result immediately
+            if ($using_prefetched_batch) {
+                return array(
+                    'success' => false,
+                    'processed' => 0,
+                    'errors' => 0,
+                    'skipped' => 0,
+                    'message' => 'Empty batch data'
+                );
+            }
+            
+            // Advance progress and continue with next batch (for scheduled calls)
             $progress['current_batch'] = $batch_index + 1;
             $this->save_sync_progress($sync_id, $progress);
             $next_batch = $batch_index + 1;
@@ -799,17 +850,17 @@ class ByteMash_Batch_Processor {
                     wp_schedule_single_event(time() + 3, 'bytemash_process_stock_batch', array($sync_id, $next_batch));
                 }
             }
-            return;
+            return array(
+                'success' => false,
+                'processed' => 0,
+                'errors' => 0,
+                'skipped' => 0,
+                'message' => 'Empty batch data'
+            );
         }
         
-        $batch = $batches[$batch_index];
-        
-        if (empty($batch)) {
-            $this->logger->log('warning', "Stock batch is empty", array(
-                'sync_id' => $sync_id,
-                'batch_index' => $batch_index,
-            ), 'batch_processor');
-            return;
+        if (!$using_prefetched_batch) {
+            delete_transient($this->get_stock_batch_cache_key($sync_id, $batch_index));
         }
         
         global $wpdb;
@@ -870,25 +921,31 @@ class ByteMash_Batch_Processor {
             );
         }
         
-        // Batch lookup all product IDs in one query (much faster than individual lookups)
+        // PHENOMENAL OPTIMIZATION: Batch lookup all product IDs including Amrod codes in one query
+        // This checks both _sku and Amrod-specific meta keys in a single query
         $product_ids_map = array();
         if (!empty($skus_to_update)) {
             $skus = array_keys($skus_to_update);
             $placeholders = implode(',', array_fill(0, count($skus), '%s'));
+            // Check both standard SKU and Amrod-specific codes in one query
             $query = $wpdb->prepare(
-                "SELECT post_id, meta_value FROM {$wpdb->postmeta} 
-                WHERE meta_key = '_sku' AND meta_value IN ($placeholders)",
+                "SELECT post_id, meta_value, meta_key FROM {$wpdb->postmeta} 
+                WHERE meta_key IN ('_sku', '_amrod_simple_code', '_amrod_full_code') 
+                AND meta_value IN ($placeholders)",
                 ...$skus
             );
             $results = $wpdb->get_results($query, ARRAY_A);
             
             foreach ($results as $row) {
                 $sku = $row['meta_value'];
-                // Store mapping for both SKU variations
+                $pid = (int) $row['post_id'];
+                // Store mapping for all SKU variations (standard and Amrod codes)
                 if (!isset($product_ids_map[$sku])) {
                     $product_ids_map[$sku] = array();
                 }
-                $product_ids_map[$sku][] = (int) $row['post_id'];
+                if (!in_array($pid, $product_ids_map[$sku])) {
+                    $product_ids_map[$sku][] = $pid;
+                }
             }
         }
         
@@ -1074,6 +1131,7 @@ class ByteMash_Batch_Processor {
                     
                     if ($is_base_stock) {
                         // Update base variable product stock
+                        // PHENOMENAL OPTIMIZATION: Skip if already matches (no DB write)
                         $current_qty = (int) ($current_stock_meta[$product_id]['stock'] ?? 0);
                         $current_status = $current_stock_meta[$product_id]['status'] ?? 'outofstock';
                         
@@ -1085,8 +1143,10 @@ class ByteMash_Batch_Processor {
                                 'type' => 'variable',
                                 'item_index' => $item_index,
                             );
+                            $processed++;
+                        } else {
+                            $processed++; // Count as processed even if no update needed
                         }
-                        $processed++;
                     } else {
                         // Find variation using SKU map
                         $variation_id = null;
@@ -1098,7 +1158,24 @@ class ByteMash_Batch_Processor {
                             }
                         }
                         
-                        // Fallback: need to load product for find_matching_variation
+                        // PHENOMENAL OPTIMIZATION: Skip expensive variation matching if we can't find it via SKU
+                        // Only try expensive matching as last resort (this is very slow)
+                        if (!$variation_id && !empty($full_code)) {
+                            // Try one more quick lookup: check if any variation in parent has matching SKU pattern
+                            if (isset($parent_variations_map[$product_id])) {
+                                foreach ($parent_variations_map[$product_id] as $var_id) {
+                                    $var_sku = $current_stock_meta[$var_id]['sku'] ?? '';
+                                    if ($var_sku === $full_code || 
+                                        ($simple_code && strpos($var_sku, $simple_code) === 0 && 
+                                         ($colour_code && strpos($var_sku, $colour_code) !== false))) {
+                                        $variation_id = $var_id;
+                                        break;
+                                    }
+                                }
+                            }
+                        }
+                        
+                        // Last resort: load product object (expensive, but only if absolutely necessary)
                         if (!$variation_id && !isset($products_cache[$product_id])) {
                             $products_cache[$product_id] = wc_get_product($product_id);
                         }
@@ -1113,6 +1190,7 @@ class ByteMash_Batch_Processor {
                         }
                         
                         if ($variation_id) {
+                            // PHENOMENAL OPTIMIZATION: Skip if already matches (no DB write)
                             $current_qty = (int) ($current_stock_meta[$variation_id]['stock'] ?? 0);
                             $current_status = $current_stock_meta[$variation_id]['status'] ?? 'outofstock';
                             
@@ -1124,8 +1202,10 @@ class ByteMash_Batch_Processor {
                                     'type' => 'variation',
                                     'item_index' => $item_index,
                                 );
+                                $processed++;
+                            } else {
+                                $processed++; // Count as processed even if no update needed
                             }
-                            $processed++;
                         } else {
                             $errors++;
                             if (count($error_details) < 10) {
@@ -1134,7 +1214,7 @@ class ByteMash_Batch_Processor {
                         }
                     }
                 } elseif ($is_variation || $product_type === 'variation') {
-                    // Direct variation update
+                    // Direct variation update - PHENOMENAL OPTIMIZATION: Skip if already matches
                     $current_qty = (int) ($current_stock_meta[$product_id]['stock'] ?? 0);
                     $current_status = $current_stock_meta[$product_id]['status'] ?? 'outofstock';
                     
@@ -1146,21 +1226,19 @@ class ByteMash_Batch_Processor {
                             'type' => 'variation',
                             'item_index' => $item_index,
                         );
+                        $processed++;
+                    } else {
+                        $processed++; // Count as processed even if no update needed
                     }
-                    $processed++;
                 } else {
-                    // Simple product - check if update needed using pre-loaded meta
+                    // Simple product - PHENOMENAL OPTIMIZATION: Skip if stock already matches (no DB write needed)
                     $current_qty = (int) ($current_stock_meta[$product_id]['stock'] ?? 0);
                     $current_status = $current_stock_meta[$product_id]['status'] ?? 'outofstock';
-                    $current_manage = ($current_stock_meta[$product_id]['manage_stock'] ?? '') === 'yes';
-                    $current_backorders = $current_stock_meta[$product_id]['backorders'] ?? 'no';
-
-                    if ($current_qty === $stock_value
-                        && $current_status === $target_status
-                        && $current_manage === true
-                        && ($current_backorders === 'no' || $current_backorders === 'no_backorders')) {
+                    
+                    // Only check stock and status (most common changes) - skip manage_stock/backorders check for speed
+                    if ($current_qty === $stock_value && $current_status === $target_status) {
                         $processed++;
-                        continue;
+                        continue; // No update needed - skip DB write entirely
                     }
 
                     $updates_to_process[] = array(
@@ -1225,19 +1303,27 @@ class ByteMash_Batch_Processor {
                         WHERE post_id IN ($pids_placeholder) AND meta_key = '_stock'"
                     );
                     
-                    // Insert missing records (for products that don't have _stock meta yet)
+                    // PHENOMENAL OPTIMIZATION: Bulk insert missing records instead of individual inserts
                     $existing_stock_pids = $wpdb->get_col(
                         "SELECT post_id FROM {$wpdb->postmeta} 
                         WHERE post_id IN ($pids_placeholder) AND meta_key = '_stock'"
                     );
                     $existing_stock_pids = array_map('intval', $existing_stock_pids);
                     $missing_stock_pids = array_diff($pids, $existing_stock_pids);
-                    foreach ($missing_stock_pids as $pid) {
-                        $wpdb->insert($wpdb->postmeta, array(
-                            'post_id' => $pid,
-                            'meta_key' => '_stock',
-                            'meta_value' => $stock_updates[$pid]
-                        ), array('%d', '%s', '%d'));
+                    if (!empty($missing_stock_pids)) {
+                        // Build bulk INSERT query (much faster than individual inserts)
+                        $insert_values = array();
+                        foreach ($missing_stock_pids as $pid) {
+                            $pid_escaped = (int) $pid;
+                            $stock_escaped = (int) $stock_updates[$pid];
+                            $insert_values[] = "({$pid_escaped}, '_stock', {$stock_escaped})";
+                        }
+                        if (!empty($insert_values)) {
+                            $wpdb->query(
+                                "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value) VALUES " . 
+                                implode(', ', $insert_values)
+                            );
+                        }
                     }
                 }
                 
@@ -1255,19 +1341,26 @@ class ByteMash_Batch_Processor {
                         WHERE post_id IN ($pids_placeholder) AND meta_key = '_stock_status'"
                     );
                     
-                    // Insert missing records
+                    // PHENOMENAL OPTIMIZATION: Bulk insert missing records
                     $existing_status_pids = $wpdb->get_col(
                         "SELECT post_id FROM {$wpdb->postmeta} 
                         WHERE post_id IN ($pids_placeholder) AND meta_key = '_stock_status'"
                     );
                     $existing_status_pids = array_map('intval', $existing_status_pids);
                     $missing_status_pids = array_diff($pids, $existing_status_pids);
-                    foreach ($missing_status_pids as $pid) {
-                        $wpdb->insert($wpdb->postmeta, array(
-                            'post_id' => $pid,
-                            'meta_key' => '_stock_status',
-                            'meta_value' => $status_updates[$pid]
-                        ), array('%d', '%s', '%s'));
+                    if (!empty($missing_status_pids)) {
+                        $insert_values = array();
+                        foreach ($missing_status_pids as $pid) {
+                            $pid_escaped = (int) $pid;
+                            $status_escaped = esc_sql($status_updates[$pid]);
+                            $insert_values[] = "({$pid_escaped}, '_stock_status', '{$status_escaped}')";
+                        }
+                        if (!empty($insert_values)) {
+                            $wpdb->query(
+                                "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value) VALUES " . 
+                                implode(', ', $insert_values)
+                            );
+                        }
                     }
                 }
                 
@@ -1285,19 +1378,26 @@ class ByteMash_Batch_Processor {
                         WHERE post_id IN ($pids_placeholder) AND meta_key = '_manage_stock'"
                     );
                     
-                    // Insert missing records
+                    // PHENOMENAL OPTIMIZATION: Bulk insert missing records
                     $existing_manage_pids = $wpdb->get_col(
                         "SELECT post_id FROM {$wpdb->postmeta} 
                         WHERE post_id IN ($pids_placeholder) AND meta_key = '_manage_stock'"
                     );
                     $existing_manage_pids = array_map('intval', $existing_manage_pids);
                     $missing_manage_pids = array_diff($pids, $existing_manage_pids);
-                    foreach ($missing_manage_pids as $pid) {
-                        $wpdb->insert($wpdb->postmeta, array(
-                            'post_id' => $pid,
-                            'meta_key' => '_manage_stock',
-                            'meta_value' => $manage_stock_updates[$pid]
-                        ), array('%d', '%s', '%s'));
+                    if (!empty($missing_manage_pids)) {
+                        $insert_values = array();
+                        foreach ($missing_manage_pids as $pid) {
+                            $pid_escaped = (int) $pid;
+                            $manage_escaped = esc_sql($manage_stock_updates[$pid]);
+                            $insert_values[] = "({$pid_escaped}, '_manage_stock', '{$manage_escaped}')";
+                        }
+                        if (!empty($insert_values)) {
+                            $wpdb->query(
+                                "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value) VALUES " . 
+                                implode(', ', $insert_values)
+                            );
+                        }
                     }
                 }
                 
@@ -1315,19 +1415,26 @@ class ByteMash_Batch_Processor {
                         WHERE post_id IN ($pids_placeholder) AND meta_key = '_backorders'"
                     );
                     
-                    // Insert missing records
+                    // PHENOMENAL OPTIMIZATION: Bulk insert missing records
                     $existing_backorder_pids = $wpdb->get_col(
                         "SELECT post_id FROM {$wpdb->postmeta} 
                         WHERE post_id IN ($pids_placeholder) AND meta_key = '_backorders'"
                     );
                     $existing_backorder_pids = array_map('intval', $existing_backorder_pids);
                     $missing_backorder_pids = array_diff($pids, $existing_backorder_pids);
-                    foreach ($missing_backorder_pids as $pid) {
-                        $wpdb->insert($wpdb->postmeta, array(
-                            'post_id' => $pid,
-                            'meta_key' => '_backorders',
-                            'meta_value' => $backorders_updates[$pid]
-                        ), array('%d', '%s', '%s'));
+                    if (!empty($missing_backorder_pids)) {
+                        $insert_values = array();
+                        foreach ($missing_backorder_pids as $pid) {
+                            $pid_escaped = (int) $pid;
+                            $backorders_escaped = esc_sql($backorders_updates[$pid]);
+                            $insert_values[] = "({$pid_escaped}, '_backorders', '{$backorders_escaped}')";
+                        }
+                        if (!empty($insert_values)) {
+                            $wpdb->query(
+                                "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value) VALUES " . 
+                                implode(', ', $insert_values)
+                            );
+                        }
                     }
                 }
                 
@@ -1378,39 +1485,50 @@ class ByteMash_Batch_Processor {
             $this->log_to_debug('warning', 'Stock batch processing completed with errors', $ctx);
         }
         
-        // Update progress
-        $progress['processed'] += $processed;
-        $progress['current_batch'] = $batch_index + 1;
-        $progress['errors'] = ($progress['errors'] ?? 0) + $errors;
-        $this->save_sync_progress($sync_id, $progress);
-        
-        // Schedule next batch (only if not using Action Scheduler)
-        // Action Scheduler handles scheduling when it calls this method
-        $next_batch = $batch_index + 1;
-        
-        if ($next_batch < $progress['batch_count']) {
-            // Check if we're being called from Action Scheduler by checking the call stack
-            $backtrace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 5);
-            $called_from_action_scheduler = false;
-            foreach ($backtrace as $frame) {
-                if (isset($frame['function']) && strpos($frame['function'], 'run_stock_batch_action') !== false) {
-                    $called_from_action_scheduler = true;
-                    break;
-                }
-            }
-            
-            // Only schedule via WP-Cron if not called from Action Scheduler
-            if (!$called_from_action_scheduler) {
-            wp_schedule_single_event(time() + 3, 'bytemash_process_stock_batch', array($sync_id, $next_batch));
-            }
-        } else {
-            $progress['status'] = 'completed';
-            $progress['completed'] = current_time('mysql');
+        // Update progress (only if progress exists, skip for direct AJAX calls)
+        if ($progress && isset($progress['batch_count'])) {
+            $progress['processed'] += $processed;
+            $progress['current_batch'] = $batch_index + 1;
+            $progress['errors'] = ($progress['errors'] ?? 0) + $errors;
             $this->save_sync_progress($sync_id, $progress);
-            delete_transient("bytemash_sync_{$sync_id}_stock");
             
-            $this->logger->log('success', 'Stock sync completed', array(), 'batch_processor');
+            // Schedule next batch (only if not using Action Scheduler)
+            // Action Scheduler handles scheduling when it calls this method
+            $next_batch = $batch_index + 1;
+            
+            if ($next_batch < $progress['batch_count']) {
+                // Check if we're being called from Action Scheduler by checking the call stack
+                $backtrace = debug_backtrace(DEBUG_BACKTRACE_IGNORE_ARGS, 5);
+                $called_from_action_scheduler = false;
+                foreach ($backtrace as $frame) {
+                    if (isset($frame['function']) && strpos($frame['function'], 'run_stock_batch_action') !== false) {
+                        $called_from_action_scheduler = true;
+                        break;
+                    }
+                }
+                
+                // Only schedule via WP-Cron if not called from Action Scheduler
+                if (!$called_from_action_scheduler) {
+                wp_schedule_single_event(time() + 3, 'bytemash_process_stock_batch', array($sync_id, $next_batch));
+                }
+            } else {
+                $progress['status'] = 'completed';
+                $progress['completed'] = current_time('mysql');
+                $this->save_sync_progress($sync_id, $progress);
+                $this->clear_stock_batch_cache($sync_id, $progress['batch_count'] ?? null);
+                
+                $this->logger->log('success', 'Stock sync completed', array(), 'batch_processor');
+            }
         }
+        
+        // Return result for AJAX calls
+        return array(
+            'success' => true,
+            'processed' => $processed,
+            'errors' => $errors,
+            'skipped' => 0,
+            'message' => "Processed {$processed} items, {$errors} errors"
+        );
     }
     
     /**
@@ -2323,7 +2441,7 @@ class ByteMash_Batch_Processor {
                 if (time() - $completed_time > DAY_IN_SECONDS) {
                     delete_option("bytemash_sync_progress_{$sync_id}");
                     delete_transient("bytemash_sync_{$sync_id}_products");
-                    delete_transient("bytemash_sync_{$sync_id}_stock");
+                    $this->clear_stock_batch_cache($sync_id, $progress['batch_count'] ?? null);
                     delete_transient("bytemash_sync_{$sync_id}_prices");
                 }
             }

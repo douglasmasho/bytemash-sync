@@ -1188,7 +1188,7 @@
         }
 
         /**
-         * Trigger the excess product cleanup AJAX request.
+         * Trigger the excess product cleanup AJAX request with progress tracking.
          *
          * @param {string} contextLabel
          * @param {object} options
@@ -1223,6 +1223,7 @@
             }
 
             return new Promise((resolve, reject) => {
+                // First, initiate the cleanup
                 $.ajax({
                     url: bytemashWooSync.ajax_url,
                     type: 'POST',
@@ -1232,7 +1233,12 @@
                         context: contextLabel
                     },
                     success: function(response) {
-                        if (response.success) {
+                        if (response.success && response.data && response.data.sync_id) {
+                            // Start batch processing with progress tracking
+                            const syncId = response.data.sync_id;
+                            processCleanupBatches(syncId, $messageTarget, opts, resolve, reject);
+                        } else if (response.success) {
+                            // Completed immediately (no products to delete)
                             const message = response.data && response.data.message
                                 ? response.data.message
                                 : 'Cleanup completed successfully.';
@@ -1242,6 +1248,12 @@
                             } else {
                                 showSyncMessage('success', message);
                             }
+                            
+                            if ($button) {
+                                const previousText = $button.data('original-text') || originalText;
+                                $button.prop('disabled', false).html(previousText);
+                            }
+                            cleanupRequestInFlight = false;
                             resolve(response);
                         } else {
                             const errorMessage = response.data && response.data.message
@@ -1252,6 +1264,12 @@
                             } else {
                                 showSyncMessage('error', errorMessage);
                             }
+                            
+                            if ($button) {
+                                const previousText = $button.data('original-text') || originalText;
+                                $button.prop('disabled', false).html(previousText);
+                            }
+                            cleanupRequestInFlight = false;
                             reject(errorMessage);
                         }
                     },
@@ -1262,17 +1280,116 @@
                         } else {
                             showSyncMessage('error', errorMessage);
                         }
-                        reject(errorMessage);
-                    },
-                    complete: function() {
+                        
                         if ($button) {
                             const previousText = $button.data('original-text') || originalText;
                             $button.prop('disabled', false).html(previousText);
                         }
                         cleanupRequestInFlight = false;
+                        reject(errorMessage);
                     }
                 });
             });
+        }
+        
+        /**
+         * Process cleanup batches with progress tracking
+         */
+        function processCleanupBatches(syncId, $messageTarget, opts, resolve, reject) {
+            const batchSize = 50;
+            let totalChecked = 0;
+            let totalDeleted = 0;
+            
+            function processNextBatch() {
+                $.ajax({
+                    url: bytemashWooSync.ajax_url,
+                    type: 'POST',
+                    data: {
+                        action: 'bytemash_process_cleanup_batch',
+                        sync_id: syncId,
+                        batch_size: batchSize,
+                        nonce: bytemashWooSync.nonce
+                    },
+                    success: function(response) {
+                        if (response.success) {
+                            totalChecked = response.data.checked || 0;
+                            totalDeleted = response.data.deleted || 0;
+                            
+                            // Update progress message
+                            const progressMsg = 'Deleting excess products... ' + 
+                                totalChecked.toLocaleString() + ' checked, ' + 
+                                totalDeleted.toLocaleString() + ' deleted';
+                            
+                            if (opts.showStatus && $messageTarget.length) {
+                                $messageTarget.html('<div class="info">🧹 ' + progressMsg + '</div>');
+                            } else {
+                                showSyncMessage('info', progressMsg);
+                            }
+                            
+                            if (response.data.done) {
+                                // All done
+                                const finalMessage = 'Cleanup complete: ' + 
+                                    totalChecked.toLocaleString() + ' checked, ' + 
+                                    totalDeleted.toLocaleString() + ' deleted';
+                                
+                                if (opts.showStatus && $messageTarget.length) {
+                                    $messageTarget.html('<div class="success">✅ ' + finalMessage + '</div>');
+                                } else {
+                                    showSyncMessage('success', finalMessage);
+                                }
+                                
+                                if (opts.button) {
+                                    const $btn = opts.button;
+                                    const previousText = $btn.data('original-text') || '';
+                                    $btn.prop('disabled', false).html(previousText);
+                                }
+                                cleanupRequestInFlight = false;
+                                resolve(response);
+                            } else {
+                                // Continue with next batch
+                                setTimeout(processNextBatch, 500);
+                            }
+                        } else {
+                            const errorMessage = response.data && response.data.message
+                                ? response.data.message
+                                : 'Cleanup failed. Please try again.';
+                            
+                            if (opts.showStatus && $messageTarget.length) {
+                                $messageTarget.html('<div class="error">❌ ' + errorMessage + '</div>');
+                            } else {
+                                showSyncMessage('error', errorMessage);
+                            }
+                            
+                            if (opts.button) {
+                                const $btn = opts.button;
+                                const previousText = $btn.data('original-text') || '';
+                                $btn.prop('disabled', false).html(previousText);
+                            }
+                            cleanupRequestInFlight = false;
+                            reject(errorMessage);
+                        }
+                    },
+                    error: function(xhr) {
+                        const errorMessage = 'Cleanup failed: ' + xhr.statusText;
+                        if (opts.showStatus && $messageTarget.length) {
+                            $messageTarget.html('<div class="error">❌ ' + errorMessage + '</div>');
+                        } else {
+                            showSyncMessage('error', errorMessage);
+                        }
+                        
+                        if (opts.button) {
+                            const $btn = opts.button;
+                            const previousText = $btn.data('original-text') || '';
+                            $btn.prop('disabled', false).html(previousText);
+                        }
+                        cleanupRequestInFlight = false;
+                        reject(errorMessage);
+                    }
+                });
+            }
+            
+            // Start processing batches
+            processNextBatch();
         }
         
         /**

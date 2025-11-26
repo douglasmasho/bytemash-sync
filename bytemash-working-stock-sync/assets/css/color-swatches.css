@@ -1,0 +1,138 @@
+/**
+ * Color Swatches for WooCommerce Variations
+ * 
+ * Displays visual color swatches instead of dropdown for color attribute
+ */
+
+/* Hide default color select dropdown */
+.variations .value select[name="attribute_color"] {
+    display: none;
+}
+
+/* Swatch container */
+.bytemash-color-swatches {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin: 10px 0;
+}
+
+/* Individual swatch */
+.bytemash-color-swatch {
+    position: relative;
+    width: 40px;
+    height: 40px;
+    border-radius: 50%;
+    border: 2px solid #ddd;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+}
+
+.bytemash-color-swatch:hover {
+    transform: scale(1.1);
+    border-color: #999;
+    box-shadow: 0 3px 8px rgba(0,0,0,0.2);
+}
+
+/* Selected state */
+.bytemash-color-swatch.selected {
+    border: 3px solid #000;
+    box-shadow: 0 0 0 2px #fff, 0 0 0 4px #000;
+    transform: scale(1.05);
+}
+
+/* Checkmark for selected */
+.bytemash-color-swatch.selected::after {
+    content: '✓';
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
+    color: var(--tick-color, #fff);
+    font-weight: bold;
+    font-size: 20px;
+    text-shadow: 0 0 2px rgba(0,0,0,0.5);
+}
+
+/* Disabled state */
+.bytemash-color-swatch.disabled {
+    opacity: 0.3;
+    cursor: not-allowed;
+}
+
+.bytemash-color-swatch.disabled:hover {
+    transform: none;
+    border-color: #ddd;
+}
+
+/* Tooltip on hover */
+.bytemash-color-swatch::before {
+    content: attr(data-color-name);
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    background: #333;
+    color: #fff;
+    padding: 5px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+    margin-bottom: 8px;
+}
+
+.bytemash-color-swatch::after {
+    content: '';
+    position: absolute;
+    bottom: 100%;
+    left: 50%;
+    transform: translateX(-50%);
+    border: 6px solid transparent;
+    border-top-color: #333;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+    margin-bottom: 2px;
+}
+
+.bytemash-color-swatch:hover::before,
+.bytemash-color-swatch:hover::after {
+    opacity: 1;
+}
+
+/* Swatch label */
+.bytemash-color-swatches-label {
+    display: block;
+    margin-bottom: 8px;
+    font-weight: 600;
+    color: #333;
+}
+
+/* Selected color name display */
+.bytemash-selected-color {
+    margin-top: 10px;
+    font-size: 14px;
+    color: #666;
+}
+
+.bytemash-selected-color strong {
+    color: #000;
+}
+
+/* Mobile responsive */
+@media (max-width: 768px) {
+    .bytemash-color-swatch {
+        width: 35px;
+        height: 35px;
+    }
+    
+    .bytemash-color-swatches {
+        gap: 8px;
+    }
+}
+
+

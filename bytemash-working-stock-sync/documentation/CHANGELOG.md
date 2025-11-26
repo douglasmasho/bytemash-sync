@@ -69,11 +69,6 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - Falls back gracefully if swatch data not available
 - Compatible with existing WooCommerce themes
 
-### 🔄 Catalog Reconciliation
-- WooCommerce product count now automatically matches the Amrod API after every full or incremental product sync
-- Products no longer returned by the API are removed at the end of the sync (manual and cron)
-- Snapshot-based cleanup runs safely in the background and only targets Amrod-managed products
-
 ---
 
 ## [2.1.0] - 2025-10-12 🎯 UNIFIED SYNC SYSTEM
