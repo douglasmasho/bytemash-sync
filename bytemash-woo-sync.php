@@ -66,13 +66,28 @@ class ByteMash_Woo_Sync {
     private function load_dependencies() {
         // Core classes
         require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-logger.php';
+        require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-db-migration.php';
         require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-amrod-api-client.php';
         require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-image-handler.php';
         require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-batch-processor.php';
         require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-product-sync.php';
+        require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-stock-sync-optimized.php';
         require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-sync-scheduler.php';
         require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-true-cron-manager.php';
         require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-action-scheduler-sync.php';
+        
+        // Enable Action Scheduler high-concurrency mode for parallel batch processing
+        // Default: 5 concurrent runners (conservative for resource-limited servers)
+        // Can be increased to 10-20 on powerful servers via filter
+        if (!defined('ACTION_SCHEDULER_QUEUE_RUNNER_CONCURRENCY')) {
+            $concurrency = apply_filters('bytemash_action_scheduler_concurrency', 5);
+            define('ACTION_SCHEDULER_QUEUE_RUNNER_CONCURRENCY', $concurrency);
+        }
+        
+        // Load WP-CLI commands if WP-CLI is available
+        if (defined('WP_CLI') && WP_CLI) {
+            require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-wp-cli-stock-sync.php';
+        }
         
         // Admin classes
         if (is_admin()) {
@@ -149,6 +164,21 @@ class ByteMash_Woo_Sync {
      * Register activation hook to clear any existing schedules once on install
      */
     public static function register_activation() {
+        // Run database migrations
+        require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-logger.php';
+        require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-db-migration.php';
+        
+        $migration = new ByteMash_DB_Migration();
+        $result = $migration->run_migrations();
+        
+        if (!$result['success']) {
+            // Log migration errors but don't prevent activation
+            $logger = new ByteMash_Logger();
+            $logger->log('error', 'Database migration failed during activation', array(
+                'errors' => $result['errors'],
+            ), 'db_migration');
+        }
+        
         // Clear WP-Cron schedules
         wp_clear_scheduled_hook('bytemash_full_sync_cron');
         wp_clear_scheduled_hook('bytemash_incremental_sync_cron');
@@ -3576,8 +3606,28 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         $last_skip_reason = '';
         
         $sync_type = $sync_info['type'] ?? 'products';
-        
-        if ($sync_type === 'stock') {
+    
+    if ($sync_type === 'stock') {
+        // Use optimized stock sync for maximum performance
+        if (class_exists('ByteMash_Stock_Sync_Optimized')) {
+            try {
+                $optimized_sync = new ByteMash_Stock_Sync_Optimized();
+                $batch_stats = $optimized_sync->process_stock_batch($sync_id, $batch_index, $batch_data);
+                
+                $processed = $batch_stats['processed'];
+                $errors = $batch_stats['errors'];
+                $skipped = $batch_stats['skipped'];
+                $updated = $batch_stats['updated'];
+            } catch (Exception $e) {
+                $errors++;
+                $logger = new ByteMash_Logger();
+                $logger->log('error', 'Optimized stock sync failed', array(
+                    'error' => $e->getMessage(),
+                    'batch_index' => $batch_index
+                ), 'stock_sync');
+            }
+        } else {
+            // Fallback to legacy method if class missing
             foreach ($batch_data as $item_data) {
                 $result = $product_sync->update_single_stock($item_data);
                 if (!empty($result['success'])) {
@@ -3586,10 +3636,11 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                     $errors++;
                 }
             }
-        } else {
-            // Process other sync types normally
-            foreach ($batch_data as $item_data) {
-                if ($sync_type === 'prices') {
+        }
+    } else {
+        // Process other sync types normally
+        foreach ($batch_data as $item_data) {
+            if ($sync_type === 'prices') {
                 $result = $product_sync->update_single_price($item_data);
             } elseif ($sync_type === 'orphan_prices') {
                     $prices_lookup = get_option("bytemash_sync_{$sync_id}_prices_lookup");
