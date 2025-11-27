@@ -537,6 +537,12 @@ class ByteMash_Woo_Sync {
         $query->set('update_post_term_cache', false);
         $query->set('no_found_rows', false); // Keep for pagination
         
+        // Ensure we don't load all posts unless explicitly requested
+        $posts_per_page = $query->get('posts_per_page');
+        if (empty($posts_per_page) || $posts_per_page == -1) {
+            $query->set('posts_per_page', 12);
+        }
+        
         // Modify the tax_query to include all categories without fetching children manually
         $tax_query = $query->get('tax_query') ?: array();
         
@@ -544,9 +550,13 @@ class ByteMash_Woo_Sync {
         $found_product_cat = false;
         foreach ($tax_query as $key => $tax) {
             if (isset($tax['taxonomy']) && $tax['taxonomy'] === 'product_cat') {
-                $tax_query[$key]['terms'] = array($category->term_id);
+                // Manual child fetching for performance
+                $child_ids = get_term_children($category->term_id, 'product_cat');
+                $all_ids = is_array($child_ids) ? array_merge(array($category->term_id), $child_ids) : array($category->term_id);
+                
+                $tax_query[$key]['terms'] = $all_ids;
                 $tax_query[$key]['field'] = 'term_id';
-                $tax_query[$key]['include_children'] = true;
+                $tax_query[$key]['include_children'] = false; // We already included them
                 if (!isset($tax_query[$key]['operator'])) {
                     $tax_query[$key]['operator'] = 'IN';
                 }
@@ -557,12 +567,16 @@ class ByteMash_Woo_Sync {
         
         // If no product_cat tax query exists, add one
         if (!$found_product_cat) {
+            // Manual child fetching for performance
+            $child_ids = get_term_children($category->term_id, 'product_cat');
+            $all_ids = is_array($child_ids) ? array_merge(array($category->term_id), $child_ids) : array($category->term_id);
+            
             $tax_query[] = array(
                 'taxonomy' => 'product_cat',
                 'field' => 'term_id',
-                'terms' => array($category->term_id),
+                'terms' => $all_ids,
                 'operator' => 'IN',
-                'include_children' => true,
+                'include_children' => false,
             );
         }
         
@@ -652,9 +666,17 @@ class ByteMash_Woo_Sync {
         // Ensure pagination works correctly
         $query->set('no_found_rows', false);
         
+        // Ensure we don't load all posts unless explicitly requested
+        $posts_per_page = $query->get('posts_per_page');
+        if (empty($posts_per_page) || $posts_per_page == -1) {
+            $query->set('posts_per_page', 12);
+        }
+        
         // Optimize orderby for better index usage
+        // Sorting by title is extremely slow (unindexed). Default to date (indexed) or ID.
         if (!$query->get('orderby')) {
-            $query->set('orderby', 'menu_order title');
+            $query->set('orderby', 'date');
+            $query->set('order', 'DESC');
         }
     }
     
@@ -669,22 +691,26 @@ class ByteMash_Woo_Sync {
             return $query_vars;
         }
         
-        $category_id = null;
-        $category_slug = null;
+        // PHENOMENAL OPTIMIZATION: Optimize Bricks queries for large categories
+        // Reduce meta queries and improve performance
+        $query_vars['update_post_meta_cache'] = false;
+        $query_vars['update_post_term_cache'] = false;
         
-        // Preferred format: WooCommerce product_cat slug in query string
-        if (isset($_GET['product_cat']) && $_GET['product_cat'] !== '') {
-            $requested_slug = sanitize_title(wp_unslash($_GET['product_cat']));
-            if ($requested_slug !== '') {
-                $category = get_term_by('slug', $requested_slug, 'product_cat');
-                if ($category && !is_wp_error($category)) {
-                    $category_id = $category->term_id;
-                    $category_slug = $category->slug;
-                }
-            }
+        // Ensure we don't load all posts unless explicitly requested
+        // If posts_per_page is -1 (all) or empty, force a reasonable limit to prevent crashing/slowdown
+        if (!isset($query_vars['posts_per_page']) || $query_vars['posts_per_page'] == -1) {
+            $query_vars['posts_per_page'] = 12; // Default to 12 if not specified or set to unlimited
         }
+        
+        // REVERTED: Aggressive category filtering logic was causing issues with subcategories.
+        // We now rely on Bricks/WordPress to handle the main category filtering.
+        // The custom filter logic below is preserved ONLY for explicit custom filter parameters
+        // but we will NOT clear existing tax_queries blindly.
+        
+        $category_id = null;
+        
         // Check for Bricks format: brx_vqxomj[0]=category_slug
-        elseif (isset($_GET['brx_vqxomj']) && is_array($_GET['brx_vqxomj']) && !empty($_GET['brx_vqxomj'][0])) {
+        if (isset($_GET['brx_vqxomj']) && is_array($_GET['brx_vqxomj']) && !empty($_GET['brx_vqxomj'][0])) {
             $category_slug = sanitize_text_field($_GET['brx_vqxomj'][0]);
             $category = get_term_by('slug', $category_slug, 'product_cat');
             if ($category && !is_wp_error($category)) {
@@ -696,38 +722,30 @@ class ByteMash_Woo_Sync {
             $category_id = intval($_GET['filter_category']);
             $category = get_term($category_id, 'product_cat');
             if ($category && !is_wp_error($category)) {
-                $category_slug = $category->slug;
+                $category_id = $category->term_id;
             }
         }
         
-        // If no valid category found, return unchanged
-        if (!$category_id || !$category || is_wp_error($category)) {
-            return $query_vars;
-        }
-        
-        // Initialize tax_query if it doesn't exist
-        if (!isset($query_vars['tax_query'])) {
-            $query_vars['tax_query'] = array();
-        }
-        
-        // Remove any existing product_cat filters
-        foreach ($query_vars['tax_query'] as $key => $tax) {
-            if (isset($tax['taxonomy']) && $tax['taxonomy'] === 'product_cat') {
-                unset($query_vars['tax_query'][$key]);
+        // Only apply custom filter if we explicitly found a custom filter parameter
+        if ($category_id) {
+            // Initialize tax_query if it doesn't exist
+            if (!isset($query_vars['tax_query'])) {
+                $query_vars['tax_query'] = array();
             }
+            
+            // Manual child fetching for performance
+            $child_ids = get_term_children($category_id, 'product_cat');
+            $all_ids = is_array($child_ids) ? array_merge(array($category_id), $child_ids) : array($category_id);
+            
+            // Add our filter
+            $query_vars['tax_query'][] = array(
+                'taxonomy' => 'product_cat',
+                'field' => 'term_id',
+                'terms' => $all_ids,
+                'operator' => 'IN',
+                'include_children' => false,
+            );
         }
-        
-        // Add our filter
-        $query_vars['tax_query'][] = array(
-            'taxonomy' => 'product_cat',
-            'field' => 'term_id',
-            'terms' => array($category_id),
-            'operator' => 'IN',
-            'include_children' => true,
-        );
-        
-        // Normalize array keys
-        $query_vars['tax_query'] = array_values($query_vars['tax_query']);
         
         return $query_vars;
     }
@@ -4351,6 +4369,25 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         $full_sync_next = wp_next_scheduled('bytemash_full_sync_cron');
         $incremental_sync_next = wp_next_scheduled('bytemash_incremental_sync_cron');
         
+        // Check Action Scheduler if WP-Cron is empty or production mode is enabled
+        $production_full_enabled = get_option('bytemash_cron_production_full_sync_enabled', false);
+        
+        if (function_exists('as_next_scheduled_action')) {
+            if (!$full_sync_next || $production_full_enabled) {
+                $as_full_next = as_next_scheduled_action('bytemash_action_scheduler_full_sync');
+                if ($as_full_next) {
+                    $full_sync_next = $as_full_next;
+                }
+            }
+            
+            if (!$incremental_sync_next || $production_full_enabled) {
+                $as_incremental_next = as_next_scheduled_action('bytemash_action_scheduler_incremental_sync');
+                if ($as_incremental_next) {
+                    $incremental_sync_next = $as_incremental_next;
+                }
+            }
+        }
+        
         // Check if syncs are running
         $full_sync_running = get_transient('bytemash_full_sync_running');
         $incremental_sync_running = get_transient('bytemash_incremental_sync_running');
@@ -4360,18 +4397,26 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         $full_test_mode = get_option('bytemash_cron_full_test_mode_enabled', false);
         $incremental_test_mode = get_option('bytemash_cron_incremental_test_mode_enabled', false);
         
-        // Adjust display for test modes
+        // Adjust display for test modes and production mode
         if ($full_test_mode && $full_sync_next) {
             $full_sync_next = date_i18n(get_option('date_format') . ' ' . get_option('time_format'), $full_sync_next) . ' (Test Mode)';
+        } elseif ($production_full_enabled && $full_sync_next) {
+            $full_sync_next = date_i18n(get_option('date_format') . ' ' . get_option('time_format'), $full_sync_next) . ' (Production - AS)';
         } elseif (!$full_sync_next) {
             $full_sync_next = __('Not scheduled', 'bytemash-woo-sync');
+        } else {
+             $full_sync_next = date_i18n(get_option('date_format') . ' ' . get_option('time_format'), $full_sync_next);
         }
         
         if ($incremental_test_mode && $incremental_sync_next) {
             $incremental_sync_next = date_i18n(get_option('date_format') . ' ' . get_option('time_format'), $incremental_sync_next) . ' (Test Mode)';
+        } elseif ($production_full_enabled && $incremental_sync_next) {
+            $incremental_sync_next = date_i18n(get_option('date_format') . ' ' . get_option('time_format'), $incremental_sync_next) . ' (Production - AS)';
         } elseif (!$incremental_sync_next) {
             $incremental_sync_next = __('Not scheduled', 'bytemash-woo-sync');
-        }
+        } else {
+            $incremental_sync_next = date_i18n(get_option('date_format') . ' ' . get_option('time_format'), $incremental_sync_next);
+        }    
         
         // Get recent logs
         $logger = new ByteMash_Logger();

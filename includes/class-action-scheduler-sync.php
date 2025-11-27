@@ -1406,18 +1406,22 @@ class ByteMash_Action_Scheduler_Sync {
         // Disable test mode if enabled
         update_option('bytemash_cron_full_test_mode_enabled', false);
         
-        // Calculate next 01:30 South Africa time (same logic as before but simplified)
+        // Calculate next 01:30 South Africa time
         $timezone = new DateTimeZone('Africa/Johannesburg');
         $now = new DateTime('now', $timezone);
         $next_sync = clone $now;
         $next_sync->setTime(1, 30, 0);
+        
+        // CRITICAL FIX: Ensure the time is strictly in the future. 
+        // Action Scheduler might reject times that are too close to 'now' or in the past.
         if ($next_sync <= $now) {
             $next_sync->add(new DateInterval('P1D'));
         }
+        
         $wp_timestamp = $next_sync->getTimestamp();
         
-        // Schedule full sync daily - EXACTLY like test mode but recurring daily
-        as_schedule_recurring_action(
+        // Schedule full sync daily
+        $full_sync_id = as_schedule_recurring_action(
             $wp_timestamp,
             DAY_IN_SECONDS, // Daily
             'bytemash_action_scheduler_full_sync',
@@ -1425,12 +1429,12 @@ class ByteMash_Action_Scheduler_Sync {
             'bytemash-sync'
         );
         
-        // Schedule incremental sync every 5 hours (starts after first full sync) - EXACTLY like test incremental
+        // Schedule incremental sync every 5 hours (starts after first full sync)
         $next_incremental = clone $next_sync;
         $next_incremental->add(new DateInterval('PT5H')); // Add 5 hours
         $incremental_wp_timestamp = $next_incremental->getTimestamp();
         
-        as_schedule_recurring_action(
+        $incremental_sync_id = as_schedule_recurring_action(
             $incremental_wp_timestamp,
             5 * HOUR_IN_SECONDS, // Every 5 hours
             'bytemash_action_scheduler_incremental_sync',
@@ -1441,9 +1445,12 @@ class ByteMash_Action_Scheduler_Sync {
         // Enable the option
         update_option('bytemash_cron_production_full_sync_enabled', true);
         
-        $this->logger->log('info', "Production full sync enabled - Full sync daily at 01:30, Incremental every 5 hours", array(
+        $this->logger->log('info', "Production full sync enabled", array(
             'next_full_sync' => $next_sync->format('Y-m-d H:i:s'),
             'next_incremental_sync' => $next_incremental->format('Y-m-d H:i:s'),
+            'full_sync_action_id' => $full_sync_id,
+            'incremental_sync_action_id' => $incremental_sync_id,
+            'now_sa' => $now->format('Y-m-d H:i:s'),
         ), 'action_scheduler');
         
         return array(
