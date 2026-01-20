@@ -5101,9 +5101,16 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             }
         }
         
-        if ($total_stock === 0 && $total_incoming === 0) {
-            return '';
-        }
+        // Don't return early - we want to show "Out of stock" when stock is 0
+        // Only return if there's no stock data at all (product might not have been synced)
+        // if ($total_stock === 0) {
+        //     // Check if product has stock management enabled to determine if we should show "Out of stock"
+        //     $stock_managed = $product->managing_stock();
+        //     if (!$stock_managed) {
+        //         // Product doesn't manage stock, so don't show anything
+        //         return '';
+        //     }
+        // }
         
         ob_start();
         ?>
@@ -5111,6 +5118,10 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             <?php if ($total_stock > 0): ?>
                 <div style="margin-bottom: 5px;">
                     <strong>Total Stock:</strong> <span><?php echo number_format($total_stock); ?></span>
+                </div>
+            <?php elseif ($total_stock === 0): ?>
+                <div style="margin-bottom: 5px;">
+                     <span style="color: #d63638;">Out of stock</span>
                 </div>
             <?php endif; ?>
             <?php if ($total_incoming > 0): ?>
