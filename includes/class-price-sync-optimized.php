@@ -70,33 +70,18 @@ class ByteMash_Price_Sync_Optimized {
         
         $total_items = count($price_data);
         
-        // Split into batches
+        // Split into batches and store in dedicated batch table
         $batches = array_chunk($price_data, $this->batch_size);
-        $batch_count = count($batches);
+        $this->store_batches($sync_id, $batches);
         
         $stats = array(
             'total_items' => $total_items,
-            'total_batches' => $batch_count,
+            'total_batches' => count($batches),
             'processed' => 0,
             'skipped' => 0,
             'updated' => 0,
             'errors' => 0,
         );
-        
-        // Initialize progress tracking
-        $this->save_sync_progress($sync_id, array(
-            'type' => 'prices',
-            'total' => $total_items,
-            'processed' => 0,
-            'batch_count' => $batch_count,
-            'batch_size' => $this->batch_size,
-            'current_batch' => 0,
-            'errors' => 0,
-            'skipped' => 0,
-            'updated' => 0,
-            'status' => 'processing',
-            'started' => current_time('mysql'),
-        ));
         
         // Suppress WooCommerce events for performance
         $this->suppress_woocommerce_events();
@@ -110,43 +95,12 @@ class ByteMash_Price_Sync_Optimized {
                 $stats['skipped'] += $batch_result['skipped'];
                 $stats['updated'] += $batch_result['updated'];
                 $stats['errors'] += $batch_result['errors'];
-                
-                // Update progress after each batch
-                $this->save_sync_progress($sync_id, array(
-                    'type' => 'prices',
-                    'total' => $total_items,
-                    'processed' => $stats['processed'],
-                    'batch_count' => $batch_count,
-                    'batch_size' => $this->batch_size,
-                    'current_batch' => $batch_index + 1,
-                    'errors' => $stats['errors'],
-                    'skipped' => $stats['skipped'],
-                    'updated' => $stats['updated'],
-                    'status' => 'processing',
-                    'started' => current_time('mysql'),
-                ));
             }
             
             // Restore WooCommerce events and rebuild lookup tables
             $this->restore_woocommerce_events();
             
             $duration = microtime(true) - $start_time;
-            
-            // Mark as completed
-            $this->save_sync_progress($sync_id, array(
-                'type' => 'prices',
-                'total' => $total_items,
-                'processed' => $stats['processed'],
-                'batch_count' => $batch_count,
-                'batch_size' => $this->batch_size,
-                'current_batch' => $batch_count,
-                'errors' => $stats['errors'],
-                'skipped' => $stats['skipped'],
-                'updated' => $stats['updated'],
-                'status' => 'completed',
-                'started' => current_time('mysql'),
-                'completed' => current_time('mysql'),
-            ));
             
             $this->logger->log('success', 'Optimized price sync completed', array_merge($stats, array(
                 'sync_id' => $sync_id,
@@ -217,33 +171,18 @@ class ByteMash_Price_Sync_Optimized {
         
         $total_items = count($price_data);
         
-        // Split into batches
+        // Split into batches and store in dedicated batch table
         $batches = array_chunk($price_data, $this->batch_size);
-        $batch_count = count($batches);
+        $this->store_batches($sync_id, $batches);
         
         $stats = array(
             'total_items' => $total_items,
-            'total_batches' => $batch_count,
+            'total_batches' => count($batches),
             'processed' => 0,
             'skipped' => 0,
             'updated' => 0,
             'errors' => 0,
         );
-        
-        // Initialize progress tracking
-        $this->save_sync_progress($sync_id, array(
-            'type' => 'prices',
-            'total' => $total_items,
-            'processed' => 0,
-            'batch_count' => $batch_count,
-            'batch_size' => $this->batch_size,
-            'current_batch' => 0,
-            'errors' => 0,
-            'skipped' => 0,
-            'updated' => 0,
-            'status' => 'processing',
-            'started' => current_time('mysql'),
-        ));
         
         // Suppress WooCommerce events for performance
         $this->suppress_woocommerce_events();
@@ -257,43 +196,12 @@ class ByteMash_Price_Sync_Optimized {
                 $stats['skipped'] += $batch_result['skipped'];
                 $stats['updated'] += $batch_result['updated'];
                 $stats['errors'] += $batch_result['errors'];
-                
-                // Update progress after each batch
-                $this->save_sync_progress($sync_id, array(
-                    'type' => 'prices',
-                    'total' => $total_items,
-                    'processed' => $stats['processed'],
-                    'batch_count' => $batch_count,
-                    'batch_size' => $this->batch_size,
-                    'current_batch' => $batch_index + 1,
-                    'errors' => $stats['errors'],
-                    'skipped' => $stats['skipped'],
-                    'updated' => $stats['updated'],
-                    'status' => 'processing',
-                    'started' => current_time('mysql'),
-                ));
             }
             
             // Restore WooCommerce events and rebuild lookup tables
             $this->restore_woocommerce_events();
             
             $duration = microtime(true) - $start_time;
-            
-            // Mark as completed
-            $this->save_sync_progress($sync_id, array(
-                'type' => 'prices',
-                'total' => $total_items,
-                'processed' => $stats['processed'],
-                'batch_count' => $batch_count,
-                'batch_size' => $this->batch_size,
-                'current_batch' => $batch_count,
-                'errors' => $stats['errors'],
-                'skipped' => $stats['skipped'],
-                'updated' => $stats['updated'],
-                'status' => 'completed',
-                'started' => current_time('mysql'),
-                'completed' => current_time('mysql'),
-            ));
             
             $this->logger->log('success', 'Optimized incremental price sync completed', array_merge($stats, array(
                 'sync_id' => $sync_id,
@@ -634,15 +542,5 @@ class ByteMash_Price_Sync_Optimized {
         $this->events_suppressed = false;
         
         $this->logger->log('info', 'WooCommerce price events restored and lookup tables rebuilt', array(), 'price_sync');
-    }
-    
-    /**
-     * Save sync progress to WordPress options
-     * 
-     * @param string $sync_id Sync identifier
-     * @param array $progress Progress data
-     */
-    private function save_sync_progress($sync_id, $progress) {
-        update_option("bytemash_sync_progress_{$sync_id}", $progress, false);
     }
 }
