@@ -3461,6 +3461,16 @@ class ByteMash_Product_Sync {
      * @return array Result with sync_id
      */
     public function sync_prices() {
+        // Use optimized price sync
+        if (class_exists('ByteMash_Price_Sync_Optimized')) {
+            $price_sync = new ByteMash_Price_Sync_Optimized();
+            $sync_id = 'prices_' . time() . '_' . wp_generate_password(8, false);
+            return $price_sync->sync_all_prices($sync_id);
+        }
+
+        // Fallback to legacy sync if class not found (should not happen)
+        $this->logger->log('warning', 'Optimized price sync class not found, falling back to legacy sync', array(), 'price_sync');
+        
         $this->logger->log('info', 'Starting full price sync', array(), 'price_sync');
         
         // Fetch all prices from Amrod
@@ -3480,8 +3490,8 @@ class ByteMash_Product_Sync {
         $total = count($prices_data);
         $sync_id = 'prices_' . time() . '_' . wp_generate_password(8, false);
         
-        // Split into batches (OPTIMIZED: 500 items per batch for lightning-fast performance)
-        $batches = array_chunk($prices_data, 500);
+        // Split into batches (larger batches for prices - simpler data)
+        $batches = array_chunk($prices_data, 100);
         $batch_count = count($batches);
         
         $this->logger->log('info', "Split into {$batch_count} batches", array(), 'price_sync');
@@ -3491,7 +3501,7 @@ class ByteMash_Product_Sync {
             'type' => 'prices',
             'total' => $total,
             'batch_count' => $batch_count,
-            'batch_size' => 500,
+            'batch_size' => 100,
             'current_batch' => 0,
             'processed' => 0,
             'errors' => 0,
@@ -3517,6 +3527,16 @@ class ByteMash_Product_Sync {
      * @return array Result
      */
     public function sync_prices_updated() {
+        // Use optimized price sync
+        if (class_exists('ByteMash_Price_Sync_Optimized')) {
+            $price_sync = new ByteMash_Price_Sync_Optimized();
+            $sync_id = 'prices_update_' . time() . '_' . wp_generate_password(8, false);
+            return $price_sync->sync_updated_prices($sync_id);
+        }
+
+        // Fallback to legacy sync if class not found (should not happen)
+        $this->logger->log('warning', 'Optimized price sync class not found, falling back to legacy sync', array(), 'price_sync');
+        
         $this->logger->log('info', 'Starting incremental price sync', array(), 'price_sync');
         
         // Fetch updated prices only
@@ -3533,8 +3553,8 @@ class ByteMash_Product_Sync {
         $total = count($prices_data);
         $sync_id = 'prices_update_' . time() . '_' . wp_generate_password(8, false);
         
-        // Split into batches (OPTIMIZED: 500 items per batch for lightning-fast performance)
-        $batches = array_chunk($prices_data, 500);
+        // Split into batches (same as full price sync)
+        $batches = array_chunk($prices_data, 100);
         $batch_count = count($batches);
         
         $this->logger->log('info', "Split into {$batch_count} batches", array(), 'price_sync');
@@ -3544,7 +3564,7 @@ class ByteMash_Product_Sync {
             'type' => 'prices',
             'total' => $total,
             'batch_count' => $batch_count,
-            'batch_size' => 500,
+            'batch_size' => 100,
             'current_batch' => 0,
             'processed' => 0,
             'errors' => 0,

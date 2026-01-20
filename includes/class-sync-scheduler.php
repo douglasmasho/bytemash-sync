@@ -939,28 +939,45 @@ class ByteMash_Sync_Scheduler {
         }
         
         try {
-            // Fetch price data
+            // Use optimized price sync (handles everything internally)
             $result = $this->product_sync->sync_prices();
             
-            if (!$result['success'] || empty($result['data'])) {
+            if (!$result['success']) {
                 wp_send_json_error($result);
                 return;
             }
             
-            // Process all batches immediately
-            $batch_processor = new ByteMash_Batch_Processor();
-            $process_result = $batch_processor->process_prices_sync_immediately($result['data'], $result['sync_id']);
-            
-            if ($process_result['success']) {
+            // Check if using optimized class (returns stats directly)
+            if (isset($result['stats'])) {
+                // Optimized class - already completed
+                $stats = $result['stats'];
                 wp_send_json_success(array(
-                    'message' => "Price sync completed: {$process_result['processed']} processed, {$process_result['errors']} errors",
-                    'sync_id' => $result['sync_id'],
-                    'processed' => $process_result['processed'],
-                    'errors' => $process_result['errors'],
-                    'total' => $process_result['total'],
+                    'message' => "Price sync completed: {$stats['updated']} updated, {$stats['skipped']} skipped, {$stats['errors']} errors",
+                    'processed' => $stats['processed'],
+                    'updated' => $stats['updated'],
+                    'skipped' => $stats['skipped'],
+                    'errors' => $stats['errors'],
+                    'total' => $stats['total_items'],
+                    'duration' => $result['duration'],
                 ));
+            } else if (!empty($result['data'])) {
+                // Legacy class - needs batch processing
+                $batch_processor = new ByteMash_Batch_Processor();
+                $process_result = $batch_processor->process_prices_sync_immediately($result['data'], $result['sync_id']);
+                
+                if ($process_result['success']) {
+                    wp_send_json_success(array(
+                        'message' => "Price sync completed: {$process_result['processed']} processed, {$process_result['errors']} errors",
+                        'sync_id' => $result['sync_id'],
+                        'processed' => $process_result['processed'],
+                        'errors' => $process_result['errors'],
+                        'total' => $process_result['total'],
+                    ));
+                } else {
+                    wp_send_json_error($process_result);
+                }
             } else {
-                wp_send_json_error($process_result);
+                wp_send_json_error(array('message' => 'No price data available'));
             }
         } catch (Exception $e) {
             wp_send_json_error(array('message' => $e->getMessage()));
@@ -978,28 +995,45 @@ class ByteMash_Sync_Scheduler {
         }
         
         try {
-            // Fetch updated price data
+            // Use optimized price sync (handles everything internally)
             $result = $this->product_sync->sync_prices_updated();
             
-            if (!$result['success'] || empty($result['data'])) {
+            if (!$result['success']) {
                 wp_send_json_error($result);
                 return;
             }
             
-            // Process all batches immediately
-            $batch_processor = new ByteMash_Batch_Processor();
-            $process_result = $batch_processor->process_prices_sync_immediately($result['data'], $result['sync_id']);
-            
-            if ($process_result['success']) {
+            // Check if using optimized class (returns stats directly)
+            if (isset($result['stats'])) {
+                // Optimized class - already completed
+                $stats = $result['stats'];
                 wp_send_json_success(array(
-                    'message' => "Price sync completed: {$process_result['processed']} processed, {$process_result['errors']} errors",
-                    'sync_id' => $result['sync_id'],
-                    'processed' => $process_result['processed'],
-                    'errors' => $process_result['errors'],
-                    'total' => $process_result['total'],
+                    'message' => "Price sync completed: {$stats['updated']} updated, {$stats['skipped']} skipped, {$stats['errors']} errors",
+                    'processed' => $stats['processed'],
+                    'updated' => $stats['updated'],
+                    'skipped' => $stats['skipped'],
+                    'errors' => $stats['errors'],
+                    'total' => $stats['total_items'],
+                    'duration' => $result['duration'],
                 ));
+            } else if (!empty($result['data'])) {
+                // Legacy class - needs batch processing
+                $batch_processor = new ByteMash_Batch_Processor();
+                $process_result = $batch_processor->process_prices_sync_immediately($result['data'], $result['sync_id']);
+                
+                if ($process_result['success']) {
+                    wp_send_json_success(array(
+                        'message' => "Price sync completed: {$process_result['processed']} processed, {$process_result['errors']} errors",
+                        'sync_id' => $result['sync_id'],
+                        'processed' => $process_result['processed'],
+                        'errors' => $process_result['errors'],
+                        'total' => $process_result['total'],
+                    ));
+                } else {
+                    wp_send_json_error($process_result);
+                }
             } else {
-                wp_send_json_error($process_result);
+                wp_send_json_error(array('message' => 'No price updates available'));
             }
         } catch (Exception $e) {
             wp_send_json_error(array('message' => $e->getMessage()));

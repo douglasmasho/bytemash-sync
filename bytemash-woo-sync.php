@@ -72,6 +72,7 @@ class ByteMash_Woo_Sync {
         require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-batch-processor.php';
         require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-product-sync.php';
         require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-stock-sync-optimized.php';
+        require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-price-sync-optimized.php';
         require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-sync-scheduler.php';
         require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-true-cron-manager.php';
         require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-action-scheduler-sync.php';
