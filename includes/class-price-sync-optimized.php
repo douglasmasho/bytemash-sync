@@ -61,10 +61,24 @@ class ByteMash_Price_Sync_Optimized {
         // Fetch price data from API
         $price_data = $this->api_client->get_prices();
         
+        if (is_wp_error($price_data)) {
+            return array(
+                'success' => false,
+                'error' => $price_data->get_error_message(),
+            );
+        }
+        // Handle wrapped API responses (e.g. {"data": [...]} or {"items": [...]})
+        if (is_array($price_data)) {
+            if (isset($price_data['data']) && is_array($price_data['data'])) {
+                $price_data = $price_data['data'];
+            } elseif (isset($price_data['items']) && is_array($price_data['items'])) {
+                $price_data = $price_data['items'];
+            }
+        }
         if (empty($price_data) || !is_array($price_data)) {
             return array(
                 'success' => false,
-                'error' => 'Failed to fetch price data from API',
+                'error' => __('Failed to fetch price data from API. The API may have returned no data or an unexpected format.', 'bytemash-woo-sync'),
             );
         }
         
@@ -272,7 +286,8 @@ class ByteMash_Price_Sync_Optimized {
             foreach ($batch as $price_item) {
                 $stats['processed']++;
                 
-                $sku = $price_item['simpleCode'] ?? $price_item['fullCode'] ?? null;
+                // Prefer fullCode so variation prices update the variation, not the parent (API uses simplecode/simpleCode too)
+                $sku = $price_item['fullCode'] ?? $price_item['simpleCode'] ?? $price_item['simplecode'] ?? null;
                 if (!$sku) {
                     $stats['errors']++;
                     continue;
@@ -319,7 +334,13 @@ class ByteMash_Price_Sync_Optimized {
                 $stats['updated']++;
             }
             
-            // Bulk update using single ON DUPLICATE KEY UPDATE query
+            // One update per product: last API row wins (replace, never add)
+            $by_product = array();
+            foreach ($meta_updates as $u) {
+                $by_product[(int) $u['product_id']] = $u;
+            }
+            $meta_updates = array_values($by_product);
+            
             if (!empty($meta_updates)) {
                 $this->bulk_update_price_meta($meta_updates);
             }
@@ -371,14 +392,19 @@ class ByteMash_Price_Sync_Optimized {
     private function build_sku_product_map($batch) {
         global $wpdb;
         
-        // Extract all SKUs from batch
+        // Extract all SKUs from batch (fullCode + simpleCode/simplecode so we match variations and parents)
         $skus = array();
         foreach ($batch as $item) {
-            $sku = $item['simpleCode'] ?? $item['fullCode'] ?? null;
-            if ($sku) {
-                $skus[] = $sku;
+            $full = $item['fullCode'] ?? null;
+            $simple = $item['simpleCode'] ?? $item['simplecode'] ?? null;
+            if ($full) {
+                $skus[] = $full;
+            }
+            if ($simple && $simple !== $full) {
+                $skus[] = $simple;
             }
         }
+        $skus = array_unique(array_filter($skus));
         
         if (empty($skus)) {
             return array();
@@ -464,12 +490,19 @@ class ByteMash_Price_Sync_Optimized {
             return;
         }
         
+        $meta_keys = array('_regular_price', '_sale_price', '_price', '_bytemash_price_hash', '_bytemash_price_last_modified');
+        $product_ids = array_unique(array_map(function ($u) { return (int) $u['product_id']; }, $updates));
+        
+        // Replace exactly: delete existing price meta for these products, then insert API values.
+        // This prevents duplicate meta rows and compounding; values match API exactly.
+        $ids_placeholder = implode(',', array_map('absint', $product_ids));
+        $keys_escaped = array_map(function ($k) use ($wpdb) { return "'" . esc_sql($k) . "'"; }, $meta_keys);
+        $wpdb->query("DELETE FROM {$wpdb->postmeta} WHERE post_id IN ({$ids_placeholder}) AND meta_key IN (" . implode(',', $keys_escaped) . ")");
+        
         // Build VALUES for bulk insert
         $values = array();
         foreach ($updates as $update) {
             $product_id = (int) $update['product_id'];
-            
-            // Each product gets 5 meta entries
             $values[] = $wpdb->prepare("(%d, '_regular_price', %s)", $product_id, $update['regular_price']);
             $values[] = $wpdb->prepare("(%d, '_sale_price', %s)", $product_id, $update['sale_price']);
             $values[] = $wpdb->prepare("(%d, '_price', %s)", $product_id, $update['price']);
@@ -477,11 +510,7 @@ class ByteMash_Price_Sync_Optimized {
             $values[] = $wpdb->prepare("(%d, '_bytemash_price_last_modified', %s)", $product_id, $update['modified_date']);
         }
         
-        // Single bulk query with ON DUPLICATE KEY UPDATE
-        $sql = "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value)
-                VALUES " . implode(',', $values) . "
-                ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)";
-        
+        $sql = "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value) VALUES " . implode(',', $values);
         $wpdb->query($sql);
     }
     

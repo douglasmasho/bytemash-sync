@@ -50,8 +50,15 @@ class ByteMash_Amrod_API_Client {
     
     /**
      * Make API request with automatic token refresh on 401
+     *
+     * @param string $endpoint API path (e.g. 'api/v1/Stock/')
+     * @param string $method HTTP method
+     * @param mixed $body Request body
+     * @param array $params Query string params
+     * @param bool $retry Whether to retry on 401
+     * @param bool $no_cache If true, add cache-busting and no-cache headers so no cached response is used
      */
-    private function request($endpoint, $method = 'GET', $body = null, $params = array(), $retry = true) {
+    private function request($endpoint, $method = 'GET', $body = null, $params = array(), $retry = true, $no_cache = false) {
         if (empty($this->api_token)) {
             $this->logger->log('error', 'API token not configured');
             return new WP_Error('no_token', 'API token not configured');
@@ -63,18 +70,27 @@ class ByteMash_Amrod_API_Client {
         
         $url = trailingslashit($this->api_url) . ltrim($endpoint, '/');
         
+        if ($no_cache) {
+            $params['_'] = time();
+        }
         if (!empty($params)) {
             $url = add_query_arg($params, $url);
+        }
+        
+        $headers = array(
+            'Authorization' => 'Bearer ' . $this->api_token,
+            'Content-Type' => 'application/json',
+            'Accept' => 'application/json',
+        );
+        if ($no_cache) {
+            $headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
+            $headers['Pragma'] = 'no-cache';
         }
         
         $args = array(
             'method' => $method,
             'timeout' => $this->timeout,
-            'headers' => array(
-                'Authorization' => 'Bearer ' . $this->api_token,
-                'Content-Type' => 'application/json',
-                'Accept' => 'application/json',
-            ),
+            'headers' => $headers,
         );
         
         if ($body !== null) {
@@ -126,7 +142,7 @@ class ByteMash_Amrod_API_Client {
                 
                 // Retry the original request with new token (retry = false to prevent infinite loop)
                 @ini_set('memory_limit', $original_memory_limit);
-                return $this->request($endpoint, $method, $body, $params, false);
+                return $this->request($endpoint, $method, $body, $params, false, $no_cache);
             } else {
                 $this->logger->log('error', 'Failed to refresh token after 401', array(
                     'error' => $refresh_result->get_error_message(),
@@ -607,10 +623,11 @@ class ByteMash_Amrod_API_Client {
     
     /**
      * Get all stock (updated 4 times daily)
+     * Uses cache-busting so no cached response is used.
      */
     public function get_stock() {
-        $this->logger->log('info', 'Fetching stock from Amrod', array(), 'api_request');
-        return $this->request('api/v1/Stock/');
+        $this->logger->log('info', 'Fetching stock from Amrod (no cache)', array(), 'api_request');
+        return $this->request('api/v1/Stock/', 'GET', null, array(), true, true);
     }
     
     /**
@@ -626,7 +643,7 @@ class ByteMash_Amrod_API_Client {
             $this->logger->log('info', 'Last incremental sync timestamp', array('timestamp' => $last_sync), 'api_request');
         }
         
-        $result = $this->request('api/v1/Stock/GetUpdated');
+        $result = $this->request('api/v1/Stock/GetUpdated', 'GET', null, array(), true, true);
         
         // Store API response timestamp if available
         if (!is_wp_error($result) && is_array($result) && !empty($result)) {
@@ -644,10 +661,11 @@ class ByteMash_Amrod_API_Client {
     
     /**
      * Get outlet stock (stock at outlet level)
+     * Uses cache-busting so no cached response is used.
      */
     public function get_outlet_stock() {
-        $this->logger->log('info', 'Fetching outlet stock from Amrod', array(), 'api_request');
-        return $this->request('api/v1/Stock/Outlet');
+        $this->logger->log('info', 'Fetching outlet stock from Amrod (no cache)', array(), 'api_request');
+        return $this->request('api/v1/Stock/Outlet', 'GET', null, array(), true, true);
     }
     
     /**

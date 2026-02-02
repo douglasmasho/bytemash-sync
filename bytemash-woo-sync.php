@@ -33,6 +33,32 @@ if (file_exists(BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'vendor/autoload.php')) {
 }
 
 /**
+ * Save stock API response to a JSON file when the option is enabled.
+ * Called at the start of a stock sync so the raw response can be inspected.
+ *
+ * @param array $data Decoded stock API response (array of items).
+ */
+function bytemash_maybe_save_stock_response_json($data) {
+    if (!is_array($data) || !get_option('bytemash_stock_sync_download_json', false)) {
+        return;
+    }
+    $dir = BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'responses/stock/';
+    if (!is_dir($dir)) {
+        wp_mkdir_p($dir);
+    }
+    $filename = 'response_' . gmdate('Y-m-d_H-i-s') . '.json';
+    $path = $dir . $filename;
+    $json = wp_json_encode($data, JSON_PRETTY_PRINT | JSON_UNESCAPED_SLASHES | JSON_UNESCAPED_UNICODE);
+    if ($json !== false && @file_put_contents($path, $json) !== false) {
+        if (function_exists('wp_doing_cron') && wp_doing_cron()) {
+            return;
+        }
+        $logger = new ByteMash_Logger();
+        $logger->log('info', 'Stock API response saved to file', array('file' => $filename, 'items' => count($data)), 'stock_sync');
+    }
+}
+
+/**
  * Main plugin class
  */
 class ByteMash_Woo_Sync {
@@ -76,6 +102,9 @@ class ByteMash_Woo_Sync {
         require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-sync-scheduler.php';
         require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-true-cron-manager.php';
         require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-action-scheduler-sync.php';
+        // Instantiate Action Scheduler sync early so hooks are registered at plugin load
+        // (before init). This ensures callbacks run when AS runs the queue in cron/async requests.
+        $this->action_scheduler = new ByteMash_Action_Scheduler_Sync();
         
         // Enable Action Scheduler high-concurrency mode for parallel batch processing
         // Default: 5 concurrent runners (conservative for resource-limited servers)
@@ -302,6 +331,7 @@ class ByteMash_Woo_Sync {
             add_action('wp_ajax_bytemash_process_batch', array($this, 'ajax_process_batch'));
             add_action('wp_ajax_bytemash_get_batch', array($this, 'ajax_get_batch'));
             add_action('wp_ajax_bytemash_cleanup_zero_prices', array($this, 'ajax_cleanup_zero_prices'));
+            add_action('wp_ajax_bytemash_cleanup_duplicate_meta', array($this, 'ajax_cleanup_duplicate_meta'));
             add_action('wp_ajax_bytemash_delete_excess_products', array($this, 'ajax_delete_excess_products'));
             add_action('wp_ajax_bytemash_process_cleanup_batch', array($this, 'ajax_process_cleanup_batch'));
             
@@ -804,10 +834,11 @@ class ByteMash_Woo_Sync {
      * Initialize Action Scheduler integration
      */
     private function init_action_scheduler() {
-        // Check if Action Scheduler is available
-        if (class_exists('ByteMash_Action_Scheduler_Sync')) {
+        // Use existing instance created in load_dependencies (hooks already registered)
+        if (!($this->action_scheduler instanceof ByteMash_Action_Scheduler_Sync) && class_exists('ByteMash_Action_Scheduler_Sync')) {
             $this->action_scheduler = new ByteMash_Action_Scheduler_Sync();
-            
+        }
+        if ($this->action_scheduler instanceof ByteMash_Action_Scheduler_Sync) {
             // Use Action Scheduler for scheduling if available
             $this->use_action_scheduler = $this->action_scheduler->is_action_scheduler_available();
             
@@ -2267,10 +2298,27 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             foreach ($product->get_children() as $vid) {
                 $v = wc_get_product($vid);
                 if (!$v) { continue; }
+                $variation_sku = $v->get_sku();
                 $detail = get_post_meta($vid, '_amrod_stock_detail', true);
-                $stock = isset($detail['stock']) ? intval($detail['stock']) : intval($v->get_stock_quantity());
-                $reserved = isset($detail['reserved']) ? intval($detail['reserved']) : 0;
-                list($incoming_total, $eta_text) = $compute_incoming($detail['incoming'] ?? array());
+                if (!is_array($detail)) {
+                    $detail = array();
+                }
+                // Only use _amrod_stock_detail if it belongs to THIS variation (API fullCode = variation SKU).
+                // Otherwise we might show another variation's stock; API has one row per fullCode with its own stock.
+                $detail_belongs_to_this_variation = true;
+                if (!empty($detail['fullCode']) && (string) $detail['fullCode'] !== (string) $variation_sku) {
+                    $detail_belongs_to_this_variation = false;
+                }
+                if ($detail_belongs_to_this_variation && isset($detail['stock'])) {
+                    $stock = intval($detail['stock']);
+                } else {
+                    // Use _stock meta only; never fall back to get_stock_quantity() (can return parent stock)
+                    $stock_meta = get_post_meta($vid, '_stock', true);
+                    $stock = ($stock_meta !== '' && $stock_meta !== null) ? intval($stock_meta) : 0;
+                }
+                $reserved = ($detail_belongs_to_this_variation && isset($detail['reserved'])) ? intval($detail['reserved']) : (($detail_belongs_to_this_variation && isset($detail['reservedStock'])) ? intval($detail['reservedStock']) : 0);
+                $incoming_raw = ($detail_belongs_to_this_variation && isset($detail['incoming'])) ? $detail['incoming'] : (($detail_belongs_to_this_variation && isset($detail['incomingStock'])) ? $detail['incomingStock'] : array());
+                list($incoming_total, $eta_text) = $compute_incoming(is_array($incoming_raw) ? $incoming_raw : array());
 
                 $attrs = wc_get_formatted_variation($v, true, false, false);
 
@@ -2289,9 +2337,14 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             }
         } else {
             $detail = get_post_meta($product_id, '_amrod_stock_detail', true);
-            $stock = isset($detail['stock']) ? intval($detail['stock']) : intval($product->get_stock_quantity());
-            $reserved = isset($detail['reserved']) ? intval($detail['reserved']) : 0;
-            list($incoming_total, $eta_text) = $compute_incoming($detail['incoming'] ?? array());
+            if (!is_array($detail)) {
+                $detail = array();
+            }
+            $stock_meta_simple = get_post_meta($product_id, '_stock', true);
+            $stock = isset($detail['stock']) ? intval($detail['stock']) : (($stock_meta_simple !== '' && $stock_meta_simple !== null) ? intval($stock_meta_simple) : 0);
+            $reserved = isset($detail['reserved']) ? intval($detail['reserved']) : (isset($detail['reservedStock']) ? intval($detail['reservedStock']) : 0);
+            $incoming_arr = isset($detail['incoming']) ? $detail['incoming'] : (isset($detail['incomingStock']) ? $detail['incomingStock'] : array());
+            list($incoming_total, $eta_text) = $compute_incoming(is_array($incoming_arr) ? $incoming_arr : array());
 
             $rows[] = array(
                 'label' => $product->get_name(),
@@ -2771,6 +2824,65 @@ define('WP_DEBUG_DISPLAY', false);</pre>
     }
     
     /**
+     * AJAX: Cleanup duplicate stock & price meta (keeps one row per post_id + meta_key, most recent)
+     */
+    public function ajax_cleanup_duplicate_meta() {
+        check_ajax_referer('bytemash_woo_sync_nonce', 'nonce');
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(array('message' => __('Insufficient permissions', 'bytemash-woo-sync')));
+        }
+        global $wpdb;
+        $meta_keys = array(
+            '_stock', '_stock_status', '_manage_stock', '_backorders',
+            '_amrod_stock_detail',
+            '_bytemash_stock_hash', '_bytemash_stock_last_modified',
+            '_regular_price', '_sale_price', '_price',
+            '_bytemash_price_hash', '_bytemash_price_last_modified',
+        );
+        $keys_escaped = array_map(function ($k) use ($wpdb) { return "'" . esc_sql($k) . "'"; }, $meta_keys);
+        $keys_in = implode(',', $keys_escaped);
+        // MySQL doesn't reliably allow DELETE from a table while subquery selects from same table.
+        // Step 1: find meta_id of every duplicate row (keep only MAX(meta_id) per post_id, meta_key).
+        $ids_to_delete = $wpdb->get_col("
+            SELECT pm.meta_id FROM {$wpdb->postmeta} pm
+            INNER JOIN (
+                SELECT post_id, meta_key, MAX(meta_id) AS keep_id
+                FROM {$wpdb->postmeta}
+                WHERE meta_key IN ({$keys_in})
+                GROUP BY post_id, meta_key
+                HAVING COUNT(*) > 1
+            ) dup ON pm.post_id = dup.post_id AND pm.meta_key = dup.meta_key AND pm.meta_id <> dup.keep_id
+        ");
+        if (!is_array($ids_to_delete)) {
+            wp_send_json_error(array('message' => __('Database error during cleanup.', 'bytemash-woo-sync')));
+        }
+        $deleted = 0;
+        if (!empty($ids_to_delete)) {
+            $ids_to_delete = array_map('intval', $ids_to_delete);
+            $chunk_size = 5000;
+            foreach (array_chunk($ids_to_delete, $chunk_size) as $chunk) {
+                $placeholders = implode(',', array_fill(0, count($chunk), '%d'));
+                $result = $wpdb->query($wpdb->prepare(
+                    "DELETE FROM {$wpdb->postmeta} WHERE meta_id IN ({$placeholders})",
+                    $chunk
+                ));
+                if ($result !== false) {
+                    $deleted += (int) $result;
+                }
+            }
+        }
+        $logger = new ByteMash_Logger();
+        $logger->log('info', 'Duplicate stock/price meta cleaned', array('deleted_rows' => $deleted, 'user' => get_current_user_id()), 'admin_tools');
+        wp_send_json_success(array(
+            'message' => sprintf(
+                __('✅ Cleanup complete. Removed %d duplicate meta rows. Stock and price values now have one row per product.', 'bytemash-woo-sync'),
+                (int) $deleted
+            ),
+            'deleted' => (int) $deleted,
+        ));
+    }
+    
+    /**
      * AJAX: Get sync progress
      */
     public function ajax_get_sync_progress() {
@@ -3043,9 +3155,37 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         $result = $product_sync->sync_prices();
         
         if ($result['success']) {
-            // Store batches in queue table
+            // Optimized price sync processes synchronously and returns stats (no batches)
+            if (isset($result['stats'])) {
+                $stats = $result['stats'];
+                $total = isset($stats['total_items']) ? (int) $stats['total_items'] : 0;
+                $updated = isset($stats['updated']) ? (int) $stats['updated'] : 0;
+                $skipped = isset($stats['skipped']) ? (int) $stats['skipped'] : 0;
+                if ($updated > 0) {
+                    $message = sprintf(
+                        /* translators: 1: number of products updated, 2: total processed */
+                        __('Price sync completed: %1$d products updated out of %2$d processed', 'bytemash-woo-sync'),
+                        $updated,
+                        $total
+                    );
+                } else {
+                    $message = sprintf(
+                        /* translators: 1: total processed, 2: skipped count */
+                        __('Price sync completed: 0 products updated out of %1$d processed. All items were skipped (no price change detected or no matching product; %2$d skipped).', 'bytemash-woo-sync'),
+                        $total,
+                        $skipped
+                    );
+                }
+                wp_send_json_success(array(
+                    'message' => $message,
+                    'total' => $total,
+                    'total_updated' => $updated,
+                    'skipped' => $skipped,
+                ));
+                return;
+            }
+            // Legacy batch-based sync
             $this->store_batches_in_queue($result['sync_id'], $result['batches']);
-            
             wp_send_json_success(array(
                 'message' => $result['message'],
                 'sync_id' => $result['sync_id'],
@@ -3053,9 +3193,8 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                 'batch_count' => $result['batch_count']
             ));
         } else {
-            wp_send_json_error(array(
-                'message' => $result['message']
-            ));
+            $error_message = isset($result['error']) ? $result['error'] : (isset($result['message']) ? $result['message'] : __('Price sync failed', 'bytemash-woo-sync'));
+            wp_send_json_error(array('message' => $error_message));
         }
     }
     
@@ -3211,17 +3350,51 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         $product_sync = new ByteMash_Product_Sync();
         $result = $product_sync->sync_prices_updated();
         
-        if ($result['success'] && isset($result['batches'])) {
-            $this->store_batches_in_queue($result['sync_id'], $result['batches']);
-            
-            wp_send_json_success(array(
-                'message' => $result['message'],
-                'sync_id' => $result['sync_id'],
-                'total' => $result['total'],
-                'batch_count' => $result['batch_count']
-            ));
+        if ($result['success']) {
+            // Optimized price sync processes synchronously and returns stats (no batches)
+            if (isset($result['stats'])) {
+                $stats = $result['stats'];
+                $total = isset($stats['total_items']) ? (int) $stats['total_items'] : 0;
+                $updated = isset($stats['updated']) ? (int) $stats['updated'] : 0;
+                $skipped = isset($stats['skipped']) ? (int) $stats['skipped'] : 0;
+                if ($updated > 0) {
+                    $message = isset($result['message']) ? $result['message'] : sprintf(
+                        /* translators: 1: number of products updated, 2: total processed */
+                        __('Price sync completed: %1$d products updated out of %2$d processed', 'bytemash-woo-sync'),
+                        $updated,
+                        $total
+                    );
+                } else {
+                    $message = sprintf(
+                        /* translators: 1: total processed, 2: skipped count */
+                        __('Price sync completed: 0 products updated out of %1$d processed. All items were skipped (no price change detected or no matching product; %2$d skipped).', 'bytemash-woo-sync'),
+                        $total,
+                        $skipped
+                    );
+                }
+                wp_send_json_success(array(
+                    'message' => $message,
+                    'total' => $total,
+                    'total_updated' => $updated,
+                    'skipped' => $skipped,
+                ));
+                return;
+            }
+            // Legacy batch-based sync
+            if (isset($result['batches'])) {
+                $this->store_batches_in_queue($result['sync_id'], $result['batches']);
+                wp_send_json_success(array(
+                    'message' => $result['message'],
+                    'sync_id' => $result['sync_id'],
+                    'total' => $result['total'],
+                    'batch_count' => $result['batch_count']
+                ));
+                return;
+            }
+            wp_send_json_success(array('message' => isset($result['message']) ? $result['message'] : __('Sync completed', 'bytemash-woo-sync'), 'total' => 0));
         } else {
-            wp_send_json_success(array('message' => $result['message']));
+            $error_message = isset($result['error']) ? $result['error'] : (isset($result['message']) ? $result['message'] : __('Incremental price sync failed', 'bytemash-woo-sync'));
+            wp_send_json_error(array('message' => $error_message));
         }
     }
     
@@ -3577,6 +3750,14 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             // Clean up queue table
             $wpdb->delete($table_name, array('sync_id' => $sync_id));
             
+            // After stock sync completes, sync WooCommerce product lookup tables so stock displays correctly
+            $sync_type = $sync_info['type'] ?? '';
+            if ($sync_type === 'stock' && function_exists('wc_update_product_lookup_tables')) {
+                wc_update_product_lookup_tables();
+                $logger = new ByteMash_Logger();
+                $logger->log('info', 'Stock sync complete: WooCommerce product lookup tables updated', array('sync_id' => $sync_id), 'stock_sync');
+            }
+            
             wp_send_json_success(array(
                 'done' => true,
                 'message' => 'All batches completed'
@@ -3609,16 +3790,18 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         $sync_type = $sync_info['type'] ?? 'products';
     
     if ($sync_type === 'stock') {
+        // Give stock batch more time (avoids timeout returning HTML instead of JSON)
+        @set_time_limit(120);
         // Use optimized stock sync for maximum performance
         if (class_exists('ByteMash_Stock_Sync_Optimized')) {
             try {
                 $optimized_sync = new ByteMash_Stock_Sync_Optimized();
                 $batch_stats = $optimized_sync->process_stock_batch($sync_id, $batch_index, $batch_data);
                 
-                $processed = $batch_stats['processed'];
-                $errors = $batch_stats['errors'];
-                $skipped = $batch_stats['skipped'];
-                $updated = $batch_stats['updated'];
+                $processed = isset($batch_stats['processed']) ? $batch_stats['processed'] : 0;
+                $errors = isset($batch_stats['errors']) ? $batch_stats['errors'] : 0;
+                $skipped = isset($batch_stats['skipped']) ? $batch_stats['skipped'] : 0;
+                $updated = isset($batch_stats['updated']) ? $batch_stats['updated'] : $processed;
             } catch (Exception $e) {
                 $errors++;
                 $logger = new ByteMash_Logger();
@@ -5067,35 +5250,49 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         $total_incoming = 0;
         
         if ($product->is_type('variable')) {
-            // Calculate total from all variations
+            // Sum stock from each variation using _stock meta (never get_stock_quantity() - can return parent stock per variation and compound)
             $variations = $product->get_children();
             foreach ($variations as $variation_id) {
                 $variation = wc_get_product($variation_id);
                 if (!$variation) continue;
                 
-                $stock_qty = $variation->get_stock_quantity();
-                if ($stock_qty !== null) {
-                    $total_stock += (int) $stock_qty;
-                }
-                
-                // Get incoming stock from detail
                 $detail = get_post_meta($variation_id, '_amrod_stock_detail', true);
-                if (!empty($detail['incoming']) && is_array($detail['incoming'])) {
-                    foreach ($detail['incoming'] as $incoming) {
+                if (!is_array($detail)) {
+                    $detail = array();
+                }
+                $variation_sku = $variation->get_sku();
+                $detail_belongs = empty($detail['fullCode']) || (string) $detail['fullCode'] === (string) $variation_sku;
+                if ($detail_belongs && isset($detail['stock'])) {
+                    $stock_qty = (int) $detail['stock'];
+                } else {
+                    $stock_meta = get_post_meta($variation_id, '_stock', true);
+                    $stock_qty = ($stock_meta !== '' && $stock_meta !== null) ? (int) $stock_meta : 0;
+                }
+                $total_stock += $stock_qty;
+                
+                $incoming_raw = ($detail_belongs && isset($detail['incoming'])) ? $detail['incoming'] : (isset($detail['incomingStock']) ? $detail['incomingStock'] : array());
+                if (is_array($incoming_raw)) {
+                    foreach ($incoming_raw as $incoming) {
                         $total_incoming += isset($incoming['total']) ? (int) $incoming['total'] : 0;
                     }
                 }
             }
         } else {
-            // Simple product
-            $stock_qty = $product->get_stock_quantity();
-            if ($stock_qty !== null) {
-                $total_stock = (int) $stock_qty;
+            // Simple product: use _stock or _amrod_stock_detail, not get_stock_quantity() (can be compounded)
+            $detail = get_post_meta($product_id, '_amrod_stock_detail', true);
+            if (!is_array($detail)) {
+                $detail = array();
+            }
+            if (isset($detail['stock'])) {
+                $total_stock = (int) $detail['stock'];
+            } else {
+                $stock_meta = get_post_meta($product_id, '_stock', true);
+                $total_stock = ($stock_meta !== '' && $stock_meta !== null) ? (int) $stock_meta : 0;
             }
             
-            $detail = get_post_meta($product_id, '_amrod_stock_detail', true);
-            if (!empty($detail['incoming']) && is_array($detail['incoming'])) {
-                foreach ($detail['incoming'] as $incoming) {
+            $incoming_raw = isset($detail['incoming']) ? $detail['incoming'] : (isset($detail['incomingStock']) ? $detail['incomingStock'] : array());
+            if (is_array($incoming_raw)) {
+                foreach ($incoming_raw as $incoming) {
                     $total_incoming += isset($incoming['total']) ? (int) $incoming['total'] : 0;
                 }
             }
@@ -6932,7 +7129,6 @@ function bytemash_gutenberg_product_collection_image_fix($html, $data, $product)
     if (empty($external_url)) {
         return $html;
     }
-
     // Replace the image section in the HTML
     $alt = esc_attr($product->get_name());
     $src = esc_url($external_url);

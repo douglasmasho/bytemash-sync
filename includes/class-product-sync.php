@@ -3265,6 +3265,10 @@ class ByteMash_Product_Sync {
             return array('success' => false, 'message' => 'No stock data available');
         }
         
+        if (function_exists('bytemash_maybe_save_stock_response_json')) {
+            bytemash_maybe_save_stock_response_json($stock_data);
+        }
+        
         $total = count($stock_data);
         $sync_id = 'stock_' . time() . '_' . wp_generate_password(8, false);
         
@@ -5494,9 +5498,21 @@ class ByteMash_Product_Sync {
             
             $raw_sku = $product['simpleCode'] ?? $product['fullCode'] ?? null;
             $normalized = $this->normalize_sku($raw_sku);
-            
             if ($normalized !== '') {
                 $skus[$normalized] = true;
+            }
+            
+            // Include variation fullCodes so discontinued variants can be removed
+            if (!empty($product['variants']) && is_array($product['variants'])) {
+                foreach ($product['variants'] as $variant) {
+                    $full = $variant['fullCode'] ?? $variant['simpleCode'] ?? null;
+                    if ($full) {
+                        $n = $this->normalize_sku($full);
+                        if ($n !== '') {
+                            $skus[$n] = true;
+                        }
+                    }
+                }
             }
         }
         
@@ -5696,6 +5712,49 @@ class ByteMash_Product_Sync {
                         }
                     }
                 }
+            }
+            
+            // Delete discontinued variants: for each Amrod variable product, remove variations whose SKU is not in the API snapshot
+            $variations_deleted = 0;
+            $amrod_parents = $wpdb->get_col("
+                SELECT DISTINCT p.ID FROM {$table_posts} p
+                INNER JOIN {$table_meta} pm ON pm.post_id = p.ID AND pm.meta_key = '_amrod_simple_code' AND pm.meta_value != ''
+                WHERE p.post_type = 'product' AND p.post_status NOT IN ('trash', 'auto-draft')
+            ");
+            if (!empty($amrod_parents)) {
+                foreach ($amrod_parents as $parent_id) {
+                    $parent_id = (int) $parent_id;
+                    $product = wc_get_product($parent_id);
+                    if (!$product || !$product->is_type('variable')) {
+                        continue;
+                    }
+                    $children = $product->get_children();
+                    foreach ($children as $variation_id) {
+                        $var_sku = get_post_meta($variation_id, '_sku', true);
+                        if ($var_sku === '' || $var_sku === null) {
+                            continue;
+                        }
+                        $var_sku_normalized = $this->normalize_sku($var_sku);
+                        if ($var_sku_normalized !== '' && !isset($normalized_map[$var_sku_normalized])) {
+                            $this->logger->log('warning', 'Deleting discontinued variation not in API snapshot', array(
+                                'variation_id' => $variation_id,
+                                'parent_id' => $parent_id,
+                                'sku' => $var_sku,
+                            ), 'product_sync');
+                            if (wp_delete_post($variation_id, true)) {
+                                $variations_deleted++;
+                                $deleted++;
+                                $total_deleted++;
+                            }
+                        }
+                    }
+                }
+            }
+            if ($variations_deleted > 0) {
+                $this->logger->log('info', 'Discontinued variants removed', array(
+                    'variations_deleted' => $variations_deleted,
+                    'snapshot_total' => count($normalized_map),
+                ), 'product_sync');
             }
         } finally {
             // Re-enable counting and cache

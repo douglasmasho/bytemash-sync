@@ -162,8 +162,10 @@ class ByteMash_Action_Scheduler_Sync {
     
     /**
      * Run full sync action
+     * @param array|bool $args Action Scheduler passes the scheduled args array (e.g. array('with_branding' => true)); accept bool for backward compatibility.
      */
-    public function run_full_sync_action($with_branding = true) {
+    public function run_full_sync_action($args = array()) {
+        $with_branding = is_array($args) ? (isset($args['with_branding']) ? $args['with_branding'] : true) : (bool) $args;
         if (!$this->is_scheduling_enabled()) {
             $this->logger->log('warning', 'Full sync run aborted: scheduling disabled', array(), 'action_scheduler');
             return;
@@ -488,8 +490,10 @@ class ByteMash_Action_Scheduler_Sync {
     
     /**
      * Run incremental sync action
+     * @param array|bool $args Action Scheduler passes the scheduled args array (e.g. array('with_branding' => true)); accept bool for backward compatibility.
      */
-    public function run_incremental_sync_action($with_branding = true) {
+    public function run_incremental_sync_action($args = array()) {
+        $with_branding = is_array($args) ? (isset($args['with_branding']) ? $args['with_branding'] : true) : (bool) $args;
         if (!$this->is_scheduling_enabled()) {
             $this->logger->log('warning', 'Incremental sync run aborted: scheduling disabled', array(), 'action_scheduler');
             return;

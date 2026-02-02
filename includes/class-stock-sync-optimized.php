@@ -69,6 +69,10 @@ class ByteMash_Stock_Sync_Optimized {
             );
         }
         
+        if (function_exists('bytemash_maybe_save_stock_response_json')) {
+            bytemash_maybe_save_stock_response_json($stock_data);
+        }
+        
         $total_items = count($stock_data);
         
         // Split into batches and store in dedicated batch table
@@ -84,11 +88,10 @@ class ByteMash_Stock_Sync_Optimized {
             'errors' => 0,
         );
         
-        // Suppress WooCommerce events for performance
-        $this->suppress_woocommerce_events();
-        
+        // Do not suppress WooCommerce events: each product is updated via WC API (set_stock_quantity + save)
+        // so lookup tables and caches stay in sync as each product is processed in the batch.
         try {
-            // Process each batch
+            // Process each batch; each product is updated via WooCommerce API as it is processed
             foreach ($batches as $batch_index => $batch) {
                 $batch_result = $this->process_stock_batch($sync_id, $batch_index, $batch);
                 
@@ -98,8 +101,10 @@ class ByteMash_Stock_Sync_Optimized {
                 $stats['errors'] += $batch_result['errors'];
             }
             
-            // Restore WooCommerce events and rebuild lookup tables
-            $this->restore_woocommerce_events();
+            // Lookup tables are updated per product on save(); optional full rebuild if needed
+            if (function_exists('wc_update_product_lookup_tables')) {
+                wc_update_product_lookup_tables();
+            }
             
             $duration = microtime(true) - $start_time;
             
@@ -116,9 +121,6 @@ class ByteMash_Stock_Sync_Optimized {
             );
             
         } catch (Exception $e) {
-            // Ensure events are restored even on error
-            $this->restore_woocommerce_events();
-            
             $this->logger->log('error', 'Stock sync failed with exception', array(
                 'sync_id' => $sync_id,
                 'error' => $e->getMessage(),
@@ -159,49 +161,80 @@ class ByteMash_Stock_Sync_Optimized {
         try {
             // Build SKU to product ID mapping for this batch
             $sku_map = $this->build_sku_product_map($batch);
+            $sku_map_size = count($sku_map);
+            $this->logger->log('info', 'Stock batch SKU map built', array(
+                'batch_index' => $batch_index,
+                'batch_items' => count($batch),
+                'sku_map_entries' => $sku_map_size,
+                'sample_skus_matched' => array_slice(array_keys($sku_map), 0, 5),
+            ), 'stock_sync');
             
             // OPTIMIZATION: Prime meta cache for all found products
-            // This fetches all metadata (including hashes) in ONE query instead of 100
             if (!empty($sku_map)) {
                 update_meta_cache('post', array_values($sku_map));
             }
             
-            // Prepare data for bulk insert into temp table
-            $temp_data = array();
             $meta_updates = array();
+            $skipped_codes_sample = array();
             
             foreach ($batch as $stock_item) {
                 $stats['processed']++;
                 
-                $sku = $stock_item['simpleCode'] ?? $stock_item['fullCode'] ?? null;
+                // Match by fullCode only (so each variant gets its own API stock; no simpleCode lookup)
+                $sku = $stock_item['fullCode'] ?? null;
                 if (!$sku) {
-                    $stats['errors']++;
-                    continue;
-                }
-                
-                // Find product ID
-                $product_id = $sku_map[$sku] ?? null;
-                if (!$product_id) {
                     $stats['skipped']++;
                     continue;
                 }
                 
-                // Check if stock has changed using hash and modifiedDate
+                $entry = $sku_map[$sku] ?? null;
+                $product_id = is_array($entry) ? ($entry['product_id'] ?? null) : $entry;
+                $post_type = is_array($entry) ? ($entry['post_type'] ?? null) : null;
+                // For variations: only sync stockType 2 (sellable colour+size). Skip stockType 0/1 so shop total matches API.
+                // For simple products: allow any stockType (they often only have 0 or 1).
+                if ($post_type === 'product_variation') {
+                    $stock_type = isset($stock_item['stockType']) ? (int) $stock_item['stockType'] : 2;
+                    if ($stock_type !== 2) {
+                        $stats['skipped']++;
+                        continue;
+                    }
+                }
+                
+                if (!$product_id) {
+                    $stats['skipped']++;
+                    if (count($skipped_codes_sample) < 10) {
+                        $skipped_codes_sample[] = $sku;
+                    }
+                    continue;
+                }
+                
+                // Always apply API stock when we have a matching product (no hash skip).
                 $stock_hash = $this->calculate_stock_hash($stock_item);
                 $modified_date = $stock_item['modifiedDate'] ?? '';
                 
-                if ($this->should_skip_stock_update($product_id, $stock_hash, $modified_date)) {
-                    $stats['skipped']++;
-                    continue;
-                }
-                
-                // Determine stock values based on stock type
-                $stock_qty = (int) ($stock_item['stock'] ?? 0);
+                // Determine stock values from API (support 'stock' or 'Stock')
+                $stock_qty = (int) ($stock_item['stock'] ?? $stock_item['Stock'] ?? 0);
                 $stock_status = $stock_qty > 0 ? 'instock' : 'outofstock';
                 $manage_stock = 'yes';
                 $backorders = 'no';
                 
-                // Add to meta updates array for bulk insert
+                // Store API payload for this product so modal/display use correct fullCode and values
+                $incoming = isset($stock_item['incomingStock']) && is_array($stock_item['incomingStock']) ? $stock_item['incomingStock'] : array();
+                $reserved = (int) ($stock_item['reservedStock'] ?? 0);
+                $full_code = $stock_item['fullCode'] ?? '';
+                $simple_code = $stock_item['simpleCode'] ?? $stock_item['simplecode'] ?? '';
+                $stock_detail = array(
+                    'fullCode' => $full_code,
+                    'simpleCode' => $simple_code,
+                    'stock' => $stock_qty,
+                    'reservedStock' => $reserved,
+                    'reserved' => $reserved,
+                    'incomingStock' => $incoming,
+                    'incoming' => $incoming,
+                    'modifiedDate' => $modified_date,
+                );
+                
+                // Add to meta updates array for bulk insert (include code for logging)
                 $meta_updates[] = array(
                     'product_id' => $product_id,
                     'stock' => $stock_qty,
@@ -210,16 +243,74 @@ class ByteMash_Stock_Sync_Optimized {
                     'backorders' => $backorders,
                     'hash' => $stock_hash,
                     'modified_date' => $modified_date,
+                    'stock_detail' => $stock_detail,
+                    'fullCode' => $full_code,
+                    'simpleCode' => $simple_code,
                 );
                 
                 $stats['updated']++;
             }
             
-            // Bulk update using single ON DUPLICATE KEY UPDATE query
-            if (!empty($meta_updates)) {
-                $this->bulk_update_stock_meta($meta_updates);
+            if (!empty($skipped_codes_sample)) {
+                $this->logger->log('info', 'Stock batch: items skipped (no WooCommerce product match for SKU)', array(
+                    'batch_index' => $batch_index,
+                    'skipped_count' => $stats['skipped'],
+                    'sample_skus_not_found' => $skipped_codes_sample,
+                ), 'stock_sync');
             }
             
+            // One update per product: when multiple fullCodes map to same product_id (e.g. duplicate meta), keep the update whose fullCode matches the product's _sku so we write the correct API value
+            $by_product = array();
+            foreach ($meta_updates as $u) {
+                $pid = (int) $u['product_id'];
+                if (!isset($by_product[$pid])) {
+                    $by_product[$pid] = array();
+                }
+                $by_product[$pid][] = $u;
+            }
+            $product_ids = array_keys($by_product);
+            $product_skus = array();
+            if (!empty($product_ids)) {
+                $ids_placeholder = implode(',', array_map('absint', $product_ids));
+                $rows = $wpdb->get_results("SELECT post_id, meta_value FROM {$wpdb->postmeta} WHERE post_id IN ({$ids_placeholder}) AND meta_key = '_sku'");
+                if (is_array($rows)) {
+                    foreach ($rows as $row) {
+                        $product_skus[(int) $row->post_id] = $row->meta_value !== null ? (string) $row->meta_value : '';
+                    }
+                }
+            }
+            $meta_updates = array();
+            foreach ($by_product as $pid => $updates) {
+                $product_sku = isset($product_skus[$pid]) ? (string) $product_skus[$pid] : '';
+                $product_sku_lower = strtolower(trim($product_sku));
+                $chosen = null;
+                foreach ($updates as $u) {
+                    $code = (string) ($u['fullCode'] ?? '');
+                    if (strtolower(trim($code)) === $product_sku_lower) {
+                        $chosen = $u;
+                        break;
+                    }
+                }
+                if ($chosen === null) {
+                    $chosen = $updates[0];
+                }
+                if (count($updates) > 1) {
+                    $this->logger->log('info', 'Stock batch: multiple API rows mapped to same product_id, kept row matching product _sku', array(
+                        'batch_index' => $batch_index,
+                        'product_id' => $pid,
+                        'product_sku' => $product_sku,
+                        'chosen_fullCode' => $chosen['fullCode'] ?? '',
+                        'chosen_stock_from_api' => (int) ($chosen['stock'] ?? 0),
+                    ), 'stock_sync');
+                }
+                $meta_updates[] = $chosen;
+            }
+            
+            // Fast bulk update: postmeta + WooCommerce lookup table (no full product save per item)
+            if (!empty($meta_updates)) {
+                $this->bulk_update_stock_meta($meta_updates, $batch_index);
+            }
+
             $batch_duration = microtime(true) - $batch_start;
             
             $this->logger->log('info', 'Stock batch processed', array(
@@ -260,46 +351,84 @@ class ByteMash_Stock_Sync_Optimized {
     }
     
     /**
-     * Build SKU to product ID mapping for a batch
-     * 
+     * Build SKU to product ID mapping for a batch using fullCode only.
+     * Case-insensitive match so API and DB casing differences don't miss updates.
+     * Prefers variations over parents; never updates variable parent stock (only variations and simple products).
+     *
      * @param array $batch Batch of stock items
-     * @return array SKU => product_id map
+     * @return array fullCode (as in API) => array('product_id' => int, 'post_type' => string) or product_id (legacy)
      */
     private function build_sku_product_map($batch) {
         global $wpdb;
         
-        // Extract all SKUs from batch
         $skus = array();
         foreach ($batch as $item) {
-            $sku = $item['simpleCode'] ?? $item['fullCode'] ?? null;
-            if ($sku) {
-                $skus[] = $sku;
+            $full = $item['fullCode'] ?? null;
+            if ($full !== null && $full !== '') {
+                $skus[] = $full;
             }
         }
-        
+        $skus = array_unique(array_filter($skus));
         if (empty($skus)) {
             return array();
         }
         
-        // Batch lookup using optimized index
-        // Build escaped placeholders manually to avoid wpdb::prepare array error
-        $escaped_skus = array_map(function($sku) use ($wpdb) {
-            return "'" . esc_sql($sku) . "'";
-        }, $skus);
+        // Case-insensitive: match DB meta_value to batch fullCodes via LOWER()
+        $skus_lower = array_map('strtolower', $skus);
+        $escaped = array_map(function ($s) use ($wpdb) {
+            return "'" . esc_sql(strtolower($s)) . "'";
+        }, $skus_lower);
+        $in_list = implode(',', array_unique($escaped));
         
         $query = "
-            SELECT pm.post_id, pm.meta_value as sku
+            SELECT pm.post_id, pm.meta_value as sku, p.post_type
             FROM {$wpdb->postmeta} pm
-            WHERE pm.meta_key IN ('_sku', '_amrod_simple_code', '_amrod_full_code')
-            AND pm.meta_value IN (" . implode(',', $escaped_skus) . ")
+            INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id AND p.post_type IN ('product', 'product_variation')
+            WHERE pm.meta_key IN ('_sku', '_amrod_full_code')
+            AND LOWER(TRIM(pm.meta_value)) IN ({$in_list})
         ";
-        
         $results = $wpdb->get_results($query);
         
-        // Build map
-        $map = array();
+        // Key by lowercase SKU so we can look up by batch fullCode (any case)
+        $by_lower = array();
         foreach ($results as $row) {
-            $map[$row->sku] = (int) $row->post_id;
+            $key = strtolower(trim($row->sku));
+            if (!isset($by_lower[$key])) {
+                $by_lower[$key] = array();
+            }
+            $by_lower[$key][] = array('post_id' => (int) $row->post_id, 'post_type' => $row->post_type);
+        }
+        
+        // Variable product parent IDs: we never write stock to these (only variations/simple)
+        $variable_parent_ids = array();
+        $parents = $wpdb->get_col("SELECT DISTINCT post_parent FROM {$wpdb->posts} WHERE post_type = 'product_variation' AND post_parent > 0");
+        if (is_array($parents)) {
+            $variable_parent_ids = array_map('intval', $parents);
+        }
+        
+        $map = array();
+        foreach ($skus as $api_full_code) {
+            $key = strtolower(trim($api_full_code));
+            $candidates = isset($by_lower[$key]) ? $by_lower[$key] : array();
+            $variation = null;
+            $product = null;
+            foreach ($candidates as $c) {
+                if ($c['post_type'] === 'product_variation') {
+                    $variation = $c['post_id'];
+                } else {
+                    $product = $c['post_id'];
+                }
+            }
+            $chosen_id = null;
+            $chosen_type = null;
+            if ($variation !== null) {
+                $chosen_id = $variation;
+                $chosen_type = 'product_variation';
+            } elseif ($product !== null && !in_array($product, $variable_parent_ids, true)) {
+                $chosen_id = $product;
+                $chosen_type = 'product';
+            }
+            $map[$api_full_code] = $chosen_id !== null ? array('product_id' => $chosen_id, 'post_type' => $chosen_type) : null;
         }
         
         return $map;
@@ -350,38 +479,78 @@ class ByteMash_Stock_Sync_Optimized {
     }
     
     /**
-     * Bulk update stock meta using single ON DUPLICATE KEY UPDATE query
-     * This replaces ~12 individual UPDATE/INSERT blocks with one query
-     * 
-     * @param array $updates Array of product updates
+     * Bulk update stock: postmeta (fast SQL) + WooCommerce lookup table so catalog/frontend show correct stock.
+     * No full product save per item — fast and keeps WC in sync.
+     *
+     * @param array $updates Array of product updates (each has product_id, stock, stock_status, stock_detail, etc.)
+     * @param int   $batch_index Batch index for logging
      */
-    private function bulk_update_stock_meta($updates) {
+    private function bulk_update_stock_meta($updates, $batch_index = 0) {
         global $wpdb;
-        
+
         if (empty($updates)) {
             return;
         }
-        
-        // Build VALUES for bulk insert
+
+        $product_ids = array_unique(array_map(function ($u) { return (int) $u['product_id']; }, $updates));
+        $ids_placeholder = implode(',', array_map('absint', $product_ids));
+
+        // 1. Bulk replace postmeta (fast)
+        $meta_keys = array('_stock', '_stock_status', '_manage_stock', '_backorders', '_amrod_stock_detail', '_bytemash_stock_hash', '_bytemash_stock_last_modified');
+        $keys_escaped = array_map(function ($k) use ($wpdb) { return "'" . esc_sql($k) . "'"; }, $meta_keys);
+        $wpdb->query("DELETE FROM {$wpdb->postmeta} WHERE post_id IN ({$ids_placeholder}) AND meta_key IN (" . implode(',', $keys_escaped) . ")");
+
         $values = array();
         foreach ($updates as $update) {
             $product_id = (int) $update['product_id'];
-            
-            // Each product gets 6 meta entries
-            $values[] = $wpdb->prepare("(%d, '_stock', %s)", $product_id, $update['stock']);
+            $values[] = $wpdb->prepare("(%d, '_stock', %s)", $product_id, (string) (int) $update['stock']);
             $values[] = $wpdb->prepare("(%d, '_stock_status', %s)", $product_id, $update['stock_status']);
             $values[] = $wpdb->prepare("(%d, '_manage_stock', %s)", $product_id, $update['manage_stock']);
             $values[] = $wpdb->prepare("(%d, '_backorders', %s)", $product_id, $update['backorders']);
+            $stock_detail_serialized = isset($update['stock_detail']) && is_array($update['stock_detail']) ? maybe_serialize($update['stock_detail']) : '';
+            $values[] = $wpdb->prepare("(%d, '_amrod_stock_detail', %s)", $product_id, $stock_detail_serialized);
             $values[] = $wpdb->prepare("(%d, '_bytemash_stock_hash', %s)", $product_id, $update['hash']);
             $values[] = $wpdb->prepare("(%d, '_bytemash_stock_last_modified', %s)", $product_id, $update['modified_date']);
         }
-        
-        // Single bulk query with ON DUPLICATE KEY UPDATE
-        $sql = "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value)
-                VALUES " . implode(',', $values) . "
-                ON DUPLICATE KEY UPDATE meta_value = VALUES(meta_value)";
-        
+        $sql = "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value) VALUES " . implode(',', $values);
         $wpdb->query($sql);
+
+        // 2. Update WooCommerce lookup table so catalog/frontend show correct stock (lightweight UPDATEs, no product load)
+        $lookup_table = $wpdb->prefix . 'wc_product_meta_lookup';
+        if ($wpdb->get_var("SHOW TABLES LIKE '" . esc_sql($lookup_table) . "'") === $lookup_table) {
+            $by_id = array();
+            foreach ($updates as $u) {
+                $by_id[(int) $u['product_id']] = $u;
+            }
+            foreach ($product_ids as $pid) {
+                $u = isset($by_id[$pid]) ? $by_id[$pid] : null;
+                if (!$u) {
+                    continue;
+                }
+                $qty = (int) ($u['stock'] ?? 0);
+                $status = $qty > 0 ? 'instock' : 'outofstock';
+                $wpdb->query($wpdb->prepare(
+                    "UPDATE {$lookup_table} SET stock_quantity = %d, stock_status = %s WHERE product_id = %d",
+                    $qty,
+                    $status,
+                    $pid
+                ));
+            }
+        }
+
+        // 3. Clear product transients (and parent transients for variations so variable product stock status reflects)
+        foreach ($product_ids as $pid) {
+            if (function_exists('wc_delete_product_transients')) {
+                wc_delete_product_transients($pid);
+            }
+            $post = get_post($pid);
+            if ($post && $post->post_type === 'product_variation' && $post->post_parent > 0) {
+                if (function_exists('wc_delete_product_transients')) {
+                    wc_delete_product_transients((int) $post->post_parent);
+                }
+                delete_transient('wc_product_children_' . (int) $post->post_parent);
+            }
+        }
     }
     
     /**
