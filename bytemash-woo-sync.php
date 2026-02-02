@@ -7010,6 +7010,8 @@ function bytemash_render_product_image_block($block_content, $block) {
     return $block_content;
 }
 
+
+
 // External URL image support for Bricks `{woo_product_images}` and theme overrides (no sideloading)
 // 1) Make products with external images report as having a thumbnail
 add_filter('has_post_thumbnail', function($has_thumbnail, $post) {
