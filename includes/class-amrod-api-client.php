@@ -793,5 +793,77 @@ class ByteMash_Amrod_API_Client {
         $this->logger->log('info', 'Fetching colour swatches from Amrod', array(), 'api_request');
         return $this->request('api/v1/ColourSwatches/');
     }
+    /**
+     * Download API response directly to a file (for large datasets)
+     *
+     * @param string $endpoint API path
+     * @param string $file_path Absolute path to save the file
+     * @param array $params Query string params
+     * @return bool|WP_Error True on success, WP_Error on failure
+     */
+    public function download_to_file($endpoint, $file_path, $params = array()) {
+        if (empty($this->api_token)) {
+            return new WP_Error('no_token', 'API token not configured');
+        }
+
+        $url = trailingslashit($this->api_url) . ltrim($endpoint, '/');
+        
+        // Add cache busting for stock
+        if (strpos($endpoint, 'Stock') !== false) {
+            $params['_'] = time();
+        }
+        
+        if (!empty($params)) {
+            $url = add_query_arg($params, $url);
+        }
+
+        $headers = array(
+            'Authorization' => 'Bearer ' . $this->api_token,
+            'Accept' => 'application/json',
+        );
+        
+        if (strpos($endpoint, 'Stock') !== false) {
+            $headers['Cache-Control'] = 'no-cache, no-store, must-revalidate';
+            $headers['Pragma'] = 'no-cache';
+        }
+
+        $args = array(
+            'timeout'  => $this->timeout,
+            'headers'  => $headers,
+            'stream'   => true,
+            'filename' => $file_path,
+        );
+
+        $this->logger->log('info', 'Starting API Download to File', array(
+            'url' => $url,
+            'file_path' => $file_path,
+        ), 'api_request');
+
+        $response = wp_remote_get($url, $args);
+
+        if (is_wp_error($response)) {
+            $this->logger->log('error', 'API Download Failed', array(
+                'url' => $url,
+                'error' => $response->get_error_message(),
+            ), 'api_request');
+            return $response;
+        }
+
+        $status_code = wp_remote_retrieve_response_code($response);
+        if ($status_code >= 400) {
+            $this->logger->log('error', 'API Download Error Status', array(
+                'status_code' => $status_code,
+            ), 'api_request');
+            return new WP_Error('api_error', 'API returned error: ' . $status_code);
+        }
+
+        $file_size = file_exists($file_path) ? filesize($file_path) : 0;
+        $this->logger->log('success', 'API Download Complete', array(
+            'file_path' => $file_path,
+            'size_mb' => round($file_size / 1024 / 1024, 2),
+        ), 'api_request');
+
+        return true;
+    }
 }
 

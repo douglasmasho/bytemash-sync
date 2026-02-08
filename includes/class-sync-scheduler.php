@@ -108,6 +108,9 @@ class ByteMash_Sync_Scheduler {
         add_action('wp_ajax_bytemash_get_sync_status_progress', array($this, 'ajax_get_sync_status_progress'));
         add_action('wp_ajax_bytemash_get_scheduled_times', array($this, 'ajax_get_scheduled_times'));
         add_action('wp_ajax_bytemash_get_batch_progress', array($this, 'ajax_get_batch_progress'));
+        
+        // Debug Tools
+        add_action('wp_ajax_bytemash_debug_stock_check', array($this, 'ajax_debug_stock_check'));
     }
     
     /**
@@ -1375,9 +1378,149 @@ class ByteMash_Sync_Scheduler {
         if ($this->use_action_scheduler && $this->action_scheduler) {
             $result = $this->action_scheduler->get_batch_progress($sync_id);
             wp_send_json_success($result);
-        } else {
-            wp_send_json_error(array('message' => 'Action Scheduler not available'));
         }
+    }
+    
+    /**
+     * AJAX: Debug Stock Check
+     */
+    public function ajax_debug_stock_check() {
+        check_ajax_referer('bytemash_woo_sync_nonce', 'nonce');
+        
+        if (!current_user_can('manage_woocommerce')) {
+            wp_send_json_error(array('message' => 'Insufficient permissions'));
+        }
+        
+        $sku = isset($_POST['sku']) ? sanitize_text_field($_POST['sku']) : '';
+        if (empty($sku)) {
+            wp_send_json_error(array('message' => 'Please provide a SKU'));
+        }
+        
+        global $wpdb;
+        
+        // 1. Find product by SKU
+        $product_id = $wpdb->get_var($wpdb->prepare("SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_sku' AND meta_value = %s", $sku));
+        
+        if (!$product_id) {
+            // Try finding by _amrod_full_code
+            $product_id = $wpdb->get_var($wpdb->prepare("SELECT post_id FROM {$wpdb->postmeta} WHERE meta_key = '_amrod_full_code' AND meta_value = %s", $sku));
+        }
+        
+        if (!$product_id) {
+            // Try fuzzy match
+            $like_sku = '%' . $wpdb->esc_like($sku) . '%';
+            $similar = $wpdb->get_results($wpdb->prepare("SELECT post_id, meta_value FROM {$wpdb->postmeta} WHERE meta_key IN ('_sku', '_amrod_full_code') AND meta_value LIKE %s LIMIT 5", $like_sku));
+            
+            $similar_list = array();
+            if (!empty($similar)) {
+                foreach ($similar as $s) {
+                    $similar_list[] = array(
+                        'id' => $s->post_id,
+                        'sku' => $s->meta_value
+                    );
+                }
+            }
+            
+            wp_send_json_error(array(
+                'message' => 'Product not found',
+                'similar' => $similar_list
+            ));
+        }
+        
+        $product = wc_get_product($product_id);
+        if (!$product) {
+            wp_send_json_error(array('message' => 'Product ID found but could not load WC_Product'));
+        }
+        
+        // Gather data
+        $post_meta = get_post_meta($product_id);
+        
+        $data = array(
+            'product_id' => $product_id,
+            'name' => $product->get_name(),
+            'type' => $product->get_type(),
+            'db_values' => array(
+                '_stock' => $post_meta['_stock'][0] ?? '',
+                '_stock_status' => $post_meta['_stock_status'][0] ?? '',
+                '_manage_stock' => $post_meta['_manage_stock'][0] ?? '',
+                '_amrod_full_code' => $post_meta['_amrod_full_code'][0] ?? '',
+                '_sku' => $post_meta['_sku'][0] ?? '',
+                '_bytemash_stock_hash' => $post_meta['_bytemash_stock_hash'][0] ?? '',
+                '_bytemash_stock_last_modified' => $post_meta['_bytemash_stock_last_modified'][0] ?? '',
+            ),
+            'wc_object_values' => array(
+                'stock_quantity' => $product->get_stock_quantity(),
+                'stock_status' => $product->get_stock_status(),
+                'manage_stock' => $product->get_manage_stock(),
+            )
+        );
+        
+        // Lookup Table
+        $lookup_table = $wpdb->prefix . 'wc_product_meta_lookup';
+        $lookup_row = $wpdb->get_row($wpdb->prepare("SELECT * FROM {$lookup_table} WHERE product_id = %d", $product_id));
+        if ($lookup_row) {
+            $data['lookup_table'] = array(
+                'stock_quantity' => $lookup_row->stock_quantity,
+                'stock_status' => $lookup_row->stock_status,
+            );
+        } else {
+            $data['lookup_table'] = 'Not found';
+        }
+
+        // Check local API response files (JSON)
+        $data['api_file_values'] = 'No JSON files found';
+        $json_dir = BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'responses/stock/';
+        if (is_dir($json_dir)) {
+            $files = glob($json_dir . '*.json');
+            if (!empty($files)) {
+                // Sort by modified time DESC
+                usort($files, function($a, $b) {
+                    return filemtime($b) - filemtime($a);
+                });
+                
+                // Check newest file + response.json if it exists
+                $files_to_check = array_slice($files, 0, 3);
+                $standard_response = $json_dir . 'response.json';
+                if (file_exists($standard_response) && !in_array($standard_response, $files_to_check)) {
+                    array_unshift($files_to_check, $standard_response);
+                }
+                
+                $found_in_file = false;
+                foreach ($files_to_check as $file) {
+                    $content = file_get_contents($file);
+                    // Optimization: string search before decode
+                    if (filesize($file) > 2000000 && stripos($content, $sku) === false) {
+                        continue; 
+                    }
+                    
+                    $json = json_decode($content, true);
+                    if ($json) {
+                        foreach ($json as $item) {
+                            $code_match = (isset($item['fullCode']) && strcasecmp($item['fullCode'], $sku) === 0);
+                            $simple_match = (isset($item['simpleCode']) && strcasecmp($item['simpleCode'], $sku) === 0);
+                            
+                            if ($code_match || $simple_match) {
+                                $data['api_file_values'] = array(
+                                    'file' => basename($file),
+                                    'date' => date('Y-m-d H:i:s', filemtime($file)),
+                                    'stock' => $item['stock'] ?? 'N/A',
+                                    'stockType' => $item['stockType'] ?? 'N/A',
+                                    'fullCode' => $item['fullCode'] ?? '',
+                                );
+                                $found_in_file = true;
+                                break 2;
+                            }
+                        }
+                    }
+                }
+                
+                if (!$found_in_file) {
+                    $data['api_file_values'] = 'Not found in recent JSON files';
+                }
+            }
+        }
+        
+        wp_send_json_success($data);
     }
 }
 

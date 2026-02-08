@@ -60,6 +60,97 @@ class ByteMash_Admin_Tools {
                         <button type="submit" name="bytemash_save_stock_download_setting" class="button button-primary" value="1"><?php esc_html_e('Save', 'bytemash-woo-sync'); ?></button>
                     </p>
                 </form>
+            <div class="bytemash-card" style="margin-top: 20px; max-width: 800px;">
+                <h2><?php esc_html_e('Debug Stock', 'bytemash-woo-sync'); ?></h2>
+                <p><?php esc_html_e('Check stock values for a specific SKU directly from the database vs WooCommerce objects.', 'bytemash-woo-sync'); ?></p>
+                
+                <div style="display: flex; gap: 10px; align-items: flex-end; margin-top: 15px;">
+                    <div>
+                        <label for="debug_sku" style="display: block; margin-bottom: 5px; font-weight: 600;"><?php esc_html_e('Product SKU', 'bytemash-woo-sync'); ?></label>
+                        <input type="text" id="debug_sku" class="regular-text" placeholder="e.g. BAS-7764-BL-S">
+                    </div>
+                    <div>
+                        <button type="button" id="debug_stock_btn" class="button button-primary" data-nonce="<?php echo esc_attr(wp_create_nonce('bytemash_woo_sync_nonce')); ?>">
+                            <?php esc_html_e('Check Stock', 'bytemash-woo-sync'); ?>
+                        </button>
+                    </div>
+                </div>
+                
+                <div id="debug_stock_result" style="margin-top: 15px; display: none;"></div>
+                
+                <script>
+                jQuery(function($) {
+                    $('#debug_stock_btn').on('click', function() {
+                        var $btn = $(this), $result = $('#debug_stock_result'), sku = $('#debug_sku').val();
+                        if (!sku) { alert('Please enter a SKU'); return; }
+                        
+                        $btn.prop('disabled', true).text('Checking...');
+                        $result.hide().html('');
+                        
+                        $.post(ajaxurl, {
+                            action: 'bytemash_debug_stock_check',
+                            sku: sku,
+                            nonce: $btn.data('nonce')
+                        }).done(function(res) {
+                            $btn.text('Check Stock');
+                            if (res.success) {
+                                var d = res.data;
+                                var html = '<table class="widefat striped" style="margin-top:10px;">';
+                                html += '<thead><tr><th colspan="2">Product: ' + d.name + ' (ID: ' + d.product_id + ')</th></tr></thead>';
+                                html += '<tbody>';
+                                html += '<tr><td><strong>Type</strong></td><td>' + d.type + '</td></tr>';
+                                
+                                html += '<tr><td colspan="2"><strong>Database Values (postmeta)</strong></td></tr>';
+                                html += '<tr><td>_stock</td><td>' + d.db_values._stock + '</td></tr>';
+                                html += '<tr><td>_stock_status</td><td>' + d.db_values._stock_status + '</td></tr>';
+                                html += '<tr><td>_manage_stock</td><td>' + d.db_values._manage_stock + '</td></tr>';
+                                html += '<tr><td>_sku</td><td>' + d.db_values._sku + '</td></tr>';
+                                html += '<tr><td>_amrod_full_code</td><td>' + d.db_values._amrod_full_code + '</td></tr>';
+                                html += '<tr><td>Last Modified</td><td>' + d.db_values._bytemash_stock_last_modified + '</td></tr>';
+                                
+                                html += '<tr><td colspan="2"><strong>WooCommerce Object (Cache)</strong></td></tr>';
+                                html += '<tr><td>Stock Quantity</td><td>' + d.wc_object_values.stock_quantity + '</td></tr>';
+                                html += '<tr><td>Stock Status</td><td>' + d.wc_object_values.stock_status + '</td></tr>';
+                                
+                                html += '<tr><td colspan="2"><strong>Lookup Table (Catalog)</strong></td></tr>';
+                                if (typeof d.lookup_table === 'object') {
+                                    html += '<tr><td>Stock Quantity</td><td>' + d.lookup_table.stock_quantity + '</td></tr>';
+                                    html += '<tr><td>Stock Status</td><td>' + d.lookup_table.stock_status + '</td></tr>';
+                                } else {
+                                    html += '<tr><td>Status</td><td>' + d.lookup_table + '</td></tr>';
+                                }
+                                
+                                html += '<tr><td colspan="2"><strong>API Source File (JSON)</strong></td></tr>';
+                                if (typeof d.api_file_values === 'object') {
+                                    html += '<tr><td>Source File</td><td>' + d.api_file_values.file + ' (' + d.api_file_values.date + ')</td></tr>';
+                                    html += '<tr><td>Stock in File</td><td><strong>' + d.api_file_values.stock + '</strong></td></tr>';
+                                    html += '<tr><td>Full Code</td><td>' + d.api_file_values.fullCode + '</td></tr>';
+                                } else {
+                                    html += '<tr><td>Status</td><td>' + d.api_file_values + '</td></tr>';
+                                }
+                                
+                                html += '</tbody></table>';
+                                $result.html(html).show();
+                            } else {
+                                var msg = res.data.message || 'Error occurred';
+                                if (res.data.similar && res.data.similar.length > 0) {
+                                    msg += '<br><strong>Did you mean?</strong><ul>';
+                                    $.each(res.data.similar, function(i, item) {
+                                        msg += '<li>' + item.sku + ' (ID: ' + item.id + ')</li>';
+                                    });
+                                    msg += '</ul>';
+                                }
+                                $result.html('<div class="notice notice-error inline"><p>' + msg + '</p></div>').show();
+                            }
+                        }).fail(function() {
+                            $btn.text('Check Stock');
+                            $result.html('<div class="notice notice-error inline"><p>Request failed</p></div>').show();
+                        }).always(function() {
+                            $btn.prop('disabled', false);
+                        });
+                    });
+                });
+                </script>
             </div>
             
             <div class="bytemash-card" style="margin-top: 20px; max-width: 800px;">

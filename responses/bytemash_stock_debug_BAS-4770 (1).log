@@ -1,0 +1,756 @@
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-BL | Parsed from JSON and injecting into buffer | Data: {"stock":37780,"type":1}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-BU | Parsed from JSON and injecting into buffer | Data: {"stock":10613,"type":1}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-CO | Parsed from JSON and injecting into buffer | Data: {"stock":3996,"type":1}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-DG2 | Parsed from JSON and injecting into buffer | Data: {"stock":3896,"type":1}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-F | Parsed from JSON and injecting into buffer | Data: {"stock":3677,"type":1}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-GY | Parsed from JSON and injecting into buffer | Data: {"stock":5431,"type":1}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-LB | Parsed from JSON and injecting into buffer | Data: {"stock":5799,"type":1}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-L | Parsed from JSON and injecting into buffer | Data: {"stock":5130,"type":1}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-N | Parsed from JSON and injecting into buffer | Data: {"stock":11454,"type":1}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-O | Parsed from JSON and injecting into buffer | Data: {"stock":414,"type":1}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-R | Parsed from JSON and injecting into buffer | Data: {"stock":10869,"type":1}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-SA | Parsed from JSON and injecting into buffer | Data: {"stock":3992,"type":1}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-TE | Parsed from JSON and injecting into buffer | Data: {"stock":3927,"type":1}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-W | Parsed from JSON and injecting into buffer | Data: {"stock":17579,"type":1}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-BL-S | Parsed from JSON and injecting into buffer | Data: {"stock":8430,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-BL-M | Parsed from JSON and injecting into buffer | Data: {"stock":11248,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-BL-L | Parsed from JSON and injecting into buffer | Data: {"stock":8742,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-BL-XL | Parsed from JSON and injecting into buffer | Data: {"stock":5048,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-BL-2XL | Parsed from JSON and injecting into buffer | Data: {"stock":2645,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-BL-3XL | Parsed from JSON and injecting into buffer | Data: {"stock":745,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-BL-4XL | Parsed from JSON and injecting into buffer | Data: {"stock":681,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-BL-5XL | Parsed from JSON and injecting into buffer | Data: {"stock":241,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-BU-S | Parsed from JSON and injecting into buffer | Data: {"stock":2172,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-BU-M | Parsed from JSON and injecting into buffer | Data: {"stock":2797,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-BU-L | Parsed from JSON and injecting into buffer | Data: {"stock":2390,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-BU-XL | Parsed from JSON and injecting into buffer | Data: {"stock":1745,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-BU-2XL | Parsed from JSON and injecting into buffer | Data: {"stock":811,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-BU-3XL | Parsed from JSON and injecting into buffer | Data: {"stock":422,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-BU-4XL | Parsed from JSON and injecting into buffer | Data: {"stock":96,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-BU-5XL | Parsed from JSON and injecting into buffer | Data: {"stock":180,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-CO-S | Parsed from JSON and injecting into buffer | Data: {"stock":672,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-CO-M | Parsed from JSON and injecting into buffer | Data: {"stock":1192,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-CO-L | Parsed from JSON and injecting into buffer | Data: {"stock":1060,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-CO-XL | Parsed from JSON and injecting into buffer | Data: {"stock":474,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-CO-2XL | Parsed from JSON and injecting into buffer | Data: {"stock":299,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-CO-3XL | Parsed from JSON and injecting into buffer | Data: {"stock":99,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-CO-4XL | Parsed from JSON and injecting into buffer | Data: {"stock":100,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-CO-5XL | Parsed from JSON and injecting into buffer | Data: {"stock":100,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-DG2-S | Parsed from JSON and injecting into buffer | Data: {"stock":1255,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-DG2-M | Parsed from JSON and injecting into buffer | Data: {"stock":1082,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-DG2-L | Parsed from JSON and injecting into buffer | Data: {"stock":1058,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-DG2-XL | Parsed from JSON and injecting into buffer | Data: {"stock":255,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-DG2-2XL | Parsed from JSON and injecting into buffer | Data: {"stock":176,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-DG2-3XL | Parsed from JSON and injecting into buffer | Data: {"stock":0,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-DG2-4XL | Parsed from JSON and injecting into buffer | Data: {"stock":0,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-DG2-5XL | Parsed from JSON and injecting into buffer | Data: {"stock":70,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-F-S | Parsed from JSON and injecting into buffer | Data: {"stock":610,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-F-M | Parsed from JSON and injecting into buffer | Data: {"stock":1081,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-F-L | Parsed from JSON and injecting into buffer | Data: {"stock":947,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-F-XL | Parsed from JSON and injecting into buffer | Data: {"stock":459,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-F-2XL | Parsed from JSON and injecting into buffer | Data: {"stock":283,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-F-3XL | Parsed from JSON and injecting into buffer | Data: {"stock":99,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-F-4XL | Parsed from JSON and injecting into buffer | Data: {"stock":98,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-F-5XL | Parsed from JSON and injecting into buffer | Data: {"stock":100,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-GY-S | Parsed from JSON and injecting into buffer | Data: {"stock":1173,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-GY-M | Parsed from JSON and injecting into buffer | Data: {"stock":1547,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-GY-L | Parsed from JSON and injecting into buffer | Data: {"stock":1330,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-GY-XL | Parsed from JSON and injecting into buffer | Data: {"stock":651,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-GY-2XL | Parsed from JSON and injecting into buffer | Data: {"stock":315,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-GY-3XL | Parsed from JSON and injecting into buffer | Data: {"stock":55,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-GY-4XL | Parsed from JSON and injecting into buffer | Data: {"stock":178,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-GY-5XL | Parsed from JSON and injecting into buffer | Data: {"stock":182,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-LB-S | Parsed from JSON and injecting into buffer | Data: {"stock":1279,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-LB-M | Parsed from JSON and injecting into buffer | Data: {"stock":1809,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-LB-L | Parsed from JSON and injecting into buffer | Data: {"stock":1454,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-LB-XL | Parsed from JSON and injecting into buffer | Data: {"stock":637,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-LB-2XL | Parsed from JSON and injecting into buffer | Data: {"stock":281,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-LB-3XL | Parsed from JSON and injecting into buffer | Data: {"stock":133,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-LB-4XL | Parsed from JSON and injecting into buffer | Data: {"stock":118,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-LB-5XL | Parsed from JSON and injecting into buffer | Data: {"stock":88,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-L-S | Parsed from JSON and injecting into buffer | Data: {"stock":746,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-L-M | Parsed from JSON and injecting into buffer | Data: {"stock":1381,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-L-L | Parsed from JSON and injecting into buffer | Data: {"stock":1120,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-L-XL | Parsed from JSON and injecting into buffer | Data: {"stock":1090,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-L-2XL | Parsed from JSON and injecting into buffer | Data: {"stock":529,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-L-3XL | Parsed from JSON and injecting into buffer | Data: {"stock":35,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-L-4XL | Parsed from JSON and injecting into buffer | Data: {"stock":180,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-L-5XL | Parsed from JSON and injecting into buffer | Data: {"stock":49,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-N-S | Parsed from JSON and injecting into buffer | Data: {"stock":2816,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-N-M | Parsed from JSON and injecting into buffer | Data: {"stock":4204,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-N-L | Parsed from JSON and injecting into buffer | Data: {"stock":2808,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-N-XL | Parsed from JSON and injecting into buffer | Data: {"stock":635,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-N-2XL | Parsed from JSON and injecting into buffer | Data: {"stock":341,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-N-3XL | Parsed from JSON and injecting into buffer | Data: {"stock":302,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-N-4XL | Parsed from JSON and injecting into buffer | Data: {"stock":185,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-N-5XL | Parsed from JSON and injecting into buffer | Data: {"stock":163,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-O-S | Parsed from JSON and injecting into buffer | Data: {"stock":0,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-O-M | Parsed from JSON and injecting into buffer | Data: {"stock":0,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-O-L | Parsed from JSON and injecting into buffer | Data: {"stock":99,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-O-XL | Parsed from JSON and injecting into buffer | Data: {"stock":0,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-O-2XL | Parsed from JSON and injecting into buffer | Data: {"stock":107,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-O-3XL | Parsed from JSON and injecting into buffer | Data: {"stock":98,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-O-4XL | Parsed from JSON and injecting into buffer | Data: {"stock":42,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-O-5XL | Parsed from JSON and injecting into buffer | Data: {"stock":68,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-R-S | Parsed from JSON and injecting into buffer | Data: {"stock":1427,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-R-M | Parsed from JSON and injecting into buffer | Data: {"stock":3042,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-R-L | Parsed from JSON and injecting into buffer | Data: {"stock":3004,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-R-XL | Parsed from JSON and injecting into buffer | Data: {"stock":1843,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-R-2XL | Parsed from JSON and injecting into buffer | Data: {"stock":906,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-R-3XL | Parsed from JSON and injecting into buffer | Data: {"stock":248,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-R-4XL | Parsed from JSON and injecting into buffer | Data: {"stock":212,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-R-5XL | Parsed from JSON and injecting into buffer | Data: {"stock":187,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-SA-S | Parsed from JSON and injecting into buffer | Data: {"stock":683,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-SA-M | Parsed from JSON and injecting into buffer | Data: {"stock":1207,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-SA-L | Parsed from JSON and injecting into buffer | Data: {"stock":1029,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-SA-XL | Parsed from JSON and injecting into buffer | Data: {"stock":486,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-SA-2XL | Parsed from JSON and injecting into buffer | Data: {"stock":293,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-SA-3XL | Parsed from JSON and injecting into buffer | Data: {"stock":94,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-SA-4XL | Parsed from JSON and injecting into buffer | Data: {"stock":100,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-SA-5XL | Parsed from JSON and injecting into buffer | Data: {"stock":100,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-TE-S | Parsed from JSON and injecting into buffer | Data: {"stock":678,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-TE-M | Parsed from JSON and injecting into buffer | Data: {"stock":1159,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-TE-L | Parsed from JSON and injecting into buffer | Data: {"stock":1025,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-TE-XL | Parsed from JSON and injecting into buffer | Data: {"stock":481,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-TE-2XL | Parsed from JSON and injecting into buffer | Data: {"stock":287,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-TE-3XL | Parsed from JSON and injecting into buffer | Data: {"stock":100,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-TE-4XL | Parsed from JSON and injecting into buffer | Data: {"stock":98,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-TE-5XL | Parsed from JSON and injecting into buffer | Data: {"stock":99,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-W-S | Parsed from JSON and injecting into buffer | Data: {"stock":4167,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-W-M | Parsed from JSON and injecting into buffer | Data: {"stock":5333,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-W-L | Parsed from JSON and injecting into buffer | Data: {"stock":3835,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-W-XL | Parsed from JSON and injecting into buffer | Data: {"stock":1972,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-W-2XL | Parsed from JSON and injecting into buffer | Data: {"stock":1435,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-W-3XL | Parsed from JSON and injecting into buffer | Data: {"stock":518,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-W-4XL | Parsed from JSON and injecting into buffer | Data: {"stock":103,"type":2}
+[2026-02-08 08:38:03] [TRACE] SKU: BAS-4770-W-5XL | Parsed from JSON and injecting into buffer | Data: {"stock":216,"type":2}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BU | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-CO | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-DG2 | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-F | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-GY | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-LB | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-L | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-N | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-O | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-R | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-SA | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-TE | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-W | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BL-S | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BL-M | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BL-L | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BL-XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BL-2XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BL-3XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BL-4XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BL-5XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BU-S | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BU-M | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BU-L | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BU-XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BU-2XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BU-3XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BU-4XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BU-5XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-CO-S | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-CO-M | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-CO-L | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-CO-XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-CO-2XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-CO-3XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-CO-4XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-CO-5XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-DG2-S | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-DG2-M | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-DG2-L | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-DG2-XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-DG2-2XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-DG2-3XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-DG2-4XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-DG2-5XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-F-S | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-F-M | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-F-L | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-F-XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-F-2XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-F-3XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-F-4XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-F-5XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-GY-S | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-GY-M | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-GY-L | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-GY-XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-GY-2XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-GY-3XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-GY-4XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-GY-5XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-LB-S | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-LB-M | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-LB-L | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-LB-XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-LB-2XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-LB-3XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-LB-4XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-LB-5XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-L-S | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-L-M | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-L-L | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-L-XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-L-2XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-L-3XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-L-4XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-L-5XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-N-S | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-N-M | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-N-L | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-N-XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-N-2XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-N-3XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-N-4XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-N-5XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-O-S | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-O-M | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-O-L | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-O-XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-O-2XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-O-3XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-O-4XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-O-5XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-R-S | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-R-M | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-R-L | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-R-XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-R-2XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-R-3XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-R-4XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-R-5XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-SA-S | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-SA-M | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-SA-L | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-SA-XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-SA-2XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-SA-3XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-SA-4XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-SA-5XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-TE-S | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-TE-M | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-TE-L | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-TE-XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-TE-2XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-TE-3XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-TE-4XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-TE-5XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-W-S | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-W-M | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-W-L | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-W-XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-W-2XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-W-3XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-W-4XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-W-5XL | After Phase 1 (Amrod Full Code) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BL | After Phase 2 (Product SKU) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BU | After Phase 2 (Product SKU) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-CO | After Phase 2 (Product SKU) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-DG2 | After Phase 2 (Product SKU) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-F | After Phase 2 (Product SKU) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-GY | After Phase 2 (Product SKU) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-LB | After Phase 2 (Product SKU) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-L | After Phase 2 (Product SKU) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-N | After Phase 2 (Product SKU) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-O | After Phase 2 (Product SKU) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-R | After Phase 2 (Product SKU) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-SA | After Phase 2 (Product SKU) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-TE | After Phase 2 (Product SKU) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-W | After Phase 2 (Product SKU) | Data: {"product_id":"0"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BL-S | After Phase 2 (Product SKU) | Data: {"product_id":"144474"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BL-M | After Phase 2 (Product SKU) | Data: {"product_id":"144475"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BL-L | After Phase 2 (Product SKU) | Data: {"product_id":"144476"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BL-XL | After Phase 2 (Product SKU) | Data: {"product_id":"144477"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BL-2XL | After Phase 2 (Product SKU) | Data: {"product_id":"144478"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BL-3XL | After Phase 2 (Product SKU) | Data: {"product_id":"144479"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BL-4XL | After Phase 2 (Product SKU) | Data: {"product_id":"144480"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BL-5XL | After Phase 2 (Product SKU) | Data: {"product_id":"144481"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BU-S | After Phase 2 (Product SKU) | Data: {"product_id":"144482"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BU-M | After Phase 2 (Product SKU) | Data: {"product_id":"144483"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BU-L | After Phase 2 (Product SKU) | Data: {"product_id":"144484"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BU-XL | After Phase 2 (Product SKU) | Data: {"product_id":"144485"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BU-2XL | After Phase 2 (Product SKU) | Data: {"product_id":"144486"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BU-3XL | After Phase 2 (Product SKU) | Data: {"product_id":"144487"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BU-4XL | After Phase 2 (Product SKU) | Data: {"product_id":"144488"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BU-5XL | After Phase 2 (Product SKU) | Data: {"product_id":"144489"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-CO-S | After Phase 2 (Product SKU) | Data: {"product_id":"144490"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-CO-M | After Phase 2 (Product SKU) | Data: {"product_id":"144491"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-CO-L | After Phase 2 (Product SKU) | Data: {"product_id":"144492"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-CO-XL | After Phase 2 (Product SKU) | Data: {"product_id":"144493"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-CO-2XL | After Phase 2 (Product SKU) | Data: {"product_id":"144494"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-CO-3XL | After Phase 2 (Product SKU) | Data: {"product_id":"144495"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-CO-4XL | After Phase 2 (Product SKU) | Data: {"product_id":"144496"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-CO-5XL | After Phase 2 (Product SKU) | Data: {"product_id":"144497"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-DG2-S | After Phase 2 (Product SKU) | Data: {"product_id":"144498"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-DG2-M | After Phase 2 (Product SKU) | Data: {"product_id":"144499"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-DG2-L | After Phase 2 (Product SKU) | Data: {"product_id":"144500"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-DG2-XL | After Phase 2 (Product SKU) | Data: {"product_id":"144501"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-DG2-2XL | After Phase 2 (Product SKU) | Data: {"product_id":"144502"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-DG2-3XL | After Phase 2 (Product SKU) | Data: {"product_id":"144503"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-DG2-4XL | After Phase 2 (Product SKU) | Data: {"product_id":"144504"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-DG2-5XL | After Phase 2 (Product SKU) | Data: {"product_id":"144505"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-F-S | After Phase 2 (Product SKU) | Data: {"product_id":"144506"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-F-M | After Phase 2 (Product SKU) | Data: {"product_id":"144507"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-F-L | After Phase 2 (Product SKU) | Data: {"product_id":"144508"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-F-XL | After Phase 2 (Product SKU) | Data: {"product_id":"144509"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-F-2XL | After Phase 2 (Product SKU) | Data: {"product_id":"144510"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-F-3XL | After Phase 2 (Product SKU) | Data: {"product_id":"144511"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-F-4XL | After Phase 2 (Product SKU) | Data: {"product_id":"144512"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-F-5XL | After Phase 2 (Product SKU) | Data: {"product_id":"144513"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-GY-S | After Phase 2 (Product SKU) | Data: {"product_id":"144514"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-GY-M | After Phase 2 (Product SKU) | Data: {"product_id":"144515"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-GY-L | After Phase 2 (Product SKU) | Data: {"product_id":"144516"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-GY-XL | After Phase 2 (Product SKU) | Data: {"product_id":"144517"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-GY-2XL | After Phase 2 (Product SKU) | Data: {"product_id":"144518"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-GY-3XL | After Phase 2 (Product SKU) | Data: {"product_id":"144519"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-GY-4XL | After Phase 2 (Product SKU) | Data: {"product_id":"144520"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-GY-5XL | After Phase 2 (Product SKU) | Data: {"product_id":"144521"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-LB-S | After Phase 2 (Product SKU) | Data: {"product_id":"144522"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-LB-M | After Phase 2 (Product SKU) | Data: {"product_id":"144523"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-LB-L | After Phase 2 (Product SKU) | Data: {"product_id":"144524"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-LB-XL | After Phase 2 (Product SKU) | Data: {"product_id":"144525"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-LB-2XL | After Phase 2 (Product SKU) | Data: {"product_id":"144526"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-LB-3XL | After Phase 2 (Product SKU) | Data: {"product_id":"144527"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-LB-4XL | After Phase 2 (Product SKU) | Data: {"product_id":"144528"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-LB-5XL | After Phase 2 (Product SKU) | Data: {"product_id":"144529"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-L-S | After Phase 2 (Product SKU) | Data: {"product_id":"144530"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-L-M | After Phase 2 (Product SKU) | Data: {"product_id":"144531"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-L-L | After Phase 2 (Product SKU) | Data: {"product_id":"144532"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-L-XL | After Phase 2 (Product SKU) | Data: {"product_id":"144533"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-L-2XL | After Phase 2 (Product SKU) | Data: {"product_id":"144534"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-L-3XL | After Phase 2 (Product SKU) | Data: {"product_id":"144535"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-L-4XL | After Phase 2 (Product SKU) | Data: {"product_id":"144536"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-L-5XL | After Phase 2 (Product SKU) | Data: {"product_id":"144537"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-N-S | After Phase 2 (Product SKU) | Data: {"product_id":"144538"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-N-M | After Phase 2 (Product SKU) | Data: {"product_id":"144539"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-N-L | After Phase 2 (Product SKU) | Data: {"product_id":"144540"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-N-XL | After Phase 2 (Product SKU) | Data: {"product_id":"144541"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-N-2XL | After Phase 2 (Product SKU) | Data: {"product_id":"144542"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-N-3XL | After Phase 2 (Product SKU) | Data: {"product_id":"144543"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-N-4XL | After Phase 2 (Product SKU) | Data: {"product_id":"144544"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-N-5XL | After Phase 2 (Product SKU) | Data: {"product_id":"144545"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-O-S | After Phase 2 (Product SKU) | Data: {"product_id":"144546"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-O-M | After Phase 2 (Product SKU) | Data: {"product_id":"144547"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-O-L | After Phase 2 (Product SKU) | Data: {"product_id":"144548"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-O-XL | After Phase 2 (Product SKU) | Data: {"product_id":"144549"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-O-2XL | After Phase 2 (Product SKU) | Data: {"product_id":"144550"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-O-3XL | After Phase 2 (Product SKU) | Data: {"product_id":"144551"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-O-4XL | After Phase 2 (Product SKU) | Data: {"product_id":"144552"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-O-5XL | After Phase 2 (Product SKU) | Data: {"product_id":"144553"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-R-S | After Phase 2 (Product SKU) | Data: {"product_id":"144554"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-R-M | After Phase 2 (Product SKU) | Data: {"product_id":"144555"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-R-L | After Phase 2 (Product SKU) | Data: {"product_id":"144556"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-R-XL | After Phase 2 (Product SKU) | Data: {"product_id":"144557"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-R-2XL | After Phase 2 (Product SKU) | Data: {"product_id":"144558"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-R-3XL | After Phase 2 (Product SKU) | Data: {"product_id":"144559"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-R-4XL | After Phase 2 (Product SKU) | Data: {"product_id":"144560"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-R-5XL | After Phase 2 (Product SKU) | Data: {"product_id":"144561"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-SA-S | After Phase 2 (Product SKU) | Data: {"product_id":"144562"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-SA-M | After Phase 2 (Product SKU) | Data: {"product_id":"144563"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-SA-L | After Phase 2 (Product SKU) | Data: {"product_id":"144564"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-SA-XL | After Phase 2 (Product SKU) | Data: {"product_id":"144565"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-SA-2XL | After Phase 2 (Product SKU) | Data: {"product_id":"144566"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-SA-3XL | After Phase 2 (Product SKU) | Data: {"product_id":"144567"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-SA-4XL | After Phase 2 (Product SKU) | Data: {"product_id":"144568"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-SA-5XL | After Phase 2 (Product SKU) | Data: {"product_id":"144569"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-TE-S | After Phase 2 (Product SKU) | Data: {"product_id":"144570"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-TE-M | After Phase 2 (Product SKU) | Data: {"product_id":"144571"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-TE-L | After Phase 2 (Product SKU) | Data: {"product_id":"144572"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-TE-XL | After Phase 2 (Product SKU) | Data: {"product_id":"144573"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-TE-2XL | After Phase 2 (Product SKU) | Data: {"product_id":"144574"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-TE-3XL | After Phase 2 (Product SKU) | Data: {"product_id":"144575"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-TE-4XL | After Phase 2 (Product SKU) | Data: {"product_id":"144576"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-TE-5XL | After Phase 2 (Product SKU) | Data: {"product_id":"144577"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-W-S | After Phase 2 (Product SKU) | Data: {"product_id":"144578"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-W-M | After Phase 2 (Product SKU) | Data: {"product_id":"144579"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-W-L | After Phase 2 (Product SKU) | Data: {"product_id":"144580"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-W-XL | After Phase 2 (Product SKU) | Data: {"product_id":"144581"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-W-2XL | After Phase 2 (Product SKU) | Data: {"product_id":"144582"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-W-3XL | After Phase 2 (Product SKU) | Data: {"product_id":"144583"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-W-4XL | After Phase 2 (Product SKU) | Data: {"product_id":"144584"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-W-5XL | After Phase 2 (Product SKU) | Data: {"product_id":"144585"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BL | After Phase 3 (Simple Code) | Data: {"product_id":"144473"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BU | After Phase 3 (Simple Code) | Data: {"product_id":"144473"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-CO | After Phase 3 (Simple Code) | Data: {"product_id":"144473"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-DG2 | After Phase 3 (Simple Code) | Data: {"product_id":"144473"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-F | After Phase 3 (Simple Code) | Data: {"product_id":"144473"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-GY | After Phase 3 (Simple Code) | Data: {"product_id":"144473"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-LB | After Phase 3 (Simple Code) | Data: {"product_id":"144473"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-L | After Phase 3 (Simple Code) | Data: {"product_id":"144473"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-N | After Phase 3 (Simple Code) | Data: {"product_id":"144473"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-O | After Phase 3 (Simple Code) | Data: {"product_id":"144473"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-R | After Phase 3 (Simple Code) | Data: {"product_id":"144473"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-SA | After Phase 3 (Simple Code) | Data: {"product_id":"144473"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-TE | After Phase 3 (Simple Code) | Data: {"product_id":"144473"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-W | After Phase 3 (Simple Code) | Data: {"product_id":"144473"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BL-S | After Phase 3 (Simple Code) | Data: {"product_id":"144474"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BL-M | After Phase 3 (Simple Code) | Data: {"product_id":"144475"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BL-L | After Phase 3 (Simple Code) | Data: {"product_id":"144476"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BL-XL | After Phase 3 (Simple Code) | Data: {"product_id":"144477"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BL-2XL | After Phase 3 (Simple Code) | Data: {"product_id":"144478"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BL-3XL | After Phase 3 (Simple Code) | Data: {"product_id":"144479"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BL-4XL | After Phase 3 (Simple Code) | Data: {"product_id":"144480"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BL-5XL | After Phase 3 (Simple Code) | Data: {"product_id":"144481"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BU-S | After Phase 3 (Simple Code) | Data: {"product_id":"144482"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BU-M | After Phase 3 (Simple Code) | Data: {"product_id":"144483"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BU-L | After Phase 3 (Simple Code) | Data: {"product_id":"144484"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BU-XL | After Phase 3 (Simple Code) | Data: {"product_id":"144485"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BU-2XL | After Phase 3 (Simple Code) | Data: {"product_id":"144486"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BU-3XL | After Phase 3 (Simple Code) | Data: {"product_id":"144487"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BU-4XL | After Phase 3 (Simple Code) | Data: {"product_id":"144488"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-BU-5XL | After Phase 3 (Simple Code) | Data: {"product_id":"144489"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-CO-S | After Phase 3 (Simple Code) | Data: {"product_id":"144490"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-CO-M | After Phase 3 (Simple Code) | Data: {"product_id":"144491"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-CO-L | After Phase 3 (Simple Code) | Data: {"product_id":"144492"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-CO-XL | After Phase 3 (Simple Code) | Data: {"product_id":"144493"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-CO-2XL | After Phase 3 (Simple Code) | Data: {"product_id":"144494"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-CO-3XL | After Phase 3 (Simple Code) | Data: {"product_id":"144495"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-CO-4XL | After Phase 3 (Simple Code) | Data: {"product_id":"144496"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-CO-5XL | After Phase 3 (Simple Code) | Data: {"product_id":"144497"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-DG2-S | After Phase 3 (Simple Code) | Data: {"product_id":"144498"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-DG2-M | After Phase 3 (Simple Code) | Data: {"product_id":"144499"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-DG2-L | After Phase 3 (Simple Code) | Data: {"product_id":"144500"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-DG2-XL | After Phase 3 (Simple Code) | Data: {"product_id":"144501"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-DG2-2XL | After Phase 3 (Simple Code) | Data: {"product_id":"144502"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-DG2-3XL | After Phase 3 (Simple Code) | Data: {"product_id":"144503"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-DG2-4XL | After Phase 3 (Simple Code) | Data: {"product_id":"144504"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-DG2-5XL | After Phase 3 (Simple Code) | Data: {"product_id":"144505"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-F-S | After Phase 3 (Simple Code) | Data: {"product_id":"144506"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-F-M | After Phase 3 (Simple Code) | Data: {"product_id":"144507"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-F-L | After Phase 3 (Simple Code) | Data: {"product_id":"144508"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-F-XL | After Phase 3 (Simple Code) | Data: {"product_id":"144509"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-F-2XL | After Phase 3 (Simple Code) | Data: {"product_id":"144510"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-F-3XL | After Phase 3 (Simple Code) | Data: {"product_id":"144511"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-F-4XL | After Phase 3 (Simple Code) | Data: {"product_id":"144512"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-F-5XL | After Phase 3 (Simple Code) | Data: {"product_id":"144513"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-GY-S | After Phase 3 (Simple Code) | Data: {"product_id":"144514"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-GY-M | After Phase 3 (Simple Code) | Data: {"product_id":"144515"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-GY-L | After Phase 3 (Simple Code) | Data: {"product_id":"144516"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-GY-XL | After Phase 3 (Simple Code) | Data: {"product_id":"144517"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-GY-2XL | After Phase 3 (Simple Code) | Data: {"product_id":"144518"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-GY-3XL | After Phase 3 (Simple Code) | Data: {"product_id":"144519"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-GY-4XL | After Phase 3 (Simple Code) | Data: {"product_id":"144520"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-GY-5XL | After Phase 3 (Simple Code) | Data: {"product_id":"144521"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-LB-S | After Phase 3 (Simple Code) | Data: {"product_id":"144522"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-LB-M | After Phase 3 (Simple Code) | Data: {"product_id":"144523"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-LB-L | After Phase 3 (Simple Code) | Data: {"product_id":"144524"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-LB-XL | After Phase 3 (Simple Code) | Data: {"product_id":"144525"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-LB-2XL | After Phase 3 (Simple Code) | Data: {"product_id":"144526"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-LB-3XL | After Phase 3 (Simple Code) | Data: {"product_id":"144527"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-LB-4XL | After Phase 3 (Simple Code) | Data: {"product_id":"144528"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-LB-5XL | After Phase 3 (Simple Code) | Data: {"product_id":"144529"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-L-S | After Phase 3 (Simple Code) | Data: {"product_id":"144530"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-L-M | After Phase 3 (Simple Code) | Data: {"product_id":"144531"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-L-L | After Phase 3 (Simple Code) | Data: {"product_id":"144532"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-L-XL | After Phase 3 (Simple Code) | Data: {"product_id":"144533"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-L-2XL | After Phase 3 (Simple Code) | Data: {"product_id":"144534"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-L-3XL | After Phase 3 (Simple Code) | Data: {"product_id":"144535"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-L-4XL | After Phase 3 (Simple Code) | Data: {"product_id":"144536"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-L-5XL | After Phase 3 (Simple Code) | Data: {"product_id":"144537"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-N-S | After Phase 3 (Simple Code) | Data: {"product_id":"144538"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-N-M | After Phase 3 (Simple Code) | Data: {"product_id":"144539"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-N-L | After Phase 3 (Simple Code) | Data: {"product_id":"144540"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-N-XL | After Phase 3 (Simple Code) | Data: {"product_id":"144541"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-N-2XL | After Phase 3 (Simple Code) | Data: {"product_id":"144542"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-N-3XL | After Phase 3 (Simple Code) | Data: {"product_id":"144543"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-N-4XL | After Phase 3 (Simple Code) | Data: {"product_id":"144544"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-N-5XL | After Phase 3 (Simple Code) | Data: {"product_id":"144545"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-O-S | After Phase 3 (Simple Code) | Data: {"product_id":"144546"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-O-M | After Phase 3 (Simple Code) | Data: {"product_id":"144547"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-O-L | After Phase 3 (Simple Code) | Data: {"product_id":"144548"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-O-XL | After Phase 3 (Simple Code) | Data: {"product_id":"144549"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-O-2XL | After Phase 3 (Simple Code) | Data: {"product_id":"144550"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-O-3XL | After Phase 3 (Simple Code) | Data: {"product_id":"144551"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-O-4XL | After Phase 3 (Simple Code) | Data: {"product_id":"144552"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-O-5XL | After Phase 3 (Simple Code) | Data: {"product_id":"144553"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-R-S | After Phase 3 (Simple Code) | Data: {"product_id":"144554"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-R-M | After Phase 3 (Simple Code) | Data: {"product_id":"144555"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-R-L | After Phase 3 (Simple Code) | Data: {"product_id":"144556"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-R-XL | After Phase 3 (Simple Code) | Data: {"product_id":"144557"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-R-2XL | After Phase 3 (Simple Code) | Data: {"product_id":"144558"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-R-3XL | After Phase 3 (Simple Code) | Data: {"product_id":"144559"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-R-4XL | After Phase 3 (Simple Code) | Data: {"product_id":"144560"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-R-5XL | After Phase 3 (Simple Code) | Data: {"product_id":"144561"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-SA-S | After Phase 3 (Simple Code) | Data: {"product_id":"144562"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-SA-M | After Phase 3 (Simple Code) | Data: {"product_id":"144563"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-SA-L | After Phase 3 (Simple Code) | Data: {"product_id":"144564"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-SA-XL | After Phase 3 (Simple Code) | Data: {"product_id":"144565"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-SA-2XL | After Phase 3 (Simple Code) | Data: {"product_id":"144566"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-SA-3XL | After Phase 3 (Simple Code) | Data: {"product_id":"144567"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-SA-4XL | After Phase 3 (Simple Code) | Data: {"product_id":"144568"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-SA-5XL | After Phase 3 (Simple Code) | Data: {"product_id":"144569"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-TE-S | After Phase 3 (Simple Code) | Data: {"product_id":"144570"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-TE-M | After Phase 3 (Simple Code) | Data: {"product_id":"144571"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-TE-L | After Phase 3 (Simple Code) | Data: {"product_id":"144572"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-TE-XL | After Phase 3 (Simple Code) | Data: {"product_id":"144573"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-TE-2XL | After Phase 3 (Simple Code) | Data: {"product_id":"144574"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-TE-3XL | After Phase 3 (Simple Code) | Data: {"product_id":"144575"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-TE-4XL | After Phase 3 (Simple Code) | Data: {"product_id":"144576"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-TE-5XL | After Phase 3 (Simple Code) | Data: {"product_id":"144577"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-W-S | After Phase 3 (Simple Code) | Data: {"product_id":"144578"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-W-M | After Phase 3 (Simple Code) | Data: {"product_id":"144579"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-W-L | After Phase 3 (Simple Code) | Data: {"product_id":"144580"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-W-XL | After Phase 3 (Simple Code) | Data: {"product_id":"144581"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-W-2XL | After Phase 3 (Simple Code) | Data: {"product_id":"144582"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-W-3XL | After Phase 3 (Simple Code) | Data: {"product_id":"144583"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-W-4XL | After Phase 3 (Simple Code) | Data: {"product_id":"144584"}
+[2026-02-08 08:38:04] [TRACE] SKU: BAS-4770-W-5XL | After Phase 3 (Simple Code) | Data: {"product_id":"144585"}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-BL | Processing in Batch #63 | Data: {"product_id":144473,"api_stock":37780}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-BL | Queuing update | Data: {"new_qty":37780}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-BU | Processing in Batch #63 | Data: {"product_id":144473,"api_stock":10613}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-BU | Queuing update | Data: {"new_qty":10613}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-CO | Processing in Batch #63 | Data: {"product_id":144473,"api_stock":3996}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-CO | Queuing update | Data: {"new_qty":3996}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-DG2 | Processing in Batch #63 | Data: {"product_id":144473,"api_stock":3896}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-DG2 | Queuing update | Data: {"new_qty":3896}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-F | Processing in Batch #63 | Data: {"product_id":144473,"api_stock":3677}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-F | Queuing update | Data: {"new_qty":3677}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-GY | Processing in Batch #63 | Data: {"product_id":144473,"api_stock":5431}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-GY | Queuing update | Data: {"new_qty":5431}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-LB | Processing in Batch #63 | Data: {"product_id":144473,"api_stock":5799}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-LB | Queuing update | Data: {"new_qty":5799}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-L | Processing in Batch #63 | Data: {"product_id":144473,"api_stock":5130}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-L | Queuing update | Data: {"new_qty":5130}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-N | Processing in Batch #63 | Data: {"product_id":144473,"api_stock":11454}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-N | Queuing update | Data: {"new_qty":11454}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-O | Processing in Batch #63 | Data: {"product_id":144473,"api_stock":414}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-O | Queuing update | Data: {"new_qty":414}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-R | Processing in Batch #63 | Data: {"product_id":144473,"api_stock":10869}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-R | Queuing update | Data: {"new_qty":10869}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-SA | Processing in Batch #63 | Data: {"product_id":144473,"api_stock":3992}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-SA | Queuing update | Data: {"new_qty":3992}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-TE | Processing in Batch #63 | Data: {"product_id":144473,"api_stock":3927}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-TE | Queuing update | Data: {"new_qty":3927}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-W | Processing in Batch #63 | Data: {"product_id":144473,"api_stock":17579}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-W | Queuing update | Data: {"new_qty":17579}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-BL-S | Processing in Batch #63 | Data: {"product_id":144474,"api_stock":8430}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-BL-S | Queuing update | Data: {"new_qty":8430}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-BL-M | Processing in Batch #63 | Data: {"product_id":144475,"api_stock":11248}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-BL-M | Queuing update | Data: {"new_qty":11248}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-BL-L | Processing in Batch #63 | Data: {"product_id":144476,"api_stock":8742}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-BL-L | Queuing update | Data: {"new_qty":8742}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-BL-XL | Processing in Batch #63 | Data: {"product_id":144477,"api_stock":5048}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-BL-XL | Queuing update | Data: {"new_qty":5048}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-BL-2XL | Processing in Batch #63 | Data: {"product_id":144478,"api_stock":2645}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-BL-2XL | Queuing update | Data: {"new_qty":2645}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-BL-3XL | Processing in Batch #63 | Data: {"product_id":144479,"api_stock":745}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-BL-3XL | Queuing update | Data: {"new_qty":745}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-BL-4XL | Processing in Batch #63 | Data: {"product_id":144480,"api_stock":681}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-BL-4XL | Queuing update | Data: {"new_qty":681}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-BL-5XL | Processing in Batch #63 | Data: {"product_id":144481,"api_stock":241}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-BL-5XL | Queuing update | Data: {"new_qty":241}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-BU-S | Processing in Batch #63 | Data: {"product_id":144482,"api_stock":2172}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-BU-S | Queuing update | Data: {"new_qty":2172}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-BU-M | Processing in Batch #63 | Data: {"product_id":144483,"api_stock":2797}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-BU-M | Queuing update | Data: {"new_qty":2797}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-BU-L | Processing in Batch #63 | Data: {"product_id":144484,"api_stock":2390}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-BU-L | Queuing update | Data: {"new_qty":2390}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-BU-XL | Processing in Batch #63 | Data: {"product_id":144485,"api_stock":1745}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-BU-XL | Queuing update | Data: {"new_qty":1745}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-BU-2XL | Processing in Batch #63 | Data: {"product_id":144486,"api_stock":811}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-BU-2XL | Queuing update | Data: {"new_qty":811}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-BU-3XL | Processing in Batch #63 | Data: {"product_id":144487,"api_stock":422}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-BU-3XL | Queuing update | Data: {"new_qty":422}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-BU-4XL | Processing in Batch #63 | Data: {"product_id":144488,"api_stock":96}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-BU-4XL | Queuing update | Data: {"new_qty":96}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-BU-5XL | Processing in Batch #63 | Data: {"product_id":144489,"api_stock":180}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-BU-5XL | Queuing update | Data: {"new_qty":180}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-CO-S | Processing in Batch #63 | Data: {"product_id":144490,"api_stock":672}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-CO-S | Queuing update | Data: {"new_qty":672}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-CO-M | Processing in Batch #63 | Data: {"product_id":144491,"api_stock":1192}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-CO-M | Queuing update | Data: {"new_qty":1192}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-CO-L | Processing in Batch #63 | Data: {"product_id":144492,"api_stock":1060}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-CO-L | Queuing update | Data: {"new_qty":1060}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-CO-XL | Processing in Batch #63 | Data: {"product_id":144493,"api_stock":474}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-CO-XL | Queuing update | Data: {"new_qty":474}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-CO-2XL | Processing in Batch #63 | Data: {"product_id":144494,"api_stock":299}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-CO-2XL | Queuing update | Data: {"new_qty":299}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-CO-3XL | Processing in Batch #63 | Data: {"product_id":144495,"api_stock":99}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-CO-3XL | Queuing update | Data: {"new_qty":99}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-CO-4XL | Processing in Batch #63 | Data: {"product_id":144496,"api_stock":100}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-CO-4XL | Queuing update | Data: {"new_qty":100}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-CO-5XL | Processing in Batch #63 | Data: {"product_id":144497,"api_stock":100}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-CO-5XL | Queuing update | Data: {"new_qty":100}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-DG2-S | Processing in Batch #63 | Data: {"product_id":144498,"api_stock":1255}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-DG2-S | Queuing update | Data: {"new_qty":1255}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-DG2-M | Processing in Batch #63 | Data: {"product_id":144499,"api_stock":1082}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-DG2-M | Queuing update | Data: {"new_qty":1082}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-DG2-L | Processing in Batch #63 | Data: {"product_id":144500,"api_stock":1058}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-DG2-L | Queuing update | Data: {"new_qty":1058}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-DG2-XL | Processing in Batch #63 | Data: {"product_id":144501,"api_stock":255}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-DG2-XL | Queuing update | Data: {"new_qty":255}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-DG2-2XL | Processing in Batch #63 | Data: {"product_id":144502,"api_stock":176}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-DG2-2XL | Queuing update | Data: {"new_qty":176}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-DG2-3XL | Processing in Batch #63 | Data: {"product_id":144503,"api_stock":0}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-DG2-3XL | Queuing update | Data: {"new_qty":0}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-DG2-4XL | Processing in Batch #63 | Data: {"product_id":144504,"api_stock":0}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-DG2-4XL | Queuing update | Data: {"new_qty":0}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-DG2-5XL | Processing in Batch #63 | Data: {"product_id":144505,"api_stock":70}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-DG2-5XL | Queuing update | Data: {"new_qty":70}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-F-S | Processing in Batch #63 | Data: {"product_id":144506,"api_stock":610}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-F-S | Queuing update | Data: {"new_qty":610}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-F-M | Processing in Batch #63 | Data: {"product_id":144507,"api_stock":1081}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-F-M | Queuing update | Data: {"new_qty":1081}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-F-L | Processing in Batch #63 | Data: {"product_id":144508,"api_stock":947}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-F-L | Queuing update | Data: {"new_qty":947}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-F-XL | Processing in Batch #63 | Data: {"product_id":144509,"api_stock":459}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-F-XL | Queuing update | Data: {"new_qty":459}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-F-2XL | Processing in Batch #63 | Data: {"product_id":144510,"api_stock":283}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-F-2XL | Queuing update | Data: {"new_qty":283}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-F-3XL | Processing in Batch #63 | Data: {"product_id":144511,"api_stock":99}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-F-3XL | Queuing update | Data: {"new_qty":99}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-F-4XL | Processing in Batch #63 | Data: {"product_id":144512,"api_stock":98}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-F-4XL | Queuing update | Data: {"new_qty":98}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-F-5XL | Processing in Batch #63 | Data: {"product_id":144513,"api_stock":100}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-F-5XL | Queuing update | Data: {"new_qty":100}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-GY-S | Processing in Batch #63 | Data: {"product_id":144514,"api_stock":1173}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-GY-S | Queuing update | Data: {"new_qty":1173}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-GY-M | Processing in Batch #63 | Data: {"product_id":144515,"api_stock":1547}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-GY-M | Queuing update | Data: {"new_qty":1547}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-GY-L | Processing in Batch #63 | Data: {"product_id":144516,"api_stock":1330}
+[2026-02-08 08:40:13] [TRACE] SKU: BAS-4770-GY-L | Queuing update | Data: {"new_qty":1330}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-GY-XL | Processing in Batch #64 | Data: {"product_id":144517,"api_stock":651}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-GY-XL | Queuing update | Data: {"new_qty":651}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-GY-2XL | Processing in Batch #64 | Data: {"product_id":144518,"api_stock":315}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-GY-2XL | Queuing update | Data: {"new_qty":315}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-GY-3XL | Processing in Batch #64 | Data: {"product_id":144519,"api_stock":55}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-GY-3XL | Queuing update | Data: {"new_qty":55}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-GY-4XL | Processing in Batch #64 | Data: {"product_id":144520,"api_stock":178}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-GY-4XL | Queuing update | Data: {"new_qty":178}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-GY-5XL | Processing in Batch #64 | Data: {"product_id":144521,"api_stock":182}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-GY-5XL | Queuing update | Data: {"new_qty":182}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-LB-S | Processing in Batch #64 | Data: {"product_id":144522,"api_stock":1279}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-LB-S | Queuing update | Data: {"new_qty":1279}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-LB-M | Processing in Batch #64 | Data: {"product_id":144523,"api_stock":1809}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-LB-M | Queuing update | Data: {"new_qty":1809}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-LB-L | Processing in Batch #64 | Data: {"product_id":144524,"api_stock":1454}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-LB-L | Queuing update | Data: {"new_qty":1454}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-LB-XL | Processing in Batch #64 | Data: {"product_id":144525,"api_stock":637}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-LB-XL | Queuing update | Data: {"new_qty":637}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-LB-2XL | Processing in Batch #64 | Data: {"product_id":144526,"api_stock":281}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-LB-2XL | Queuing update | Data: {"new_qty":281}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-LB-3XL | Processing in Batch #64 | Data: {"product_id":144527,"api_stock":133}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-LB-3XL | Queuing update | Data: {"new_qty":133}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-LB-4XL | Processing in Batch #64 | Data: {"product_id":144528,"api_stock":118}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-LB-4XL | Queuing update | Data: {"new_qty":118}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-LB-5XL | Processing in Batch #64 | Data: {"product_id":144529,"api_stock":88}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-LB-5XL | Queuing update | Data: {"new_qty":88}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-L-S | Processing in Batch #64 | Data: {"product_id":144530,"api_stock":746}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-L-S | Queuing update | Data: {"new_qty":746}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-L-M | Processing in Batch #64 | Data: {"product_id":144531,"api_stock":1381}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-L-M | Queuing update | Data: {"new_qty":1381}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-L-L | Processing in Batch #64 | Data: {"product_id":144532,"api_stock":1120}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-L-L | Queuing update | Data: {"new_qty":1120}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-L-XL | Processing in Batch #64 | Data: {"product_id":144533,"api_stock":1090}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-L-XL | Queuing update | Data: {"new_qty":1090}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-L-2XL | Processing in Batch #64 | Data: {"product_id":144534,"api_stock":529}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-L-2XL | Queuing update | Data: {"new_qty":529}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-L-3XL | Processing in Batch #64 | Data: {"product_id":144535,"api_stock":35}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-L-3XL | Queuing update | Data: {"new_qty":35}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-L-4XL | Processing in Batch #64 | Data: {"product_id":144536,"api_stock":180}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-L-4XL | Queuing update | Data: {"new_qty":180}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-L-5XL | Processing in Batch #64 | Data: {"product_id":144537,"api_stock":49}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-L-5XL | Queuing update | Data: {"new_qty":49}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-N-S | Processing in Batch #64 | Data: {"product_id":144538,"api_stock":2816}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-N-S | Queuing update | Data: {"new_qty":2816}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-N-M | Processing in Batch #64 | Data: {"product_id":144539,"api_stock":4204}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-N-M | Queuing update | Data: {"new_qty":4204}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-N-L | Processing in Batch #64 | Data: {"product_id":144540,"api_stock":2808}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-N-L | Queuing update | Data: {"new_qty":2808}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-N-XL | Processing in Batch #64 | Data: {"product_id":144541,"api_stock":635}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-N-XL | Queuing update | Data: {"new_qty":635}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-N-2XL | Processing in Batch #64 | Data: {"product_id":144542,"api_stock":341}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-N-2XL | Queuing update | Data: {"new_qty":341}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-N-3XL | Processing in Batch #64 | Data: {"product_id":144543,"api_stock":302}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-N-3XL | Queuing update | Data: {"new_qty":302}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-N-4XL | Processing in Batch #64 | Data: {"product_id":144544,"api_stock":185}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-N-4XL | Queuing update | Data: {"new_qty":185}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-N-5XL | Processing in Batch #64 | Data: {"product_id":144545,"api_stock":163}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-N-5XL | Queuing update | Data: {"new_qty":163}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-O-S | Processing in Batch #64 | Data: {"product_id":144546,"api_stock":0}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-O-S | Queuing update | Data: {"new_qty":0}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-O-M | Processing in Batch #64 | Data: {"product_id":144547,"api_stock":0}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-O-M | Queuing update | Data: {"new_qty":0}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-O-L | Processing in Batch #64 | Data: {"product_id":144548,"api_stock":99}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-O-L | Queuing update | Data: {"new_qty":99}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-O-XL | Processing in Batch #64 | Data: {"product_id":144549,"api_stock":0}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-O-XL | Queuing update | Data: {"new_qty":0}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-O-2XL | Processing in Batch #64 | Data: {"product_id":144550,"api_stock":107}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-O-2XL | Queuing update | Data: {"new_qty":107}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-O-3XL | Processing in Batch #64 | Data: {"product_id":144551,"api_stock":98}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-O-3XL | Queuing update | Data: {"new_qty":98}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-O-4XL | Processing in Batch #64 | Data: {"product_id":144552,"api_stock":42}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-O-4XL | Queuing update | Data: {"new_qty":42}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-O-5XL | Processing in Batch #64 | Data: {"product_id":144553,"api_stock":68}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-O-5XL | Queuing update | Data: {"new_qty":68}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-R-S | Processing in Batch #64 | Data: {"product_id":144554,"api_stock":1427}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-R-S | Queuing update | Data: {"new_qty":1427}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-R-M | Processing in Batch #64 | Data: {"product_id":144555,"api_stock":3042}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-R-M | Queuing update | Data: {"new_qty":3042}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-R-L | Processing in Batch #64 | Data: {"product_id":144556,"api_stock":3004}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-R-L | Queuing update | Data: {"new_qty":3004}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-R-XL | Processing in Batch #64 | Data: {"product_id":144557,"api_stock":1843}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-R-XL | Queuing update | Data: {"new_qty":1843}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-R-2XL | Processing in Batch #64 | Data: {"product_id":144558,"api_stock":906}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-R-2XL | Queuing update | Data: {"new_qty":906}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-R-3XL | Processing in Batch #64 | Data: {"product_id":144559,"api_stock":248}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-R-3XL | Queuing update | Data: {"new_qty":248}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-R-4XL | Processing in Batch #64 | Data: {"product_id":144560,"api_stock":212}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-R-4XL | Queuing update | Data: {"new_qty":212}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-R-5XL | Processing in Batch #64 | Data: {"product_id":144561,"api_stock":187}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-R-5XL | Queuing update | Data: {"new_qty":187}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-SA-S | Processing in Batch #64 | Data: {"product_id":144562,"api_stock":683}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-SA-S | Queuing update | Data: {"new_qty":683}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-SA-M | Processing in Batch #64 | Data: {"product_id":144563,"api_stock":1207}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-SA-M | Queuing update | Data: {"new_qty":1207}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-SA-L | Processing in Batch #64 | Data: {"product_id":144564,"api_stock":1029}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-SA-L | Queuing update | Data: {"new_qty":1029}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-SA-XL | Processing in Batch #64 | Data: {"product_id":144565,"api_stock":486}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-SA-XL | Queuing update | Data: {"new_qty":486}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-SA-2XL | Processing in Batch #64 | Data: {"product_id":144566,"api_stock":293}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-SA-2XL | Queuing update | Data: {"new_qty":293}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-SA-3XL | Processing in Batch #64 | Data: {"product_id":144567,"api_stock":94}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-SA-3XL | Queuing update | Data: {"new_qty":94}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-SA-4XL | Processing in Batch #64 | Data: {"product_id":144568,"api_stock":100}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-SA-4XL | Queuing update | Data: {"new_qty":100}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-SA-5XL | Processing in Batch #64 | Data: {"product_id":144569,"api_stock":100}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-SA-5XL | Queuing update | Data: {"new_qty":100}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-TE-S | Processing in Batch #64 | Data: {"product_id":144570,"api_stock":678}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-TE-S | Queuing update | Data: {"new_qty":678}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-TE-M | Processing in Batch #64 | Data: {"product_id":144571,"api_stock":1159}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-TE-M | Queuing update | Data: {"new_qty":1159}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-TE-L | Processing in Batch #64 | Data: {"product_id":144572,"api_stock":1025}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-TE-L | Queuing update | Data: {"new_qty":1025}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-TE-XL | Processing in Batch #64 | Data: {"product_id":144573,"api_stock":481}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-TE-XL | Queuing update | Data: {"new_qty":481}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-TE-2XL | Processing in Batch #64 | Data: {"product_id":144574,"api_stock":287}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-TE-2XL | Queuing update | Data: {"new_qty":287}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-TE-3XL | Processing in Batch #64 | Data: {"product_id":144575,"api_stock":100}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-TE-3XL | Queuing update | Data: {"new_qty":100}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-TE-4XL | Processing in Batch #64 | Data: {"product_id":144576,"api_stock":98}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-TE-4XL | Queuing update | Data: {"new_qty":98}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-TE-5XL | Processing in Batch #64 | Data: {"product_id":144577,"api_stock":99}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-TE-5XL | Queuing update | Data: {"new_qty":99}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-W-S | Processing in Batch #64 | Data: {"product_id":144578,"api_stock":4167}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-W-S | Queuing update | Data: {"new_qty":4167}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-W-M | Processing in Batch #64 | Data: {"product_id":144579,"api_stock":5333}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-W-M | Queuing update | Data: {"new_qty":5333}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-W-L | Processing in Batch #64 | Data: {"product_id":144580,"api_stock":3835}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-W-L | Queuing update | Data: {"new_qty":3835}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-W-XL | Processing in Batch #64 | Data: {"product_id":144581,"api_stock":1972}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-W-XL | Queuing update | Data: {"new_qty":1972}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-W-2XL | Processing in Batch #64 | Data: {"product_id":144582,"api_stock":1435}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-W-2XL | Queuing update | Data: {"new_qty":1435}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-W-3XL | Processing in Batch #64 | Data: {"product_id":144583,"api_stock":518}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-W-3XL | Queuing update | Data: {"new_qty":518}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-W-4XL | Processing in Batch #64 | Data: {"product_id":144584,"api_stock":103}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-W-4XL | Queuing update | Data: {"new_qty":103}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-W-5XL | Processing in Batch #64 | Data: {"product_id":144585,"api_stock":216}
+[2026-02-08 08:40:18] [TRACE] SKU: BAS-4770-W-5XL | Queuing update | Data: {"new_qty":216}

@@ -87,7 +87,7 @@ if (defined('WP_CLI') && WP_CLI) {
             
             // Store batches in dedicated table
             global $wpdb;
-            $batch_size = 100;
+            $batch_size = (int) get_option('bytemash_stock_batch_size', 500);
             $batches = array_chunk($stock_data, $batch_size);
             $batch_count = count($batches);
             

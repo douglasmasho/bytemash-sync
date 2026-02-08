@@ -3273,17 +3273,18 @@ class ByteMash_Product_Sync {
         $sync_id = 'stock_' . time() . '_' . wp_generate_password(8, false);
         
         // Split into batches (larger batches for stock - simpler data)
-        $batches = array_chunk($stock_data, 100);
+        $batch_size = (int) get_option('bytemash_stock_batch_size', 500);
+        $batches = array_chunk($stock_data, $batch_size);
         $batch_count = count($batches);
         
-        $this->logger->log('info', "Split into {$batch_count} batches", array(), 'stock_sync');
+        $this->logger->log('info', "Split into {$batch_count} batches (Size: {$batch_size})", array(), 'stock_sync');
         
         // Just store minimal sync info
         update_option("bytemash_sync_{$sync_id}", array(
             'type' => 'stock',
             'total' => $total,
             'batch_count' => $batch_count,
-            'batch_size' => 100,
+            'batch_size' => $batch_size,
             'current_batch' => 0,
             'processed' => 0,
             'errors' => 0,

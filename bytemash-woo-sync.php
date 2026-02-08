@@ -3110,24 +3110,46 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         // Clear any stale sync status
         delete_transient('bytemash_sync_running');
         
-        // Trigger stock sync
-        $product_sync = new ByteMash_Product_Sync();
-        $result = $product_sync->sync_stock_levels();
+        $sync_id = 'stock_' . time() . '_' . wp_generate_password(8, false);
         
-        if ($result['success']) {
-            // Store batches in queue table
-            $this->store_batches_in_queue($result['sync_id'], $result['batches']);
+        // Use optimized stock sync if available
+        if (class_exists('ByteMash_Stock_Sync_Optimized')) {
+            $optimized_sync = new ByteMash_Stock_Sync_Optimized();
+            $result = $optimized_sync->sync_all_stock($sync_id);
             
-            wp_send_json_success(array(
-                'message' => $result['message'],
-                'sync_id' => $result['sync_id'],
-                'total' => $result['total'],
-                'batch_count' => $result['batch_count']
-            ));
+            if ($result['success']) {
+                $stats = $result['stats'];
+                wp_send_json_success(array(
+                    'message' => __('Stock sync initialized (streaming mode)', 'bytemash-woo-sync'),
+                    'sync_id' => $sync_id,
+                    'total' => $stats['total_items'],
+                    'batch_count' => $stats['batch_count']
+                ));
+            } else {
+                wp_send_json_error(array(
+                    'message' => isset($result['error']) ? $result['error'] : __('Failed to initialize optimized stock sync', 'bytemash-woo-sync')
+                ));
+            }
         } else {
-            wp_send_json_error(array(
-                'message' => $result['message']
-            ));
+            // Fallback to legacy stock sync
+            $product_sync = new ByteMash_Product_Sync();
+            $result = $product_sync->sync_stock_levels();
+            
+            if ($result['success']) {
+                // Store batches in queue table
+                $this->store_batches_in_queue($result['sync_id'], $result['batches']);
+                
+                wp_send_json_success(array(
+                    'message' => $result['message'],
+                    'sync_id' => $result['sync_id'],
+                    'total' => $result['total'],
+                    'batch_count' => $result['batch_count']
+                ));
+            } else {
+                wp_send_json_error(array(
+                    'message' => $result['message']
+                ));
+            }
         }
     }
     
@@ -3658,41 +3680,57 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             INDEX(status)
         ) {$wpdb->get_charset_collate()}");
         
-        // Insert each batch as a separate row
-        foreach ($batches as $index => $batch) {
-            $wpdb->insert($table_name, array(
-                'sync_id' => $sync_id,
-                'batch_index' => $index,
-                'batch_data' => json_encode($batch),
-                'status' => 'pending'
-            ));
-            
-            // Free memory after every 10 batches to prevent buildup
-            if ($index % 10 === 0) {
-                wp_cache_flush();
-                gc_collect_cycles();
-            }
+        // Insert batches in chunks to avoid max_allowed_packet issues
+    $chunks = array_chunk($batches, 50, true);
+    
+    foreach ($chunks as $chunk) {
+        $values = array();
+        $placeholders = array();
+        
+        foreach ($chunk as $index => $batch) {
+            $values[] = $sync_id;
+            $values[] = $index;
+            $values[] = json_encode($batch);
+            $values[] = 'pending';
+            $placeholders[] = "('%s', '%d', '%s', '%s')";
         }
+        
+        $query = "INSERT INTO $table_name (sync_id, batch_index, batch_data, status) VALUES " . implode(', ', $placeholders);
+        $wpdb->query($wpdb->prepare($query, $values));
+        
+        // Free memory after each chunk
+        wp_cache_flush();
+        gc_collect_cycles();
+    }
     }
     
     /**
      * AJAX: Process next pending batch from queue
      */
     public function ajax_process_batch() {
-        // Check nonce
-        check_ajax_referer('bytemash_woo_sync_nonce', 'nonce');
+        // Suppress any accidental output (warnings, notices, etc.) to prevent JSON corruption
+        ob_start();
         
-        // Check permissions
-        if (!current_user_can('manage_woocommerce')) {
-            wp_send_json_error(array('message' => __('Insufficient permissions', 'bytemash-woo-sync')));
-        }
-        
-        // Get parameters
-        $sync_id = isset($_POST['sync_id']) ? sanitize_text_field($_POST['sync_id']) : '';
-        
-        if (empty($sync_id)) {
-            wp_send_json_error(array('message' => __('Sync ID required', 'bytemash-woo-sync')));
-        }
+        try {
+            // Check nonce
+            check_ajax_referer('bytemash_woo_sync_nonce', 'nonce');
+            
+            // Check permissions
+            if (!current_user_can('manage_woocommerce')) {
+                if (ob_get_length()) ob_end_clean();
+                wp_send_json_error(array('message' => __('Insufficient permissions', 'bytemash-woo-sync')));
+            }
+            
+            // Get parameters
+            $sync_id = isset($_POST['sync_id']) ? sanitize_text_field($_POST['sync_id']) : '';
+            
+            $log_file = WP_CONTENT_DIR . '/uploads/bytemash_stock_debug_batches.log';
+            @error_log("[" . date('Y-m-d H:i:s') . "] AJAX CALL | Sync: $sync_id\n", 3, $log_file);
+
+            if (empty($sync_id)) {
+                if (ob_get_length()) ob_end_clean();
+                wp_send_json_error(array('message' => __('Sync ID required', 'bytemash-woo-sync')));
+            }
         
         // Get sync info
         $sync_info = get_option("bytemash_sync_{$sync_id}");
@@ -3715,9 +3753,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         $table_name = $wpdb->prefix . 'bytemash_sync_queue';
         
         // Ensure updated_at column exists (for timeout detection)
-        $column_exists = $wpdb->get_results($wpdb->prepare(
-            "SHOW COLUMNS FROM {$table_name} LIKE 'updated_at'"
-        ));
+        $column_exists = $wpdb->get_results("SHOW COLUMNS FROM {$table_name} LIKE 'updated_at'");
         if (empty($column_exists)) {
             $wpdb->query("ALTER TABLE {$table_name} ADD COLUMN updated_at DATETIME DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP");
         }
@@ -3802,10 +3838,10 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                 $errors = isset($batch_stats['errors']) ? $batch_stats['errors'] : 0;
                 $skipped = isset($batch_stats['skipped']) ? $batch_stats['skipped'] : 0;
                 $updated = isset($batch_stats['updated']) ? $batch_stats['updated'] : $processed;
-            } catch (Exception $e) {
+            } catch (Throwable $e) {
                 $errors++;
                 $logger = new ByteMash_Logger();
-                $logger->log('error', 'Optimized stock sync failed', array(
+                $logger->log('error', 'Optimized stock sync failed (Throwable)', array(
                     'error' => $e->getMessage(),
                     'batch_index' => $batch_index
                 ), 'stock_sync');
@@ -3896,22 +3932,38 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             $sync_id
         ));
         
-        wp_send_json_success(array(
-            'batch' => $batch_index,
-            'processed' => $processed,
-            'errors' => $errors,
-            'skipped' => $skipped,
-            'total_processed' => $sync_info['processed'],
-            'total_errors' => $sync_info['errors'],
-            'total_skipped' => $sync_info['skipped'],
-            'total_products' => $sync_info['total'],
-            'woo_product_count' => $product_counts->publish,
-            'done' => false,
-            'last_changed_fields' => $last_changed_fields,
-            'last_processing_reason' => $last_processing_reason,
-            'last_skip_reason' => $last_skip_reason,
-            'completed_batches' => array_map('intval', $completed_batches), // All completed batch indices
-        ));
+            // Clear buffer and send JSON
+            ob_end_clean();
+            wp_send_json_success(array(
+                'batch' => $batch_index,
+                'processed' => $processed,
+                'errors' => $errors,
+                'skipped' => $skipped,
+                'total_processed' => $sync_info['processed'],
+                'total_errors' => $sync_info['errors'],
+                'total_skipped' => $sync_info['skipped'],
+                'total_products' => $sync_info['total'],
+                'woo_product_count' => $product_counts->publish,
+                'done' => false,
+                'last_changed_fields' => $last_changed_fields,
+                'last_processing_reason' => $last_processing_reason,
+                'last_skip_reason' => $last_skip_reason,
+                'completed_batches' => array_map('intval', $completed_batches), // All completed batch indices
+            ));
+        } catch (Throwable $t) {
+            $err_msg = $t->getMessage();
+            $logger = new ByteMash_Logger();
+            $logger->log('error', 'Critical error in ajax_process_batch', array('error' => $err_msg), 'sync_engine');
+            
+            if (ob_get_length()) {
+                ob_end_clean();
+            }
+            
+            wp_send_json_error(array(
+                'message' => 'Critical sync error: ' . $err_msg,
+                'details' => $t->getTraceAsString()
+            ));
+        }
     }
     
     /**
