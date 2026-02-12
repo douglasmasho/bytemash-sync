@@ -119,11 +119,11 @@ class ByteMash_Woo_Sync {
             require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-wp-cli-stock-sync.php';
         }
         
-        // Admin classes
         if (is_admin()) {
             require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'admin/class-admin-settings.php';
             require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'admin/class-admin-dashboard.php';
             require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'admin/class-admin-tools.php';
+            require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-quote-admin.php';
         }
 
         // Frontend hooks for stock modal
@@ -947,6 +947,45 @@ class ByteMash_Woo_Sync {
             'bytemash-product-count-test',
             array($this, 'render_product_count_test_page')
         );
+
+        // Add Quote Requests Page
+        add_submenu_page(
+            'bytemash-amrod-sync',
+            __('Quote Requests', 'bytemash-woo-sync'),
+            __('Quote Requests', 'bytemash-woo-sync'),
+            'manage_woocommerce',
+            'bytemash-quote-requests',
+            array($this, 'render_quote_requests_page')
+        );
+
+        // Add Quote Settings Page
+        add_submenu_page(
+            'bytemash-amrod-sync',
+            __('Quote Settings', 'bytemash-woo-sync'),
+            __('Quote Settings', 'bytemash-woo-sync'),
+            'manage_woocommerce',
+            'bytemash-quote-settings',
+            array($this, 'render_quote_settings_page')
+        );
+    }
+    
+    /**
+     * Render Quote Requests Page (Wrapper for ByteMash_Quote_Admin)
+     */
+    public function render_quote_requests_page() {
+        $instance = ByteMash_Quote_Admin::get_instance();
+        if (isset($_GET['action']) && $_GET['action'] === 'view' && isset($_GET['id'])) {
+            $instance->render_quote_details_page(intval($_GET['id']));
+        } else {
+            $instance->render_quote_list_page();
+        }
+    }
+
+    /**
+     * Render Quote Settings Page (Wrapper for ByteMash_Quote_Admin)
+     */
+    public function render_quote_settings_page() {
+        ByteMash_Quote_Admin::get_instance()->render_settings_page();
     }
     
     /**
@@ -7054,6 +7093,42 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             
             // Save order
             $order->save();
+            
+            // Send email to admin
+            $admin_email = get_option('bytemash_quote_admin_email', get_option('admin_email'));
+            if (is_email($admin_email)) {
+                $subject_tmpl = get_option('bytemash_quote_email_subject', 'New Quote Request #{quote_number}');
+                $body_tmpl = get_option('bytemash_quote_email_template', "New quote request received.\n\nCustomer: {customer_name}\nQuote #: {quote_number}\n\nPlease check the admin dashboard for details.");
+                
+                // Prepare product summary
+                $product_summary = $product->get_name() . ' (Qty: ' . $quantity . ')';
+                if ($variation_id) {
+                    $var_obj = wc_get_product($variation_id);
+                    if ($var_obj) {
+                        $product_summary .= ' - ' . wc_get_formatted_variation($var_obj, true);
+                    }
+                }
+                
+                $replacements = array(
+                    '{customer_name}' => $order->get_formatted_billing_full_name(),
+                    '{quote_number}' => $order->get_order_number(),
+                    '{site_name}' => get_bloginfo('name'),
+                    '{product_table}' => $product_summary,
+                    '{branding_details}' => '' 
+                );
+                
+                $subject = str_replace(array_keys($replacements), array_values($replacements), $subject_tmpl);
+                $message = str_replace(array_keys($replacements), array_values($replacements), $body_tmpl);
+                
+                $headers = array('Content-Type: text/html; charset=UTF-8');
+                
+                // Simple NL2BR if no HTML tags detected
+                if (strpos($message, '<') === false) {
+                    $message = nl2br($message);
+                }
+                
+                wp_mail($admin_email, $subject, $message, $headers);
+            }
             
             // Log the quote request
             $logger = new ByteMash_Logger();
