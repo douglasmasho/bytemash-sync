@@ -194,6 +194,29 @@ class ByteMash_Woo_Sync {
      * Register activation hook to clear any existing schedules once on install
      */
     public static function register_activation() {
+        // Prevent "unexpected output during activation" / "headers already sent" by discarding any stray output
+        if (!headers_sent()) {
+            ob_start();
+        }
+
+        // Create logs table first so Logger and migrations can write without causing "headers already sent"
+        global $wpdb;
+        $table_name = $wpdb->prefix . 'bytemash_sync_logs';
+        $charset_collate = $wpdb->get_charset_collate();
+        $sql = "CREATE TABLE IF NOT EXISTS $table_name (
+            id bigint(20) NOT NULL AUTO_INCREMENT,
+            sync_type varchar(50) NOT NULL,
+            status varchar(20) NOT NULL,
+            message longtext,
+            data longtext,
+            created_at datetime DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY  (id),
+            KEY status (status),
+            KEY created_at (created_at)
+        ) $charset_collate;";
+        require_once ABSPATH . 'wp-admin/includes/upgrade.php';
+        dbDelta($sql);
+
         // Run database migrations
         require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-logger.php';
         require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-db-migration.php';
@@ -220,6 +243,10 @@ class ByteMash_Woo_Sync {
             as_unschedule_all_actions('bytemash_action_scheduler_incremental_sync', array('with_branding' => true), 'bytemash-sync');
             as_unschedule_all_actions('bytemash_action_scheduler_batch_sync', null, 'bytemash-sync');
             as_unschedule_all_actions('bytemash_action_scheduler_cleanup', null, 'bytemash-sync');
+        }
+
+        if (ob_get_level()) {
+            ob_end_clean();
         }
     }
     
