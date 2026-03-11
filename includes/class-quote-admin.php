@@ -299,6 +299,36 @@ class ByteMash_Quote_Admin {
                         <p><strong><?php esc_html_e('Status:', 'bytemash-woo-sync'); ?></strong> <?php echo esc_html(wc_get_order_status_name($order->get_status())); ?></p>
                         <p><strong><?php esc_html_e('IP:', 'bytemash-woo-sync'); ?></strong> <?php echo esc_html($order->get_customer_ip_address()); ?></p>
                     </div>
+
+                    <?php 
+                    $instructions = $order->get_meta('_bytemash_quote_instructions');
+                    $files = $order->get_meta('_bytemash_quote_files');
+                    if ($instructions || !empty($files)) :
+                    ?>
+                    <div class="bytemash-card request-details-card">
+                        <h3><?php esc_html_e('Extra Details', 'bytemash-woo-sync'); ?></h3>
+                        
+                        <?php if ($instructions) : ?>
+                            <h4><?php esc_html_e('Special Instructions', 'bytemash-woo-sync'); ?></h4>
+                            <div style="background: #f9f9f9; padding: 10px; border-left: 3px solid #00a0d2;">
+                                <?php echo wpautop(wp_kses_post($instructions)); ?>
+                            </div>
+                        <?php endif; ?>
+                        
+                        <?php if (!empty($files) && is_array($files)) : ?>
+                            <h4 style="margin-top: 20px;"><?php esc_html_e('Uploaded Files', 'bytemash-woo-sync'); ?></h4>
+                            <ul style="list-style: disc; margin-left: 20px;">
+                                <?php foreach ($files as $file) : ?>
+                                    <li>
+                                        <a href="<?php echo esc_url($file['url']); ?>" target="_blank">
+                                            <?php echo esc_html($file['label'] ? $file['label'] : basename($file['url'])); ?>
+                                        </a>
+                                    </li>
+                                <?php endforeach; ?>
+                            </ul>
+                        <?php endif; ?>
+                    </div>
+                    <?php endif; ?>
                 </div>
             </div>
         </div>
@@ -314,20 +344,49 @@ class ByteMash_Quote_Admin {
             update_option('bytemash_quote_admin_email', sanitize_email($_POST['admin_email']));
             update_option('bytemash_quote_email_subject', sanitize_text_field($_POST['email_subject']));
             update_option('bytemash_quote_email_template', wp_kses_post($_POST['email_template']));
+            update_option('bytemash_quote_cart_page_id', intval($_POST['quote_cart_page_id']));
             echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__('Settings saved.', 'bytemash-woo-sync') . '</p></div>';
         }
 
         $admin_email = get_option('bytemash_quote_admin_email', get_option('admin_email'));
         $subject = get_option('bytemash_quote_email_subject', 'New Quote Request from {site_name}');
         $template = get_option('bytemash_quote_email_template', "Dear {customer_name},\n\nThank you for your quote request #{quote_number}.\n\nWe have reviewed your requirements and...\n\nBest regards,\n{site_name}");
+        $quote_cart_page_id = get_option('bytemash_quote_cart_page_id', '');
         ?>
         <div class="wrap bytemash-quote-settings">
             <h1><?php esc_html_e('Quote System Settings', 'bytemash-woo-sync'); ?></h1>
+            
+            <div class="card" style="max-width: 800px; padding: 20px; margin-top: 20px;">
+                <h2><?php esc_html_e('How to set up the Quote Cart', 'bytemash-woo-sync'); ?></h2>
+                <p><?php esc_html_e('To enable customers to view their quote cart and submit a request, you need to create a dedicated Quote Cart page.', 'bytemash-woo-sync'); ?></p>
+                <ol>
+                    <li><?php esc_html_e('Go to ', 'bytemash-woo-sync'); ?><a href="<?php echo admin_url('post-new.php?post_type=page'); ?>"><?php esc_html_e('Pages > Add New', 'bytemash-woo-sync'); ?></a>.</li>
+                    <li><?php esc_html_e('Name the page "Quote Cart" (or similar).', 'bytemash-woo-sync'); ?></li>
+                    <li><?php esc_html_e('Enter this shortcode into the page content: ', 'bytemash-woo-sync'); ?><code>[bytemash_quote_cart]</code></li>
+                    <li><?php esc_html_e('Publish the page.', 'bytemash-woo-sync'); ?></li>
+                    <li><?php esc_html_e('Select that page in the "Quote Cart Page" dropdown below and save settings.', 'bytemash-woo-sync'); ?></li>
+                </ol>
+            </div>
             
             <form method="post" action="">
                 <?php wp_nonce_field('bytemash_quote_settings_action'); ?>
                 
                 <table class="form-table">
+                    <tr>
+                        <th scope="row"><label for="quote_cart_page_id"><?php esc_html_e('Quote Cart Page', 'bytemash-woo-sync'); ?></label></th>
+                        <td>
+                            <?php 
+                            wp_dropdown_pages(array(
+                                'name' => 'quote_cart_page_id',
+                                'id' => 'quote_cart_page_id',
+                                'show_option_none' => __('— Select Page —', 'bytemash-woo-sync'),
+                                'option_none_value' => '0',
+                                'selected' => $quote_cart_page_id
+                            )); 
+                            ?>
+                            <p class="description"><?php esc_html_e('Select the page that contains the [bytemash_quote_cart] shortcode. This is where users will be redirected to view their cart.', 'bytemash-woo-sync'); ?></p>
+                        </td>
+                    </tr>
                     <tr>
                         <th scope="row"><label for="admin_email"><?php esc_html_e('Notification Email', 'bytemash-woo-sync'); ?></label></th>
                         <td>

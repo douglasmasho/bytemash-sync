@@ -202,91 +202,88 @@ jQuery(document).ready(function($) {
             // Note: Branding is optional, but we could add validation here if needed
         }
         
-        // Disable button and show loading
+        // Disable button to prevent double clicks (temporarily)
         const originalText = $button.text();
         console.log('[Quote Request] Disabling button, original text:', originalText);
         $button.prop('disabled', true).text(bytemashQuoteRequest.strings.requesting);
         $message.hide();
         
-        // Prepare AJAX data
-        const ajaxData = {
-            action: 'bytemash_submit_quote_request',
-            nonce: bytemashQuoteRequest.nonce,
-            product_id: productId,
-            variation_id: variationId,
-            quantity: quantity,
-            color: selectedColor,
-            size: selectedSize,
-            brandings: brandings,
-        };
-        
-        console.log('[Quote Request] Submitting AJAX request:', {
-            url: bytemashQuoteRequest.ajax_url,
-            data: ajaxData
-        });
-        
-        // Submit AJAX request
-        $.ajax({
-            url: bytemashQuoteRequest.ajax_url,
-            type: 'POST',
-            data: ajaxData,
-            success: function(response) {
-                console.log('[Quote Request] AJAX success response:', response);
-                
-                if (response.success) {
-                    console.log('[Quote Request] Quote request successful!', response.data);
-                    $message
-                        .removeClass('woocommerce-error')
-                        .addClass('woocommerce-message')
-                        .html('<p>' + (response.data.message || bytemashQuoteRequest.strings.success) + '</p>')
-                        .show();
-                    
-                    // Reset button
-                    $button.prop('disabled', false).text(originalText);
-                    
-                    // Optionally reset form
-                    $('.reset_variations').trigger('click');
-                } else {
-                    console.error('[Quote Request] Quote request failed:', response.data);
-                    $message
-                        .removeClass('woocommerce-message')
-                        .addClass('woocommerce-error')
-                        .html('<p>' + (response.data.message || bytemashQuoteRequest.strings.error) + '</p>')
-                        .show();
-                    
-                    $button.prop('disabled', false).text(originalText);
-                }
-            },
-            error: function(xhr, status, error) {
-                let errorMessage = bytemashQuoteRequest.strings.error;
-                
-                // Try to get more detailed error from response
-                if (xhr.responseJSON && xhr.responseJSON.data) {
-                    if (xhr.responseJSON.data.message) {
-                        errorMessage = xhr.responseJSON.data.message;
-                    } else if (xhr.responseJSON.data.debug) {
-                        // Show debug message in development
-                        errorMessage = xhr.responseJSON.data.debug;
-                    }
-                }
-                
-                $message
-                    .removeClass('woocommerce-message')
-                    .addClass('woocommerce-error')
-                    .html('<p>' + errorMessage + '</p>')
-                    .show();
-                
-                $button.prop('disabled', false).text(originalText);
-                
-                console.error('Quote request error:', {
-                    status: status,
-                    error: error,
-                    response: xhr.responseJSON,
-                    statusText: xhr.statusText,
-                    statusCode: xhr.status
-                });
+        // Instead of AJAX, save to localStorage
+        try {
+            // Get existing cart
+            let quoteCart = [];
+            const existingCart = localStorage.getItem('bytemash_quote_cart');
+            if (existingCart) {
+                quoteCart = JSON.parse(existingCart);
             }
-        });
+            
+            // Create cart item
+            const cartItem = {
+                id: 'item_' + new Date().getTime() + '_' + Math.random().toString(36).substr(2, 9),
+                product_id: productId,
+                variation_id: variationId,
+                quantity: quantity,
+                color: selectedColor,
+                size: selectedSize,
+                brandings: brandings,
+                timestamp: new Date().getTime()
+            };
+            
+            // Check if similar item exists (same product, variation, color, size, brandings)
+            let itemUpdated = false;
+            for (let i = 0; i < quoteCart.length; i++) {
+                const item = quoteCart[i];
+                if (item.product_id === productId && 
+                    item.variation_id === variationId && 
+                    item.color === selectedColor && 
+                    item.size === selectedSize && 
+                    JSON.stringify(item.brandings) === JSON.stringify(brandings)) {
+                    
+                    // Update quantity
+                    quoteCart[i].quantity += quantity;
+                    itemUpdated = true;
+                    break;
+                }
+            }
+            
+            if (!itemUpdated) {
+                quoteCart.push(cartItem);
+            }
+            
+            // Save back to localStorage
+            localStorage.setItem('bytemash_quote_cart', JSON.stringify(quoteCart));
+            
+            // Update UI
+            console.log('[Quote Request] Added to quote cart', quoteCart);
+            
+            const cartUrl = bytemashQuoteRequest.cart_url || '/quote-cart'; // Will be set by PHP via settings ideally
+            const successMsg = bytemashQuoteRequest.strings.added_to_cart || 'Added to quote cart!';
+            const viewCartMsg = bytemashQuoteRequest.strings.view_cart || 'View Quote Cart';
+            
+            $message
+                .removeClass('woocommerce-error')
+                .addClass('woocommerce-message')
+                .html(`<p style="display:flex; justify-content:space-between; align-items:center; margin:0;">
+                    <span>${successMsg}</span>
+                    <a href="${cartUrl}" class="button alt" style="margin-left: 10px;">${viewCartMsg}</a>
+                </p>`)
+                .show();
+            
+            // Reset button
+            $button.prop('disabled', false).text(originalText);
+            
+            // Fire custom event so theme can update mini-cart if we create one later
+            $(document.body).trigger('bytemash_quote_cart_updated', [quoteCart]);
+            
+        } catch (e) {
+            console.error('[Quote Request] Failed to save to localStorage', e);
+            $message
+                .removeClass('woocommerce-message')
+                .addClass('woocommerce-error')
+                .html('<p>Failed to add to quote cart. Please ensure cookies/localStorage are enabled.</p>')
+                .show();
+            $button.prop('disabled', false).text(originalText);
+        }
     });
     
     // Consolidate multiple buttons into one - AGGRESSIVE

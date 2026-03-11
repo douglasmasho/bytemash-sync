@@ -98,6 +98,7 @@ class ByteMash_Woo_Sync {
         require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-batch-processor.php';
         require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-product-sync.php';
         require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-stock-sync-optimized.php';
+        require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-quote-cart.php';
         require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-price-sync-optimized.php';
         require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-sync-scheduler.php';
         require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-true-cron-manager.php';
@@ -161,9 +162,9 @@ class ByteMash_Woo_Sync {
         // When quote mode is OFF, use normal WooCommerce ordering without any quote interference
         if ($this->is_quote_mode_enabled()) {
             // Quote mode is ON - activate full quote system
+            ByteMash_Quote_Cart::get_instance();
+            
             add_action('wp_enqueue_scripts', array($this, 'enqueue_quote_request_assets'));
-            add_action('wp_ajax_bytemash_submit_quote_request', array($this, 'ajax_submit_quote_request'));
-            add_action('wp_ajax_nopriv_bytemash_submit_quote_request', array($this, 'ajax_submit_quote_request'));
             add_action('init', array($this, 'register_quote_request_order_status'));
             add_filter('wc_order_statuses', array($this, 'add_quote_request_order_status'));
             
@@ -6815,15 +6816,21 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             $product_id = $product->get_id();
         }
         
+        $cart_page_id = get_option('bytemash_quote_cart_page_id', 0);
+        $cart_url = $cart_page_id ? get_permalink($cart_page_id) : '#';
+
         wp_localize_script('bytemash-quote-request', 'bytemashQuoteRequest', array(
             'ajax_url' => admin_url('admin-ajax.php'),
             'nonce' => wp_create_nonce('bytemash_woo_sync_nonce'),
             'product_id' => $product_id,
+            'cart_url' => $cart_url,
             'strings' => array(
-                'requesting' => __('Requesting quote...', 'bytemash-woo-sync'),
+                'requesting' => __('Adding to cart...', 'bytemash-woo-sync'),
                 'success' => __('Quote request submitted successfully! We will contact you soon.', 'bytemash-woo-sync'),
                 'error' => __('Failed to submit quote request. Please try again.', 'bytemash-woo-sync'),
                 'select_variation' => __('Please select a variation first.', 'bytemash-woo-sync'),
+                'added_to_cart' => __('Added to quote cart', 'bytemash-woo-sync'),
+                'view_cart' => __('View Quote Cart', 'bytemash-woo-sync')
             ),
         ));
     }

@@ -1,0 +1,53 @@
+/* Quote Cart Styles */
+.bytemash-quote-cart-container {
+    padding: 20px;
+    background: #fff;
+    border-radius: 8px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+}
+
+#bytemash-quote-cart-loading {
+    text-align: center;
+    padding: 40px;
+    font-size: 1.2em;
+    color: #666;
+}
+
+.bytemash-quote-cart-form {
+    margin-top: 40px;
+    padding-top: 30px;
+    border-top: 2px solid #eee;
+}
+
+.bytemash-file-uploads {
+    margin-bottom: 10px;
+}
+
+.bytemash-file-upload-row {
+    margin-bottom: 10px;
+    display: flex;
+    justify-content: space-between;
+}
+
+.bytemash-file-upload-row input {
+    width: 48%;
+}
+
+.bytemash-cart-item-brandings, .bytemash-cart-item-attributes {
+    font-size: 0.85em;
+    color: #666;
+    margin-top: 5px;
+    background: #f9f9f9;
+    padding: 5px;
+    border-radius: 4px;
+}
+
+.bytemash-remove-item {
+    color: red;
+    font-weight: bold;
+    font-size: 1.5em;
+    text-decoration: none;
+}
+.bytemash-remove-item:hover {
+    color: darkred;
+}
