@@ -29,37 +29,64 @@ class ByteMash_Quote_Admin {
     public function __construct() {
         // Register AJAX handlers for email
         add_action('wp_ajax_bytemash_send_quote_email', array($this, 'ajax_send_quote_email'));
+        add_action('admin_enqueue_scripts', array($this, 'enqueue_admin_assets'));
+    }
+
+    /**
+     * Enqueue admin assets for Quote pages
+     */
+    public function enqueue_admin_assets($hook) {
+        if (strpos($hook, 'bytemash-quote') === false) {
+            return;
+        }
+
+        $css_file = BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'assets/css/quote-admin.css';
+        $css_version = BYTEMASH_WOO_SYNC_VERSION . '.' . (file_exists($css_file) ? filemtime($css_file) : time());
+
+        wp_enqueue_style(
+            'bytemash-quote-admin-style',
+            BYTEMASH_WOO_SYNC_PLUGIN_URL . 'assets/css/quote-admin.css',
+            array(),
+            $css_version
+        );
     }
 
     /**
      * Render the main Quote Requests List Page
      */
     public function render_quote_list_page() {
+        // Handle actions like delete before rendering
+        $this->handle_quote_actions();
+        
         $status = isset($_GET['status']) ? sanitize_text_field($_GET['status']) : 'wc-quote-request';
         $paged = isset($_GET['paged']) ? max(1, intval($_GET['paged'])) : 1;
         $posts_per_page = 20;
 
         $args = array(
-            'post_type'      => 'shop_order',
-            'post_status'    => $status,
-            'posts_per_page' => $posts_per_page,
-            'paged'          => $paged,
-            'orderby'        => 'date',
-            'order'          => 'DESC',
+            'status'   => $status === 'all' ? 'wc-quote-request' : $status,
+            'limit'    => $posts_per_page,
+            'paged'    => $paged,
+            'orderby'  => 'date',
+            'order'    => 'DESC',
+            'paginate' => true,
         );
 
-        // If specific status 'any' or empty, look for all quotes
-        if ($status === 'all') {
-            $args['post_status'] = 'wc-quote-request'; // Or multiple if we have processed statuses
-        }
-
-        $query = new WP_Query($args);
-        $total_posts = $query->found_posts;
-        $total_pages = ceil($total_posts / $posts_per_page);
+        $results = wc_get_orders($args);
+        $orders = $results->orders;
+        $total_posts = $results->total;
+        $total_pages = $results->max_num_pages;
 
         ?>
-        <div class="wrap bytemash-quote-admin">
-            <h1 class="wp-heading-inline"><?php esc_html_e('Quote Requests', 'bytemash-woo-sync'); ?></h1>
+        <div class="wrap bytemash-quote-admin bytemash-modern-admin">
+            <div class="bytemash-admin-header">
+                <h1 class="wp-heading-inline"><?php esc_html_e('Quote Requests', 'bytemash-woo-sync'); ?></h1>
+            </div>
+
+            <?php if (isset($_GET['deleted']) && $_GET['deleted'] == '1') : ?>
+                <div class="notice notice-success is-dismissible" style="border-radius: 8px; border-left-color: #10b981;">
+                    <p><strong><?php esc_html_e('Quote request deleted successfully.', 'bytemash-woo-sync'); ?></strong></p>
+                </div>
+            <?php endif; ?>
             
             <div class="bytemash-quote-filters">
                 <ul class="subsubsub">
@@ -68,60 +95,91 @@ class ByteMash_Quote_Admin {
             </div>
 
             <div class="bytemash-quote-table-container">
-                <table class="wp-list-table widefat fixed striped table-view-list posts bytemash-quote-table">
+                <table class="bytemash-modern-table">
                     <thead>
                         <tr>
-                            <th scope="col" class="manage-column column-cb check-column"><input id="cb-select-all-1" type="checkbox"></th>
-                            <th scope="col" class="manage-column column-primary"><?php esc_html_e('Quote #', 'bytemash-woo-sync'); ?></th>
-                            <th scope="col" class="manage-column"><?php esc_html_e('Date', 'bytemash-woo-sync'); ?></th>
-                            <th scope="col" class="manage-column"><?php esc_html_e('Customer', 'bytemash-woo-sync'); ?></th>
-                            <th scope="col" class="manage-column"><?php esc_html_e('Items', 'bytemash-woo-sync'); ?></th>
-                            <th scope="col" class="manage-column"><?php esc_html_e('Total Stock', 'bytemash-woo-sync'); ?></th>
-                            <th scope="col" class="manage-column"><?php esc_html_e('Actions', 'bytemash-woo-sync'); ?></th>
+                            <th scope="col" class="check-column"><input id="cb-select-all-1" type="checkbox" style="border-radius: 4px;"></th>
+                            <th scope="col"><?php esc_html_e('Quote ID', 'bytemash-woo-sync'); ?></th>
+                            <th scope="col"><?php esc_html_e('Product Info', 'bytemash-woo-sync'); ?></th>
+                            <th scope="col"><?php esc_html_e('Customer Name', 'bytemash-woo-sync'); ?></th>
+                            <th scope="col"><?php esc_html_e('Quantity', 'bytemash-woo-sync'); ?></th>
+                            <th scope="col"><?php esc_html_e('Date', 'bytemash-woo-sync'); ?></th>
+                            <th scope="col"><?php esc_html_e('Status', 'bytemash-woo-sync'); ?></th>
+                            <th scope="col"><?php esc_html_e('Action', 'bytemash-woo-sync'); ?></th>
                         </tr>
                     </thead>
                     <tbody>
-                        <?php if ($query->have_posts()) : ?>
-                            <?php while ($query->have_posts()) : $query->the_post(); 
-                                $order = wc_get_order(get_the_ID());
-                                if (!$order) continue;
-                                
+                        <?php if (!empty($orders)) : ?>
+                            <?php foreach ($orders as $order) : 
                                 $customer_name = $order->get_formatted_billing_full_name();
                                 $customer_email = $order->get_billing_email();
-                                $item_count = $order->get_item_count();
-                                $date_created = $order->get_date_created()->date_i18n(get_option('date_format') . ' ' . get_option('time_format'));
+                                
+                                // Format Date precisely
+                                $date_created = $order->get_date_created() ? $order->get_date_created()->date_i18n('M d, Y') : '';
                                 
                                 // Get first item for preview
                                 $items = $order->get_items();
                                 $first_item = reset($items);
                                 $product_name = $first_item ? $first_item->get_name() : __('Unknown Product', 'bytemash-woo-sync');
-                                if (count($items) > 1) {
-                                    $product_name .= sprintf(' (+%d more)', count($items) - 1);
-                                }
+                                $quantity = 0;
+                                foreach($items as $item) { $quantity += $item->get_quantity(); }
+                                
+                                $product = $first_item ? $first_item->get_product() : false;
+                                $image_html = $product ? $product->get_image(array(32, 32)) : '';
                             ?>
                                 <tr>
-                                    <th scope="row" class="check-column"><input type="checkbox" name="post[]" value="<?php echo esc_attr(get_the_ID()); ?>"></th>
-                                    <td class="my-column-primary">
-                                        <strong><a href="?page=bytemash-quote-requests&action=view&id=<?php echo esc_attr(get_the_ID()); ?>" class="row-title">#<?php echo esc_attr($order->get_order_number()); ?></a></strong>
+                                    <td class="check-column"><input type="checkbox" name="post[]" value="<?php echo esc_attr($order->get_id()); ?>" style="border-radius: 4px;"></td>
+                                    <td class="quote-id-col">
+                                        <strong><a href="?page=bytemash-quote-requests&action=view&id=<?php echo esc_attr($order->get_id()); ?>">#<?php echo esc_attr($order->get_order_number()); ?></a></strong>
                                     </td>
-                                    <td><?php echo esc_html($date_created); ?></td>
-                                    <td>
-                                        <strong><?php echo esc_html($customer_name); ?></strong><br>
-                                        <a href="mailto:<?php echo esc_attr($customer_email); ?>"><?php echo esc_html($customer_email); ?></a>
+                                    <td class="product-info-col">
+                                        <div class="product-info-flex">
+                                            <?php if ($image_html) echo '<div class="product-img-tiny">' . $image_html . '</div>'; ?>
+                                            <span>
+                                                <?php echo esc_html($product_name); ?>
+                                                <?php if (count($items) > 1) echo '<span class="more-items">(+' . (count($items) - 1) . ' items)</span>'; ?>
+                                            </span>
+                                        </div>
                                     </td>
-                                    <td><?php echo esc_html($product_name); ?></td>
-                                    <td>
-                                        <!-- Stock check placeholder -->
-                                        <span class="bytemash-badge stock-badge"><?php esc_html_e('Check', 'bytemash-woo-sync'); ?></span>
+                                    <td class="customer-col">
+                                        <div class="customer-info-flex">
+                                            <?php echo get_avatar($customer_email, 28); ?>
+                                            <div class="customer-text">
+                                                <strong><?php echo esc_html($customer_name); ?></strong>
+                                                <span class="customer-email-sub"><?php echo esc_html($customer_email); ?></span>
+                                            </div>
+                                        </div>
                                     </td>
+                                    <td><?php echo esc_html($quantity); ?> pcs</td>
+                                    <td class="date-col"><?php echo esc_html($date_created); ?></td>
                                     <td>
-                                        <a href="?page=bytemash-quote-requests&action=view&id=<?php echo esc_attr(get_the_ID()); ?>" class="button button-small action-btn"><?php esc_html_e('View Quote', 'bytemash-woo-sync'); ?></a>
+                                        <?php 
+                                            // Ensure we always have a status pill
+                                            $status_name = wc_get_order_status_name($order->get_status());
+                                            $status_class = 'status-' . str_replace('wc-', '', $order->get_status());
+                                        ?>
+                                        <span class="bytemash-status-pill <?php echo esc_attr($status_class); ?>">
+                                            <span class="dot"></span>
+                                            <?php echo esc_html($status_name); ?>
+                                        </span>
+                                    </td>
+                                    <td class="actions-col">
+                                        <div class="bytemash-row-actions">
+                                            <a href="?page=bytemash-quote-requests&action=view&id=<?php echo esc_attr($order->get_id()); ?>" class="action-btn view-btn" title="<?php esc_attr_e('View', 'bytemash-woo-sync'); ?>">
+                                                <span class="dashicons dashicons-visibility"></span>
+                                            </a>
+                                            <a href="<?php echo wp_nonce_url('?page=bytemash-quote-requests&action=delete&id=' . esc_attr($order->get_id()), 'delete_quote_' . $order->get_id()); ?>" class="action-btn delete-btn" title="<?php esc_attr_e('Delete', 'bytemash-woo-sync'); ?>" onclick="return confirm('<?php esc_attr_e('Are you sure you want to delete this quote request? This cannot be undone.', 'bytemash-woo-sync'); ?>');">
+                                                <span class="dashicons dashicons-trash"></span>
+                                            </a>
+                                        </div>
                                     </td>
                                 </tr>
-                            <?php endwhile; ?>
+                            <?php endforeach; ?>
                         <?php else : ?>
                             <tr>
-                                <td colspan="7"><?php esc_html_e('No quote requests found.', 'bytemash-woo-sync'); ?></td>
+                                <td colspan="8" style="text-align: center; padding: 40px; color: #64748b;">
+                                    <?php esc_html_e('No quote requests found.', 'bytemash-woo-sync'); ?>
+                                </td>
                             </tr>
                         <?php endif; ?>
                     </tbody>
@@ -150,6 +208,37 @@ class ByteMash_Quote_Admin {
     }
 
     /**
+     * Handle custom actions from the admin list (e.g., delete)
+     */
+    private function handle_quote_actions() {
+        if (!isset($_GET['action']) || !isset($_GET['id'])) {
+            return;
+        }
+
+        $action = sanitize_text_field($_GET['action']);
+        $quote_id = intval($_GET['id']);
+
+        if ($action === 'delete') {
+            check_admin_referer('delete_quote_' . $quote_id);
+            if (current_user_can('manage_woocommerce')) {
+                $order = wc_get_order($quote_id);
+                if ($order) {
+                    $order->delete(true); // Force delete
+                    
+                    // Redirect back to list page with success message
+                    $redirect_url = add_query_arg(array(
+                        'page' => 'bytemash-quote-requests',
+                        'deleted' => 1
+                    ), admin_url('admin.php'));
+                    
+                    wp_redirect($redirect_url);
+                    exit;
+                }
+            }
+        }
+    }
+
+    /**
      * Render the Single Quote Details Page
      */
     public function render_quote_details_page($quote_id) {
@@ -172,9 +261,10 @@ class ByteMash_Quote_Admin {
                 <div class="bytemash-details-main">
                     <div class="bytemash-card product-card">
                         <h2><?php esc_html_e('Requested Items', 'bytemash-woo-sync'); ?></h2>
-                        <table class="bytemash-items-table">
+                        <table class="bytemash-modern-table">
                             <thead>
                                 <tr>
+                                    <th style="width: 40px;"></th>
                                     <th><?php esc_html_e('Product', 'bytemash-woo-sync'); ?></th>
                                     <th><?php esc_html_e('Variation Details', 'bytemash-woo-sync'); ?></th>
                                     <th><?php esc_html_e('Branding Options', 'bytemash-woo-sync'); ?></th>
@@ -184,48 +274,166 @@ class ByteMash_Quote_Admin {
                             <tbody>
                                 <?php foreach ($order->get_items() as $item_id => $item) : 
                                     $product = $item->get_product();
-                                    $image = $product ? $product->get_image(array(50, 50)) : '';
+                                    $image_tiny = $product ? $product->get_image(array(40, 40)) : '';
+                                    $image_full = $product ? $product->get_image('full') : '';
+                                    
+                                    // Fetch all available brandings for this product to map codes to names
+                                    $parent_id = $product ? ($product->is_type('variation') ? $product->get_parent_id() : $product->get_id()) : 0;
+                                    $amrod_brandings = $parent_id ? get_post_meta($parent_id, '_amrod_brandings', true) : array();
                                     
                                     // Branding metda data
                                     $branding_data = array();
                                     foreach ($item->get_formatted_meta_data() as $meta_id => $meta) {
                                         // Filter for branding keys
                                         if (strpos($meta->key, 'Branding') !== false) {
-                                            $branding_data[] = '<strong>' . $meta->display_key . ':</strong> ' . wp_strip_all_tags($meta->display_value);
+                                            $raw_value = wp_strip_all_tags($meta->display_value);
+                                            $full_name = $raw_value;
+                                            
+                                            // Try to find the full branding name from the Amrod data
+                                            if (!empty($amrod_brandings) && is_array($amrod_brandings)) {
+                                                foreach ($amrod_brandings as $pos) {
+                                                    if (!empty($pos['method']) && is_array($pos['method'])) {
+                                                        foreach ($pos['method'] as $method) {
+                                                            if ($method['brandingCode'] === $raw_value) {
+                                                                $full_name = esc_html($method['brandingName']) . ' (' . $raw_value . ')';
+                                                                break 2;
+                                                            }
+                                                        }
+                                                    }
+                                                }
+                                            }
+                                            
+                                            $branding_data[] = array(
+                                                'label' => $meta->display_key,
+                                                'value' => $full_name
+                                            );
                                         }
                                     }
                                 ?>
-                                <tr>
-                                    <td class="product-col">
-                                        <div class="product-thumb"><?php echo $image; ?></div>
-                                        <div class="product-name">
-                                            <a href="<?php echo $product ? esc_url($product->get_permalink()) : '#'; ?>" target="_blank">
-                                                <?php echo esc_html($item->get_name()); ?>
-                                            </a>
-                                            <div class="sku"><?php echo $product ? esc_html($product->get_sku()) : ''; ?></div>
+                                <tr class="bytemash-item-main-row">
+                                    <td style="text-align:center;">
+                                        <button type="button" class="bytemash-expand-toggle" title="<?php esc_attr_e('View Details', 'bytemash-woo-sync'); ?>">
+                                            <span class="dashicons dashicons-arrow-down-alt2"></span>
+                                        </button>
+                                    </td>
+                                    <td class="product-info-col">
+                                        <div class="product-info-flex">
+                                            <?php if ($image_tiny) echo '<div class="product-img-tiny">' . $image_tiny . '</div>'; ?>
+                                            <div class="product-text">
+                                                <a href="<?php echo $product ? esc_url($product->get_permalink()) : '#'; ?>" target="_blank" style="font-weight: 600; color: #1e293b; text-decoration: none;">
+                                                    <?php echo esc_html($item->get_name()); ?>
+                                                </a>
+                                                <?php if ($product && $product->get_sku()) : ?>
+                                                    <div class="sku-subtext" style="font-size: 12px; color: #64748b;"><?php echo esc_html($product->get_sku()); ?></div>
+                                                <?php endif; ?>
+                                            </div>
                                         </div>
                                     </td>
                                     <td>
                                         <?php if ($product && $product->is_type('variation')) : ?>
                                             <?php echo wc_get_formatted_variation($product, true); ?>
                                         <?php else: ?>
-                                            <span class="na">-</span>
+                                            <span class="na" style="color:#cbd5e1;">-</span>
                                         <?php endif; ?>
                                     </td>
                                     <td class="branding-col">
                                         <?php if (!empty($branding_data)) : ?>
-                                            <ul class="branding-list">
-                                                <?php foreach ($branding_data as $b) { echo '<li>' . $b . '</li>'; } ?>
-                                            </ul>
+                                            <span class="branding-badge"><?php echo count($branding_data); ?> <?php esc_html_e('Option(s)', 'bytemash-woo-sync'); ?></span>
                                         <?php else: ?>
-                                            <span class="na"><?php esc_html_e('No branding selected', 'bytemash-woo-sync'); ?></span>
+                                            <span class="na" style="color:#cbd5e1;"><?php esc_html_e('No branding selected', 'bytemash-woo-sync'); ?></span>
                                         <?php endif; ?>
                                     </td>
-                                    <td><strong><?php echo esc_html($item->get_quantity()); ?></strong></td>
+                                    <td><strong style="font-size: 16px; color: #0f172a;"><?php echo esc_html($item->get_quantity()); ?></strong></td>
+                                </tr>
+                                
+                                <!-- Expanded Details Row -->
+                                <tr class="bytemash-expanded-row" style="display: none;">
+                                    <td colspan="5">
+                                        <div class="bytemash-expanded-content">
+                                            <div class="expanded-images">
+                                                <div class="expanded-image-card">
+                                                    <h4><?php esc_html_e('Product Image', 'bytemash-woo-sync'); ?></h4>
+                                                    <?php if ($image_full) { echo $image_full; } else { echo '<div class="no-image">No Image</div>'; } ?>
+                                                </div>
+                                            </div>
+                                            <div class="expanded-details">
+                                                <h4><?php esc_html_e('Full Branding Specifics', 'bytemash-woo-sync'); ?></h4>
+                                                <?php if (!empty($branding_data)) : ?>
+                                                    <div class="expanded-branding-list">
+                                                        <?php foreach ($branding_data as $b) : ?>
+                                                            <div class="branding-line-item">
+                                                                <span class="branding-value"><?php echo esc_html($b['label'] . ' - ' . $b['value']); ?></span>
+                                                            </div>
+                                                        <?php endforeach; ?>
+                                                    </div>
+                                                <?php else: ?>
+                                                    <p style="color: #64748b; font-style: italic;"><?php esc_html_e('Customer did not select any specific branding options for this item.', 'bytemash-woo-sync'); ?></p>
+                                                <?php endif; ?>
+                                                
+                                                <?php if ($product && $product->is_type('variation')) : ?>
+                                                    <h4 style="margin-top: 20px;"><?php esc_html_e('Full Configuration', 'bytemash-woo-sync'); ?></h4>
+                                                    <div style="background: #f8fafc; padding: 12px; border-radius: 6px; border: 1px solid #e2e8f0; color: #475569;">
+                                                        <?php echo wc_get_formatted_variation($product, true); ?>
+                                                    </div>
+                                                <?php endif; ?>
+
+                                                <?php 
+                                                if ($product) {
+                                                    $parent_id = $product->is_type('variation') ? $product->get_parent_id() : $product->get_id();
+                                                    $full_guide = get_post_meta($parent_id, '_amrod_full_branding_guide', true);
+                                                    $logo24_guide = get_post_meta($parent_id, '_amrod_logo24_branding_guide', true);
+                                                    
+                                                    if ($full_guide || $logo24_guide) :
+                                                ?>
+                                                    <h4 style="margin-top: 20px;"><?php esc_html_e('Product Branding Guides', 'bytemash-woo-sync'); ?></h4>
+                                                    <div style="display: flex; gap: 12px; flex-wrap: wrap;">
+                                                        <?php if ($full_guide) : ?>
+                                                            <a href="<?php echo esc_url($full_guide); ?>" target="_blank" download class="bytemash-guide-btn">
+                                                                <span class="dashicons dashicons-pdf"></span> <?php esc_html_e('Full Branding Guide', 'bytemash-woo-sync'); ?>
+                                                            </a>
+                                                        <?php endif; ?>
+                                                        <?php if ($logo24_guide) : ?>
+                                                            <a href="<?php echo esc_url($logo24_guide); ?>" target="_blank" download class="bytemash-guide-btn logo24">
+                                                                <span class="dashicons dashicons-pdf"></span> <?php esc_html_e('Logo24 Guide', 'bytemash-woo-sync'); ?>
+                                                            </a>
+                                                        <?php endif; ?>
+                                                    </div>
+                                                <?php 
+                                                    endif;
+                                                }
+                                                ?>
+                                            </div>
+                                        </div>
+                                    </td>
                                 </tr>
                                 <?php endforeach; ?>
                             </tbody>
                         </table>
+                        
+                        <script>
+                        jQuery(document).ready(function($) {
+                            $('.bytemash-expand-toggle').on('click', function(e) {
+                                e.preventDefault();
+                                var $btn = $(this);
+                                var $row = $btn.closest('tr');
+                                var $expandedRow = $row.next('.bytemash-expanded-row');
+                                var $expandedContent = $expandedRow.find('.bytemash-expanded-content');
+                                
+                                if ($expandedRow.is(':visible')) {
+                                    $btn.removeClass('active').find('.dashicons').removeClass('dashicons-arrow-up-alt2').addClass('dashicons-arrow-down-alt2');
+                                    $expandedContent.slideUp(300, function() {
+                                        $expandedRow.hide();
+                                        $row.find('td').css('border-bottom', '');
+                                    });
+                                } else {
+                                    $btn.addClass('active').find('.dashicons').removeClass('dashicons-arrow-down-alt2').addClass('dashicons-arrow-up-alt2');
+                                    $row.find('td').css('border-bottom', 'none');
+                                    $expandedRow.show();
+                                    $expandedContent.hide().slideDown(300);
+                                }
+                            });
+                        });
+                        </script>
                     </div>
 
                     <!-- Email History / Reply -->
@@ -317,15 +525,27 @@ class ByteMash_Quote_Admin {
                         
                         <?php if (!empty($files) && is_array($files)) : ?>
                             <h4 style="margin-top: 20px;"><?php esc_html_e('Uploaded Files', 'bytemash-woo-sync'); ?></h4>
-                            <ul style="list-style: disc; margin-left: 20px;">
-                                <?php foreach ($files as $file) : ?>
-                                    <li>
-                                        <a href="<?php echo esc_url($file['url']); ?>" target="_blank">
-                                            <?php echo esc_html($file['label'] ? $file['label'] : basename($file['url'])); ?>
-                                        </a>
-                                    </li>
+                            <div class="bytemash-files-grid">
+                                <?php foreach ($files as $file) : 
+                                    $is_img = preg_match('/\.(jpg|jpeg|png|gif|webp)$/i', $file['url']);
+                                ?>
+                                    <div class="bytemash-file-item">
+                                        <div class="bytemash-file-preview">
+                                            <?php if ($is_img) : ?>
+                                                <img src="<?php echo esc_url($file['url']); ?>" alt="File Preview">
+                                            <?php else : ?>
+                                                <span class="dashicons dashicons-media-document bytemash-file-icon"></span>
+                                            <?php endif; ?>
+                                        </div>
+                                        <div class="bytemash-file-actions">
+                                            <a href="<?php echo esc_url($file['url']); ?>" target="_blank" download>
+                                                <span class="dashicons dashicons-download"></span>
+                                                <?php echo esc_html($file['label'] ? $file['label'] : basename($file['url'])); ?>
+                                            </a>
+                                        </div>
+                                    </div>
                                 <?php endforeach; ?>
-                            </ul>
+                            </div>
                         <?php endif; ?>
                     </div>
                     <?php endif; ?>

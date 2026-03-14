@@ -125,6 +125,8 @@ class ByteMash_Woo_Sync {
             require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'admin/class-admin-dashboard.php';
             require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'admin/class-admin-tools.php';
             require_once BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'includes/class-quote-admin.php';
+            // Instantiate early so admin_enqueue_scripts hook works
+            ByteMash_Quote_Admin::get_instance();
         }
 
         // Frontend hooks for stock modal
@@ -2130,8 +2132,10 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         foreach ($brandings as $idx => $pos) {
             $posName = esc_html($pos['positionName'] ?? '');
             $posCode = esc_attr($pos['positionCode'] ?? ('pos_' . $idx));
-            echo '<div class="bytemash-branding-group">';
-            echo '<strong>' . $posName . '</strong>';
+            echo '<div class="bytemash-branding-group" style="margin-bottom: 15px;">';
+            echo '<label for="bytemash_branding_' . $posCode . '" style="display:block; font-weight:bold; margin-bottom:5px;">' . $posName . '</label>';
+            echo '<select name="bytemash_brandings[' . $posCode . '][]" id="bytemash_branding_' . $posCode . '" class="bytemash-branding-select" style="width: 100%; max-width: 400px; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">';
+            echo '<option value="">' . esc_html__('— Select Option —', 'bytemash-woo-sync') . '</option>';
             if (!empty($pos['method']) && is_array($pos['method'])) {
                 foreach ($pos['method'] as $midx => $method) {
                     $code = esc_attr($method['brandingCode'] ?? '');
@@ -2139,13 +2143,15 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                     $dept = esc_html($method['brandingDepartment'] ?? '');
                     $w = esc_html($method['maxPrintingSizeWidth'] ?? '');
                     $h = esc_html($method['maxPrintingSizeHeight'] ?? '');
-                    $field_id = 'bytemash_brandings_' . $posCode . '_' . $code . '_' . $midx;
-                    echo '<label style="display:block; margin:6px 0;">';
-                    echo '<input type="checkbox" name="bytemash_brandings[' . $posCode . '][]" value="' . $code . '" id="' . $field_id . '" /> ';
-                    echo $name . ' (' . $dept . ', ' . $code . ') - ' . $w . ' x ' . $h . ' mm';
-                    echo '</label>';
+                    
+                    $label = $name . ' (' . $dept . ')';
+                    if ($w && $h) {
+                        $label .= ' - ' . $w . 'x' . $h . 'mm';
+                    }
+                    echo '<option value="' . $code . '" data-name="' . esc_attr($name) . '">' . esc_html($label) . '</option>';
                 }
             }
+            echo '</select>';
             echo '</div>';
         }
         echo '</div>';
@@ -2183,12 +2189,19 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         $branding_options_rendered = true;
         echo '<div class="bytemash-branding-options">';
         echo '<h4>' . esc_html__('Branding Options', 'bytemash-woo-sync') . '</h4>';
-        echo '<p>' . esc_html__('Select one or more branding methods. Details for each method are shown for informed decisions.', 'bytemash-woo-sync') . '</p>';
+        echo '<p>' . esc_html__('Select one or more branding methods. You can add multiple branding options for different positions.', 'bytemash-woo-sync') . '</p>';
+        
+        echo '<div id="bytemash-branding-repeater-container">';
+        // First initial row
+        echo '<div class="bytemash-branding-row" style="margin-bottom: 10px; display: flex; align-items: center; gap: 10px;">';
+        echo '<select name="bytemash_master_branding[]" class="bytemash-master-branding-select" style="flex: 1; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">';
+        echo '<option value="">' . esc_html__('— Select Branding —', 'bytemash-woo-sync') . '</option>';
+        
+        $options_html = '';
         foreach ($brandings as $idx => $pos) {
             $posName = esc_html($pos['positionName'] ?? '');
             $posCode = esc_attr($pos['positionCode'] ?? ('pos_' . $idx));
-            echo '<div class="bytemash-branding-group">';
-            echo '<strong>' . $posName . '</strong>';
+            
             if (!empty($pos['method']) && is_array($pos['method'])) {
                 foreach ($pos['method'] as $midx => $method) {
                     $code = esc_attr($method['brandingCode'] ?? '');
@@ -2196,15 +2209,35 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                     $dept = esc_html($method['brandingDepartment'] ?? '');
                     $w = esc_html($method['maxPrintingSizeWidth'] ?? '');
                     $h = esc_html($method['maxPrintingSizeHeight'] ?? '');
-                    $field_id = 'bytemash_brandings_' . $posCode . '_' . $code . '_' . $midx;
-                    echo '<label style="display:block; margin:6px 0;">';
-                    echo '<input type="checkbox" name="bytemash_brandings[' . $posCode . '][]" value="' . $code . '" id="' . $field_id . '" /> ';
-                    echo $name . ' (' . $dept . ', ' . $code . ') - ' . $w . ' x ' . $h . ' mm';
-                    echo '</label>';
+                    
+                    $val = $posCode . '|' . $code;
+                    $label = $posName . ' - ' . $name . ' (' . $dept . ')';
+                    if ($w && $h) {
+                        $label .= ' - ' . $w . 'x' . $h . 'mm';
+                    }
+                    $options_html .= '<option value="' . $val . '" data-pos-name="' . $posName . '" data-branding-name="' . esc_attr($name) . '">' . esc_html($label) . '</option>';
                 }
             }
-            echo '</div>';
         }
+        echo $options_html;
+        echo '</select>';
+        echo '<button type="button" class="bytemash-remove-branding" style="display:none; background:none; border:none; color:red; cursor:pointer; font-size:18px;">&times;</button>';
+        echo '</div>';
+        echo '</div>';
+        
+        echo '<button type="button" id="bytemash-add-branding-option" class="button" style="margin-top: 5px;">' . esc_html__('+ Add Another Branding Option', 'bytemash-woo-sync') . '</button>';
+        
+        // Hidden template for JS
+        echo '<script type="text/template" id="bytemash-branding-row-template">';
+        echo '<div class="bytemash-branding-row" style="margin-bottom: 10px; display: flex; align-items: center; gap: 10px;">';
+        echo '<select name="bytemash_master_branding[]" class="bytemash-master-branding-select" style="flex: 1; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">';
+        echo '<option value="">' . esc_html__('— Select Branding —', 'bytemash-woo-sync') . '</option>';
+        echo $options_html;
+        echo '</select>';
+        echo '<button type="button" class="bytemash-remove-branding" style="background:none; border:none; color:red; cursor:pointer; font-size:18px;">&times;</button>';
+        echo '</div>';
+        echo '</script>';
+        
         echo '</div>';
     }
 

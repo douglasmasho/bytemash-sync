@@ -1,9 +1,8 @@
-/* Quote Cart Styles */
+/* Modern Quote Cart Styles */
 .bytemash-quote-cart-container {
-    padding: 20px;
-    background: #fff;
-    border-radius: 8px;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.1);
+    padding: 0;
+    max-width: 900px;
+    margin: 0 auto;
 }
 
 #bytemash-quote-cart-loading {
@@ -13,10 +12,258 @@
     color: #666;
 }
 
+/* Items Container */
+.bytemash-quote-cart-items-container {
+    display: flex;
+    flex-direction: column;
+    gap: 20px;
+    margin-bottom: 40px;
+}
+
+/* Card Styling */
+.bytemash-quote-cart-card {
+    background: #fff;
+    border: 1px solid #eaeaea;
+    border-radius: 16px;
+    padding: 24px;
+    box-shadow: 0 4px 12px rgba(0,0,0,0.03);
+    transition: transform 0.2s ease, box-shadow 0.2s ease;
+}
+
+.bytemash-quote-cart-card:hover {
+    box-shadow: 0 6px 16px rgba(0,0,0,0.06);
+    transform: translateY(-2px);
+}
+
+.bytemash-quote-card-main {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 30px;
+}
+
+/* Info Section (Left) */
+.bytemash-quote-card-info {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+}
+
+.bytemash-quote-card-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    margin-bottom: 8px;
+}
+
+.bytemash-quote-card-header h3.product-name {
+    margin: 0;
+    font-size: 18px;
+    font-weight: 500;
+    line-height: 1.3;
+}
+
+.bytemash-quote-card-header h3.product-name a {
+    color: #333;
+    text-decoration: none;
+}
+
+.bytemash-cart-sku {
+    font-size: 12px;
+    color: #888;
+    margin-bottom: 16px;
+    font-family: monospace;
+}
+
+.bytemash-cart-item-attributes {
+    margin-bottom: 16px;
+}
+
+.bytemash-cart-attr {
+    display: inline-block;
+    font-size: 13px;
+    background: #f5f5f5;
+    padding: 4px 10px;
+    border-radius: 20px;
+    margin-right: 8px;
+    color: #555;
+}
+
+/* Controls (Quantity + Attributes + Brandings) */
+.bytemash-quote-card-controls {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 14px;
+    margin-top: 14px;
+}
+
+/* Vertical Layout Controls */
+.bytemash-quantity-field,
+.bytemash-cart-attr-field,
+.bytemash-cart-item-brandings-edit {
+    display: flex;
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 6px;
+    width: 100%;
+}
+
+.bytemash-quantity-field label,
+.bytemash-cart-item-brandings-edit label,
+.bytemash-cart-attr-field label {
+    font-size: 11px;
+    text-transform: uppercase;
+    color: #888;
+    font-weight: 600;
+    margin: 0;
+    padding-left: 4px;
+}
+
+.bytemash-quantity-wrapper {
+    display: flex;
+    align-items: center;
+    border: 1px solid #dfdfdf;
+    border-radius: 30px;
+    overflow: hidden;
+    height: 40px;
+    width: fit-content;
+}
+
+/* Branding Repeater Styles */
+.bytemash-cart-branding-rows {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.bytemash-cart-branding-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+}
+
+.bytemash-cart-remove-branding {
+    background: none;
+    border: none;
+    color: #ff4d4d;
+    font-size: 20px;
+    cursor: pointer;
+    padding: 0;
+    line-height: 1;
+}
+
+.bytemash-cart-add-branding {
+    align-self: flex-start;
+    background: none;
+    border: 1px dashed #ccc;
+    color: #666;
+    padding: 6px 14px;
+    border-radius: 20px;
+    font-size: 12px;
+    cursor: pointer;
+    margin-top: 5px;
+    transition: all 0.2s;
+}
+
+.bytemash-cart-add-branding:hover {
+    border-color: #888;
+    color: #333;
+    background: #f9f9f9;
+}
+
+.bytemash-cart-branding-field label,
+.bytemash-cart-attr-field label {
+    font-size: 11px;
+    text-transform: uppercase;
+    color: #888;
+    font-weight: 600;
+    margin-left: 12px;
+}
+
+.bytemash-cart-branding-field select,
+.bytemash-cart-attr-select,
+.bytemash-cart-master-branding-select {
+    -webkit-appearance: none;
+    -moz-appearance: none;
+    appearance: none;
+    background-color: #fff;
+    border: 1px solid #dfdfdf;
+    border-radius: 30px;
+    padding: 0 32px 0 16px;
+    height: 40px;
+    font-size: 14px;
+    color: #444;
+    cursor: pointer;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath fill='%23333' d='M6 8L1 3h10z'/%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 14px center;
+    min-width: 140px;
+    max-width: 340px;
+}
+
+.bytemash-cart-branding-field select:focus,
+.bytemash-cart-attr-select:focus,
+.bytemash-cart-master-branding-select:focus {
+    outline: none;
+    border-color: #aaa;
+}
+
+/* Image Section (Right) */
+.bytemash-quote-card-image {
+    width: 120px;
+    flex-shrink: 0;
+    display: flex;
+    flex-direction: column;
+    gap: 10px;
+    align-items: center;
+}
+
+.bytemash-main-image,
+.bytemash-variation-image {
+    width: 120px;
+    height: 120px;
+    border-radius: 8px;
+    overflow: hidden;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f9f9f9;
+    border: 1px solid #eee;
+}
+
+.bytemash-quote-card-image img {
+    max-width: 100%;
+    max-height: 100%;
+    object-fit: contain;
+}
+
+/* Remove button */
+.bytemash-remove-item {
+    color: #aaa;
+    font-size: 24px;
+    line-height: 1;
+    text-decoration: none;
+    transition: color 0.2s;
+}
+
+.bytemash-remove-item:hover {
+    color: #ff4d4d;
+}
+
+/* Form Styles */
 .bytemash-quote-cart-form {
+    background: #fafafa;
+    border: 1px solid #eee;
+    padding: 30px;
+    border-radius: 16px;
     margin-top: 40px;
-    padding-top: 30px;
-    border-top: 2px solid #eee;
+}
+
+.bytemash-quote-cart-form h3 {
+    margin-top: 0;
+    margin-bottom: 24px;
+    font-size: 20px;
 }
 
 .bytemash-file-uploads {
@@ -24,30 +271,100 @@
 }
 
 .bytemash-file-upload-row {
-    margin-bottom: 10px;
+    margin-bottom: 12px;
     display: flex;
     justify-content: space-between;
+    gap: 15px;
+    align-items: center; /* keep preview box aligned */
 }
 
-.bytemash-file-upload-row input {
-    width: 48%;
+.bytemash-file-upload-row input[type="text"],
+.bytemash-file-upload-row input[type="file"] {
+    flex: 1;
+    padding: 10px;
+    border: 1px solid #ddd;
+    border-radius: 6px;
+    font-size: 14px;
 }
 
-.bytemash-cart-item-brandings, .bytemash-cart-item-attributes {
-    font-size: 0.85em;
-    color: #666;
-    margin-top: 5px;
-    background: #f9f9f9;
-    padding: 5px;
-    border-radius: 4px;
+.bytemash-file-upload-row input[type="file"] {
+    padding: 7px; /* File inputs have inherent padding */
+    background: #fff;
+    cursor: pointer;
 }
 
-.bytemash-remove-item {
-    color: red;
-    font-weight: bold;
-    font-size: 1.5em;
-    text-decoration: none;
+/* Button Styling for the Quote Cart Form */
+#bytemash-add-file-row {
+    background-color: #f1f5f9;
+    color: #475569;
+    border: 1px dashed #cbd5e1;
+    border-radius: 6px;
+    padding: 8px 16px;
+    font-size: 14px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    margin-top: 10px;
+    margin-bottom: 5px;
 }
-.bytemash-remove-item:hover {
-    color: darkred;
+
+#bytemash-add-file-row:hover {
+    background-color: #e2e8f0;
+    border-color: #94a3b8;
+    color: #1e293b;
+}
+
+#bytemash-submit-quote-btn {
+    background-color: #0f172a;
+    color: #ffffff;
+    border: none;
+    border-radius: 8px;
+    padding: 14px 28px;
+    font-size: 16px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    width: 100%;
+    margin-top: 20px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+}
+
+#bytemash-submit-quote-btn:hover {
+    background-color: #1e293b;
+    transform: translateY(-1px);
+    box-shadow: 0 10px 15px -3px rgba(0, 0, 0, 0.1), 0 4px 6px -2px rgba(0, 0, 0, 0.05);
+}
+
+#bytemash-submit-quote-btn:disabled {
+    background-color: #94a3b8;
+    cursor: not-allowed;
+    transform: none;
+    box-shadow: none;
+}
+
+/* Responsive */
+@media (max-width: 600px) {
+    .bytemash-quote-card-main {
+        flex-direction: column-reverse;
+        align-items: center;
+        text-align: center;
+    }
+    
+    .bytemash-quote-card-header {
+        flex-direction: column;
+        align-items: center;
+        gap: 10px;
+    }
+    
+    .bytemash-quote-card-controls {
+        justify-content: center;
+    }
+    
+    .bytemash-file-upload-row {
+        flex-direction: column;
+    }
 }

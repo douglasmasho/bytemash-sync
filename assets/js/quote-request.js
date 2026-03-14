@@ -32,46 +32,43 @@ jQuery(document).ready(function($) {
     /**
      * Get selected color
      */
+    function getSelectedAttributes() {
+        const attrs = {};
+        $('select[name^="attribute_"]').each(function() {
+            const name = $(this).attr('name');
+            const val = $(this).val();
+            if (val) {
+                attrs[name] = val;
+            }
+        });
+        return attrs;
+    }
+
     function getSelectedColor() {
-        // Try color attribute select
-        const colorSelect = $('select[name="attribute_color"]').val();
-        if (colorSelect) {
-            console.log('[Quote Request] Color from select:', colorSelect);
-            return colorSelect;
+        const attrs = getSelectedAttributes();
+        for (let name in attrs) {
+            if (name.toLowerCase().includes('color')) return attrs[name];
         }
         
-        // Try color swatch
+        // Try color swatch as backup
         const selectedSwatch = $('.bytemash-color-swatch.selected');
         if (selectedSwatch.length > 0) {
-            const color = selectedSwatch.attr('data-color-value') || selectedSwatch.attr('data-color-name') || '';
-            console.log('[Quote Request] Color from swatch:', color);
-            return color;
+            return selectedSwatch.attr('data-color-value') || selectedSwatch.attr('data-color-name') || '';
         }
-        
-        console.log('[Quote Request] No color selected');
         return '';
     }
     
-    /**
-     * Get selected size
-     */
     function getSelectedSize() {
-        // Try size attribute select
-        const sizeSelect = $('select[name="attribute_size"]').val();
-        if (sizeSelect) {
-            console.log('[Quote Request] Size from select:', sizeSelect);
-            return sizeSelect;
+        const attrs = getSelectedAttributes();
+        for (let name in attrs) {
+            if (name.toLowerCase().includes('size')) return attrs[name];
         }
         
-        // Try size button
+        // Try size button as backup
         const selectedButton = $('.bytemash-size-button.selected');
         if (selectedButton.length > 0) {
-            const size = selectedButton.attr('data-size-value') || selectedButton.text() || '';
-            console.log('[Quote Request] Size from button:', size);
-            return size;
+            return selectedButton.attr('data-size-value') || selectedButton.text() || '';
         }
-        
-        console.log('[Quote Request] No size selected');
         return '';
     }
     
@@ -81,24 +78,23 @@ jQuery(document).ready(function($) {
     function getSelectedBrandings() {
         const brandings = {};
         
-        // Get all checked branding checkboxes
-        const checkedBrandings = $('input[name^="bytemash_brandings["]:checked');
-        console.log('[Quote Request] Found branding checkboxes:', checkedBrandings.length);
-        
-        checkedBrandings.each(function() {
-            const $input = $(this);
-            const name = $input.attr('name');
-            
-            // Extract position code from name like "bytemash_brandings[A][]"
-            const match = name.match(/bytemash_brandings\[([^\]]+)\]/);
-            if (match && match[1]) {
-                const posCode = match[1];
-                const code = $input.val();
-                
-                if (!brandings[posCode]) {
-                    brandings[posCode] = [];
+        // Get all master branding dropdowns
+        $('select.bytemash-master-branding-select').each(function() {
+            const masterVal = $(this).val();
+            if (masterVal) {
+                // masterVal is "posCode|brandingCode"
+                const parts = masterVal.split('|');
+                if (parts.length === 2) {
+                    const posCode = parts[0];
+                    const brandingCode = parts[1];
+                    
+                    if (!brandings[posCode]) {
+                        brandings[posCode] = [];
+                    }
+                    if (!brandings[posCode].includes(brandingCode)) {
+                        brandings[posCode].push(brandingCode);
+                    }
                 }
-                brandings[posCode].push(code);
             }
         });
         
@@ -137,19 +133,20 @@ jQuery(document).ready(function($) {
         const $button = $(this);
         console.log('[Quote Request] Button element:', $button);
         
-        // Find the message div - could be in different containers
+        // Clean up theme-injected cart link inside the button if AJAX cart triggers
+        $button.find('.added_to_cart').remove();
+        $button.removeClass('added loading');
+
+        // Find the message div - always place strictly after the button
         let $message = $('#bytemash-quote-request-message');
         if ($message.length === 0) {
             $message = $button.siblings('[id*="quote-request-message"]').first();
         }
         if ($message.length === 0) {
-            $message = $button.closest('div').find('[id*="quote-request-message"]').first();
-        }
-        if ($message.length === 0) {
             // Create message div if it doesn't exist
-            $message = $('<div id="bytemash-quote-request-message" style="margin-top: 10px; display: none;"></div>');
+            $message = $('<div id="bytemash-quote-request-message" style="margin-top: 15px; display: none; width: 100%; clear: both;"></div>');
             $button.after($message);
-            console.log('[Quote Request] Created message div');
+            console.log('[Quote Request] Created message div after button');
         }
         
         // Get product data
@@ -347,5 +344,26 @@ jQuery(document).ready(function($) {
     $(document).on('found_variation', '.variations_form', consolidateQuoteButtons);
     $(document).on('reset_data', '.variations_form', consolidateQuoteButtons);
     $(document).on('woocommerce_variation_has_changed', '.variations_form', consolidateQuoteButtons);
+
+    // BRANDING REPEATER LOGIC
+    $(document).on('click', '#bytemash-add-branding-option', function(e) {
+        e.preventDefault();
+        const template = $('#bytemash-branding-row-template').html();
+        $('#bytemash-branding-repeater-container').append(template);
+        
+        // Show remove buttons if more than 1
+        $('.bytemash-remove-branding').show();
+    });
+
+    $(document).on('click', '.bytemash-remove-branding', function(e) {
+        e.preventDefault();
+        $(this).closest('.bytemash-branding-row').remove();
+        
+        // If only 1 remains, hide its remove button
+        const $rows = $('.bytemash-branding-row');
+        if ($rows.length === 1) {
+            $rows.find('.bytemash-remove-branding').hide();
+        }
+    });
 });
 

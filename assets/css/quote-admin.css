@@ -1,0 +1,467 @@
+/* Modern Quote Admin Styles */
+.bytemash-modern-admin {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Oxygen-Sans, Ubuntu, Cantarell, "Helvetica Neue", sans-serif;
+    color: #1e293b;
+}
+
+.bytemash-admin-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+}
+
+.bytemash-admin-header h1 {
+    font-size: 24px;
+    font-weight: 600;
+    margin: 0;
+}
+
+/* Base Card & Table Styles */
+.bytemash-quote-table-container,
+.bytemash-card,
+.bytemash-modern-table {
+    background: #ffffff;
+    border-radius: 12px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.03);
+    border: 1px solid #e2e8f0;
+    overflow: hidden;
+}
+
+.bytemash-modern-table {
+    width: 100%;
+    border-collapse: collapse;
+}
+
+.bytemash-modern-table th {
+    background: #f8fafc;
+    color: #475569;
+    font-weight: 600;
+    text-align: left;
+    padding: 16px;
+    border-bottom: 1px solid #e2e8f0;
+    font-size: 13px;
+}
+
+.bytemash-modern-table td {
+    padding: 16px;
+    border-bottom: 1px solid #f1f5f9;
+    vertical-align: middle;
+}
+
+.bytemash-modern-table tbody tr:last-child td {
+    border-bottom: none;
+}
+
+.bytemash-modern-table tbody tr:hover {
+    background: #f8fafc;
+}
+
+/* Expandable Rows */
+.bytemash-expand-toggle {
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    color: #94a3b8;
+    padding: 8px;
+    border-radius: 6px;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    transition: all 0.2s;
+}
+
+.bytemash-expand-toggle:hover {
+    background: #f1f5f9;
+    color: #0f172a;
+}
+
+.bytemash-expand-toggle.active {
+    background: #e2e8f0;
+    color: #0f172a;
+}
+
+tr.bytemash-item-main-row td {
+    transition: background-color 0.2s;
+}
+
+tr.bytemash-item-main-row:hover td {
+    background-color: #f8fafc;
+}
+
+.bytemash-expanded-row td {
+    padding: 0;
+    border-bottom: 1px solid #e2e8f0 !important;
+}
+
+.bytemash-expanded-content {
+    background: #f8fafc;
+    padding: 24px;
+    display: flex;
+    gap: 32px;
+    border-top: 1px dashed #cbd5e1;
+}
+
+.expanded-images {
+    flex: 0 0 200px;
+}
+
+.expanded-details {
+    flex: 1;
+}
+
+.expanded-image-card {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 12px;
+    text-align: center;
+}
+
+.expanded-image-card h4 {
+    margin-top: 0;
+    margin-bottom: 12px;
+    font-size: 13px;
+    color: #64748b;
+    border-bottom: 1px solid #f1f5f9;
+    padding-bottom: 8px;
+}
+
+.expanded-image-card img {
+    max-width: 100%;
+    height: auto;
+    border-radius: 4px;
+}
+
+.branding-line-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 10px 12px;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.branding-line-item:last-child {
+    border-bottom: none;
+}
+
+.branding-label {
+    font-weight: 500;
+    color: #475569;
+}
+
+.branding-value {
+    color: #0f172a;
+    font-weight: 600;
+}
+
+.branding-badge {
+    display: inline-flex;
+    align-items: center;
+    background: #f1f5f9;
+    color: #475569;
+    padding: 4px 8px;
+    border-radius: 4px;
+    font-size: 12px;
+    font-weight: 500;
+}
+
+.bytemash-guide-btn {
+    display: inline-flex;
+    align-items: center;
+    background: #0f172a;
+    color: #ffffff;
+    padding: 8px 16px;
+    border-radius: 6px;
+    text-decoration: none;
+    font-weight: 500;
+    font-size: 13px;
+    transition: all 0.2s;
+}
+
+.bytemash-guide-btn:hover {
+    background: #334155;
+    color: #ffffff;
+}
+
+.bytemash-guide-btn .dashicons {
+    margin-right: 6px;
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+}
+
+.bytemash-guide-btn.logo24 {
+    background: #059669;
+}
+
+.bytemash-guide-btn.logo24:hover {
+    background: #047857;
+}
+
+/* List Table Specifics */
+.quote-id-col a {
+    color: #0f172a;
+    text-decoration: none;
+    font-weight: 600;
+}
+
+.product-info-flex,
+.customer-info-flex {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+.product-img-tiny {
+    width: 40px;
+    height: 40px;
+    border-radius: 8px;
+    overflow: hidden;
+    background: #f1f5f9;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-shrink: 0;
+}
+
+.product-img-tiny img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.more-items {
+    color: #64748b;
+    font-size: 12px;
+    margin-left: 6px;
+}
+
+.customer-info-flex img {
+    border-radius: 50%;
+}
+
+.customer-text strong {
+    display: block;
+    color: #1e293b;
+    font-size: 14px;
+}
+
+.customer-email-sub {
+    color: #64748b;
+    font-size: 12px;
+}
+
+/* Status Pills */
+.bytemash-status-pill {
+    display: inline-flex;
+    align-items: center;
+    padding: 4px 10px;
+    border-radius: 100px;
+    font-size: 12px;
+    font-weight: 600;
+    gap: 6px;
+    white-space: nowrap;
+}
+
+.bytemash-status-pill .dot {
+    width: 6px;
+    height: 6px;
+    border-radius: 50%;
+    background: currentColor;
+}
+
+/* Generic Fallback Statuses */
+.status-quote-request, .status-pending { background: #fef3c7; color: #b45309; }
+.status-confirmed, .status-processing, .status-on-hold { background: #e0e7ff; color: #4338ca; }
+.status-delivered, .status-completed { background: #dcfce3; color: #15803d; }
+.status-cancelled, .status-failed, .status-refunded { background: #fee2e2; color: #b91c1c; }
+
+/* Action Buttons */
+.bytemash-row-actions {
+    display: flex;
+    gap: 8px;
+}
+
+.action-btn {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border-radius: 6px;
+    text-decoration: none;
+    transition: all 0.2s;
+    background: #f1f5f9;
+    color: #64748b;
+}
+
+.action-btn:hover {
+    background: #e2e8f0;
+    color: #0f172a;
+}
+
+.action-btn.delete-btn:hover {
+    background: #fee2e2;
+    color: #ef4444;
+}
+
+.action-btn .dashicons {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+}
+
+/* Details Page Grid Layout */
+.bytemash-details-grid {
+    display: grid;
+    grid-template-columns: 2fr 1fr;
+    gap: 24px;
+    margin-top: 24px;
+}
+
+.bytemash-details-main > .bytemash-card,
+.bytemash-details-sidebar > .bytemash-card {
+    margin-bottom: 24px;
+}
+.bytemash-details-main > .bytemash-card:last-child,
+.bytemash-details-sidebar > .bytemash-card:last-child {
+    margin-bottom: 0;
+}
+
+.bytemash-card {
+    padding: 24px;
+}
+
+.bytemash-card h2, 
+.bytemash-card h3 {
+    margin-top: 0;
+    margin-bottom: 20px;
+    font-size: 18px;
+    font-weight: 600;
+    color: #0f172a;
+    border-bottom: 1px solid #f1f5f9;
+    padding-bottom: 12px;
+}
+
+.bytemash-card h4 {
+    margin: 20px 0 10px;
+    font-size: 15px;
+    color: #1e293b;
+}
+
+/* Email Composer Overrides */
+.email-composer .form-group {
+    margin-bottom: 16px;
+}
+.email-composer label {
+    display: block;
+    margin-bottom: 6px;
+    font-weight: 500;
+    color: #475569;
+}
+.email-composer .regular-text {
+    width: 100%;
+    border: 1px solid #cbd5e1;
+    border-radius: 6px;
+    padding: 8px 12px;
+}
+
+/* Sidebar Specifics */
+.customer-avatar {
+    text-align: center;
+    margin-bottom: 16px;
+}
+.customer-avatar img {
+    border-radius: 50%;
+    margin: 0 auto;
+}
+.customer-card p,
+.meta-card p {
+    margin: 8px 0;
+    color: #475569;
+}
+.customer-card strong,
+.meta-card strong {
+    color: #1e293b;
+}
+
+/* Uploaded Files Grid */
+.bytemash-files-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(120px, 1fr));
+    gap: 16px;
+    margin-top: 16px;
+}
+
+.bytemash-file-item {
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    overflow: hidden;
+    position: relative;
+    background: #f8fafc;
+    display: flex;
+    flex-direction: column;
+}
+
+.bytemash-file-preview {
+    height: 100px;
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #f1f5f9;
+    border-bottom: 1px solid #e2e8f0;
+}
+
+.bytemash-file-preview img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+}
+
+.bytemash-file-icon {
+    font-size: 32px;
+    color: #94a3b8;
+}
+
+.bytemash-file-actions {
+    padding: 10px;
+    text-align: center;
+    background: #ffffff;
+}
+
+.bytemash-file-actions a {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    padding: 6px 12px;
+    background: #f1f5f9;
+    color: #0f172a;
+    text-decoration: none;
+    border-radius: 6px;
+    font-size: 13px;
+    font-weight: 500;
+    transition: all 0.2s;
+    width: 100%;
+    box-sizing: border-box;
+    border: 1px solid #e2e8f0;
+}
+
+.bytemash-file-actions a:hover {
+    background: #e2e8f0;
+    border-color: #cbd5e1;
+}
+
+.bytemash-file-actions a .dashicons {
+    font-size: 16px;
+    width: 16px;
+    height: 16px;
+    margin-right: 6px;
+}
+
+/* Responsive */
+@media (max-width: 900px) {
+    .bytemash-details-grid {
+        grid-template-columns: 1fr;
+    }
+}
