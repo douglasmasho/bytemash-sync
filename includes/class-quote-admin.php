@@ -88,10 +88,11 @@ class ByteMash_Quote_Admin {
                 </div>
             <?php endif; ?>
             
-            <div class="bytemash-quote-filters">
-                <ul class="subsubsub">
-                    <li class="all"><a href="?page=bytemash-quote-requests&status=wc-quote-request" class="current"><?php esc_html_e('All Quotes', 'bytemash-woo-sync'); ?> <span class="count">(<?php echo esc_html($total_posts); ?>)</span></a></li>
-                </ul>
+            <div class="bytemash-quote-filters" style="margin-bottom: 15px; margin-top: 10px;">
+                <a href="?page=bytemash-quote-requests&status=wc-quote-request" style="font-size: 14px; text-decoration: none; color: #0f172a; font-weight: 500;">
+                    <?php esc_html_e('All Quotes', 'bytemash-woo-sync'); ?> 
+                    <span style="color: #64748b; font-weight: normal;">(<?php echo esc_html($total_posts); ?>)</span>
+                </a>
             </div>
 
             <div class="bytemash-quote-table-container">
@@ -477,9 +478,51 @@ class ByteMash_Quote_Admin {
                                 <div class="form-actions">
                                     <button type="submit" class="button button-primary button-large"><?php esc_html_e('Send Email', 'bytemash-woo-sync'); ?></button>
                                     <span class="spinner"></span>
-                                    <span class="response-msg"></span>
+                                    <span class="response-msg" style="margin-left: 10px; font-weight: 500;"></span>
                                 </div>
                             </form>
+                            
+                            <script>
+                            jQuery(document).ready(function($) {
+                                $('#bytemash-quote-reply-form').on('submit', function(e) {
+                                    e.preventDefault();
+                                    
+                                    var $form = $(this);
+                                    var $btn = $form.find('button[type="submit"]');
+                                    var $spinner = $form.find('.spinner');
+                                    var $msg = $form.find('.response-msg');
+                                    
+                                    $btn.prop('disabled', true);
+                                    $spinner.addClass('is-active');
+                                    $msg.text('').removeClass('error success');
+                                    
+                                    // Make sure TinyMCE content is saved back to textarea
+                                    if (typeof tinyMCE !== 'undefined' && tinyMCE.get('email_message')) {
+                                        tinyMCE.get('email_message').save();
+                                    }
+                                    
+                                    var formData = $form.serialize();
+                                    formData += '&action=bytemash_send_quote_email';
+                                    
+                                    $.post(ajaxurl, formData, function(res) {
+                                        $spinner.removeClass('is-active');
+                                        if (res.success) {
+                                            $msg.css('color', '#10b981').text(res.data.message);
+                                            setTimeout(function() {
+                                                window.location.reload();
+                                            }, 1500);
+                                        } else {
+                                            $btn.prop('disabled', false);
+                                            $msg.css('color', '#ef4444').text(res.data.message || 'An error occurred.');
+                                        }
+                                    }).fail(function() {
+                                        $spinner.removeClass('is-active');
+                                        $btn.prop('disabled', false);
+                                        $msg.css('color', '#ef4444').text('Server error. Please try again.');
+                                    });
+                                });
+                            });
+                            </script>
                         </div>
                     </div>
                 </div>
@@ -663,9 +706,14 @@ class ByteMash_Quote_Admin {
         }
 
         $to = $order->get_billing_email();
-        $headers = array('Content-Type: text/html; charset=UTF-8');
+        $admin_email = get_option('admin_email');
+        $site_name   = wp_specialchars_decode(get_bloginfo('name'), ENT_QUOTES);
+        $headers = array(
+            'Content-Type: text/html; charset=UTF-8',
+            'From: ' . $site_name . ' <' . $admin_email . '>'
+        );
         
-        $sent = wp_mail($to, $subject, $message, $headers);
+        $sent = wp_mail($to, $subject, wpautop($message), $headers);
 
         if ($sent) {
             $order->add_order_note(sprintf(__('Email sent to customer: %s', 'bytemash-woo-sync'), $subject));
