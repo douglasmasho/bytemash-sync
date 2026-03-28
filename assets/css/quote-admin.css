@@ -272,7 +272,7 @@ tr.bytemash-item-main-row:hover td {
 
 /* Generic Fallback Statuses */
 .status-quote-request, .status-pending { background: #fef3c7; color: #b45309; }
-.status-confirmed, .status-processing, .status-on-hold { background: #e0e7ff; color: #4338ca; }
+.status-confirmed, .status-processing, .status-on-hold { background: #fee2e2; color: #991b1b; }
 .status-delivered, .status-completed { background: #dcfce3; color: #15803d; }
 .status-cancelled, .status-failed, .status-refunded { background: #fee2e2; color: #b91c1c; }
 

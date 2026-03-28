@@ -226,8 +226,8 @@
 }
 
 .bytemash-stat-icon.amrod {
-    background: linear-gradient(135deg, #8b5cf6, #7c3aed);
-    box-shadow: 0 4px 12px rgba(139, 92, 246, 0.3);
+    background: linear-gradient(135deg, #ef4444, #d32f2f);
+    box-shadow: 0 4px 12px rgba(211, 47, 47, 0.3);
 }
 
 .bytemash-stat-icon.success {

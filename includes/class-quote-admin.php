@@ -604,16 +604,24 @@ class ByteMash_Quote_Admin {
     public function render_settings_page() {
         if (isset($_POST['bytemash_save_quote_settings'])) {
             check_admin_referer('bytemash_quote_settings_action');
-            update_option('bytemash_quote_admin_email', sanitize_email($_POST['admin_email']));
+            update_option('bytemash_quote_from_email', sanitize_email($_POST['from_email']));
+            update_option('bytemash_quote_admin_email', sanitize_text_field($_POST['admin_email']));
             update_option('bytemash_quote_email_subject', sanitize_text_field($_POST['email_subject']));
             update_option('bytemash_quote_email_template', wp_kses_post($_POST['email_template']));
+            update_option('bytemash_quote_customer_subject', sanitize_text_field($_POST['customer_subject']));
+            update_option('bytemash_quote_customer_template', wp_kses_post($_POST['customer_template']));
             update_option('bytemash_quote_cart_page_id', intval($_POST['quote_cart_page_id']));
             echo '<div class="notice notice-success is-dismissible"><p>' . esc_html__('Settings saved.', 'bytemash-woo-sync') . '</p></div>';
         }
 
         $admin_email = get_option('bytemash_quote_admin_email', get_option('admin_email'));
+        $from_email  = get_option('bytemash_quote_from_email', get_option('admin_email'));
         $subject = get_option('bytemash_quote_email_subject', 'New Quote Request from {site_name}');
-        $template = get_option('bytemash_quote_email_template', "Dear {customer_name},\n\nThank you for your quote request #{quote_number}.\n\nWe have reviewed your requirements and...\n\nBest regards,\n{site_name}");
+        $template = get_option('bytemash_quote_email_template', "New quote request received.\n\nCustomer: {customer_name}\nQuote #: {quote_number}\n\nPlease check the admin dashboard for details.");
+        
+        $customer_subject = get_option('bytemash_quote_customer_subject', 'Quote Request Received - #{quote_number}');
+        $customer_template = get_option('bytemash_quote_customer_template', "Dear {customer_name},\n\nWe have received your quote request #{quote_number}.\n\nOur team is currently reviewing your requirements and will get back to you shortly with pricing and availability.\n\nBest regards,\nThe {site_name} Team");
+        
         $quote_cart_page_id = get_option('bytemash_quote_cart_page_id', '');
         ?>
         <div class="wrap bytemash-quote-settings">
@@ -651,24 +659,64 @@ class ByteMash_Quote_Admin {
                         </td>
                     </tr>
                     <tr>
-                        <th scope="row"><label for="admin_email"><?php esc_html_e('Notification Email', 'bytemash-woo-sync'); ?></label></th>
+                        <th scope="row" colspan="2">
+                            <h3 style="margin: 20px 0 0 0; padding-bottom: 10px; border-bottom: 1px solid #ccc;"><?php esc_html_e('Global Email Settings', 'bytemash-woo-sync'); ?></h3>
+                        </th>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="from_email"><?php esc_html_e('From Email Address', 'bytemash-woo-sync'); ?></label></th>
                         <td>
-                            <input type="email" name="admin_email" id="admin_email" value="<?php echo esc_attr($admin_email); ?>" class="regular-text">
-                            <p class="description"><?php esc_html_e('Email address to receive new quote notifications.', 'bytemash-woo-sync'); ?></p>
+                            <input type="email" name="from_email" id="from_email" value="<?php echo esc_attr($from_email); ?>" class="regular-text">
+                            <p class="description"><?php esc_html_e('The email address that all quote emails will be sent FROM (e.g. sales@yourdomain.com).', 'bytemash-woo-sync'); ?></p>
+                        </td>
+                    </tr>
+                    
+                    <tr>
+                        <th scope="row" colspan="2">
+                            <h3 style="margin: 20px 0 0 0; padding-bottom: 10px; border-bottom: 1px solid #ccc;"><?php esc_html_e('Admin Notifications', 'bytemash-woo-sync'); ?></h3>
+                        </th>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="admin_email"><?php esc_html_e('Notification Emails', 'bytemash-woo-sync'); ?></label></th>
+                        <td>
+                            <input type="text" name="admin_email" id="admin_email" value="<?php echo esc_attr($admin_email); ?>" class="regular-text">
+                            <p class="description"><?php esc_html_e('Email addresses to receive new quote notifications. Separate multiple emails with commas.', 'bytemash-woo-sync'); ?></p>
                         </td>
                     </tr>
                     <tr>
-                        <th scope="row"><label for="email_subject"><?php esc_html_e('Email Subject (Default)', 'bytemash-woo-sync'); ?></label></th>
+                        <th scope="row"><label for="email_subject"><?php esc_html_e('Admin Email Subject', 'bytemash-woo-sync'); ?></label></th>
                         <td>
                             <input type="text" name="email_subject" id="email_subject" value="<?php echo esc_attr($subject); ?>" class="regular-text">
                         </td>
                     </tr>
                     <tr>
-                        <th scope="row"><label for="email_template"><?php esc_html_e('Email Body Template', 'bytemash-woo-sync'); ?></label></th>
+                        <th scope="row"><label for="email_template"><?php esc_html_e('Admin Email Template', 'bytemash-woo-sync'); ?></label></th>
                         <td>
-                            <textarea name="email_template" id="email_template" rows="10" class="large-text code"><?php echo esc_textarea($template); ?></textarea>
+                            <textarea name="email_template" id="email_template" rows="6" class="large-text code"><?php echo esc_textarea($template); ?></textarea>
                             <p class="description">
-                                <?php esc_html_e('Available placeholders: {customer_name}, {quote_number}, {site_name}, {product_table}', 'bytemash-woo-sync'); ?>
+                                <?php esc_html_e('Available placeholders: {customer_name}, {quote_number}, {site_name}', 'bytemash-woo-sync'); ?>
+                            </p>
+                        </td>
+                    </tr>
+
+                    <tr>
+                        <th scope="row" colspan="2">
+                            <h3 style="margin: 20px 0 0 0; padding-bottom: 10px; border-bottom: 1px solid #ccc;"><?php esc_html_e('Customer Confirmation Email', 'bytemash-woo-sync'); ?></h3>
+                            <p class="description"><?php esc_html_e('This email is sent to the customer automatically right after they submit a quote request.', 'bytemash-woo-sync'); ?></p>
+                        </th>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="customer_subject"><?php esc_html_e('Customer Email Subject', 'bytemash-woo-sync'); ?></label></th>
+                        <td>
+                            <input type="text" name="customer_subject" id="customer_subject" value="<?php echo esc_attr($customer_subject); ?>" class="regular-text">
+                        </td>
+                    </tr>
+                    <tr>
+                        <th scope="row"><label for="customer_template"><?php esc_html_e('Customer Email Template', 'bytemash-woo-sync'); ?></label></th>
+                        <td>
+                            <textarea name="customer_template" id="customer_template" rows="6" class="large-text code"><?php echo esc_textarea($customer_template); ?></textarea>
+                            <p class="description">
+                                <?php esc_html_e('Available placeholders: {customer_name}, {quote_number}, {site_name}', 'bytemash-woo-sync'); ?>
                             </p>
                         </td>
                     </tr>
@@ -706,11 +754,11 @@ class ByteMash_Quote_Admin {
         }
 
         $to = $order->get_billing_email();
-        $admin_email = get_option('admin_email');
+        $from_email  = get_option('bytemash_quote_from_email', get_option('admin_email'));
         $site_name   = wp_specialchars_decode(get_bloginfo('name'), ENT_QUOTES);
         $headers = array(
             'Content-Type: text/html; charset=UTF-8',
-            'From: ' . $site_name . ' <' . $admin_email . '>'
+            'From: ' . $site_name . ' <' . $from_email . '>'
         );
         
         $sent = wp_mail($to, $subject, wpautop($message), $headers);

@@ -601,35 +601,61 @@ class ByteMash_Quote_Cart {
     }
 
     private function send_notification_email($order, $customer_name, $instructions, $files) {
-        $admin_email = get_option('bytemash_quote_admin_email', get_option('admin_email'));
-        if (!is_email($admin_email)) return;
-
-        $subject_tmpl = get_option('bytemash_quote_email_subject', 'New Quote Request #{quote_number}');
-        $body_tmpl = get_option('bytemash_quote_email_template', "New quote request received.\n\nCustomer: {customer_name}\nQuote #: {quote_number}\n\nPlease check the admin dashboard for details.");
+        $admin_emails = get_option('bytemash_quote_admin_email', get_option('admin_email'));
         
+        // 1. Prepare shared replacements
         $replacements = array(
             '{customer_name}' => $customer_name,
-            '{quote_number}' => $order->get_order_number(),
-            '{site_name}' => get_bloginfo('name')
+            '{quote_number}'  => $order->get_order_number(),
+            '{site_name}'     => wp_specialchars_decode(get_bloginfo('name'), ENT_QUOTES)
         );
         
-        $subject = str_replace(array_keys($replacements), array_values($replacements), $subject_tmpl);
-        $message = str_replace(array_keys($replacements), array_values($replacements), $body_tmpl);
-        
-        // Append extra details
-        $message .= "\n\n--- Request Details ---\n";
-        $message .= "Email: " . $order->get_billing_email() . "\n";
-        if ($instructions) {
-            $message .= "Instructions: \n" . $instructions . "\n";
-        }
-        if (!empty($files)) {
-            $message .= "\nUploaded Files:\n";
-            foreach ($files as $f) {
-                $message .= "- " . $f['label'] . ": " . $f['url'] . "\n";
+        $from_email = get_option('bytemash_quote_from_email', get_option('admin_email'));
+        $headers = array(
+            'Content-Type: text/plain; charset=UTF-8',
+            'From: ' . $replacements['{site_name}'] . ' <' . $from_email . '>'
+        );
+
+        // 2. Send to Admin(s)
+        if (!empty($admin_emails)) {
+            $admin_subject_tmpl = get_option('bytemash_quote_email_subject', 'New Quote Request #{quote_number}');
+            $admin_body_tmpl    = get_option('bytemash_quote_email_template', "New quote request received.\n\nCustomer: {customer_name}\nQuote #: {quote_number}\n\nPlease check the admin dashboard for details.");
+            
+            $admin_subject = str_replace(array_keys($replacements), array_values($replacements), $admin_subject_tmpl);
+            $admin_message = str_replace(array_keys($replacements), array_values($replacements), $admin_body_tmpl);
+            
+            // Append extra details for the admin only
+            $admin_message .= "\n\n--- Request Details ---\n";
+            $admin_message .= "Email: " . $order->get_billing_email() . "\n";
+            if ($instructions) {
+                $admin_message .= "Instructions: \n" . $instructions . "\n";
+            }
+            if (!empty($files)) {
+                $admin_message .= "\nUploaded Files:\n";
+                foreach ($files as $f) {
+                    $admin_message .= "- " . $f['label'] . ": " . $f['url'] . "\n";
+                }
+            }
+            
+            // Split multiple emails
+            $emails = array_map('trim', explode(',', $admin_emails));
+            foreach ($emails as $email) {
+                if (is_email($email)) {
+                    wp_mail($email, $admin_subject, $admin_message, $headers);
+                }
             }
         }
-        
-        $headers = array('Content-Type: text/plain; charset=UTF-8');
-        wp_mail($admin_email, $subject, $message, $headers);
+
+        // 3. Send to Customer
+        $customer_email = $order->get_billing_email();
+        if (is_email($customer_email)) {
+            $customer_subject_tmpl = get_option('bytemash_quote_customer_subject', 'Quote Request Received - #{quote_number}');
+            $customer_body_tmpl    = get_option('bytemash_quote_customer_template', "Dear {customer_name},\n\nWe have received your quote request #{quote_number}.\n\nOur team is currently reviewing your requirements and will get back to you shortly with pricing and availability.\n\nBest regards,\nThe {site_name} Team");
+            
+            $customer_subject = str_replace(array_keys($replacements), array_values($replacements), $customer_subject_tmpl);
+            $customer_message = str_replace(array_keys($replacements), array_values($replacements), $customer_body_tmpl);
+            
+            wp_mail($customer_email, $customer_subject, $customer_message, $headers);
+        }
     }
 }
