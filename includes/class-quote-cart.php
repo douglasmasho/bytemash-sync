@@ -634,7 +634,24 @@ class ByteMash_Quote_Cart {
             
             // Use WC Footer
             wc_get_template('emails/email-footer.php');
-            return ob_get_clean();
+            $html = ob_get_clean();
+            
+            // Fix WooCommerce placeholders that are not replaced by raw wc_get_template
+            $replacements = array(
+                '{site_title}'   => wp_specialchars_decode(get_bloginfo('name'), ENT_QUOTES),
+                '{site_address}' => wp_specialchars_decode(get_bloginfo('name'), ENT_QUOTES),
+                '{site_url}'     => get_bloginfo('url'),
+                '{store_address}' => implode(', ', array_filter(array(
+                    WC()->countries->get_base_address(),
+                    WC()->countries->get_base_address_2(),
+                    WC()->countries->get_base_city(),
+                    WC()->countries->get_base_state(),
+                    WC()->countries->get_base_postcode(),
+                    WC()->countries->get_base_country()
+                )))
+            );
+            
+            return str_replace(array_keys($replacements), array_values($replacements), $html);
         };
 
         $headers = array(
