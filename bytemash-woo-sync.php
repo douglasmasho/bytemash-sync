@@ -180,6 +180,9 @@ class ByteMash_Woo_Sync {
             // Replace normal ordering flow with custom quote form
             add_action('woocommerce_before_add_to_cart_form', array($this, 'maybe_add_quote_mode_wrapper'), 5);
             add_action('woocommerce_before_add_to_cart_button', array($this, 'maybe_hide_add_to_cart_in_quote_mode'), 5);
+            
+            // Reordered UI components for Quote Mode
+            add_action('woocommerce_after_add_to_cart_form', array($this, 'render_quote_quantity_field'), 5); 
             add_action('woocommerce_after_add_to_cart_form', array($this, 'maybe_replace_add_to_cart_with_quote_button'), 15);
             add_action('woocommerce_after_add_to_cart_form', array($this, 'maybe_close_quote_mode_wrapper'), 20);
             
@@ -2258,16 +2261,15 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         
         // Mark as rendered to prevent duplicates
         $branding_options_rendered = true;
-        echo '<div class="bytemash-branding-options">';
-        echo '<h4>' . esc_html__('Branding Options', 'bytemash-woo-sync') . '</h4>';
-        echo '<p>' . esc_html__('Select one or more branding methods. You can add multiple branding options for different positions.', 'bytemash-woo-sync') . '</p>';
         
-        echo '<div id="bytemash-branding-repeater-container">';
-        // First initial row
-        echo '<div class="bytemash-branding-row" style="margin-bottom: 10px; display: flex; align-items: center; gap: 10px;">';
-        echo '<select name="bytemash_master_branding[]" class="bytemash-master-branding-select" style="flex: 1; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">';
-        echo '<option value="">' . esc_html__('— Select Branding —', 'bytemash-woo-sync') . '</option>';
+        // Add a class for premium styling
+        echo '<div class="bytemash-branding-selection-container premium-ui">';
+        echo '<h4 class="bytemash-branding-title">' . esc_html__('Select Branding Requirements', 'bytemash-woo-sync') . '</h4>';
+        echo '<p class="bytemash-branding-desc">' . esc_html__('Configure branding for this item. You can add multiple positions if required.', 'bytemash-woo-sync') . '</p>';
         
+        echo '<div id="bytemash-branding-repeater-container" class="bytemash-branding-repeater">';
+        
+        // Build options HTML once to reuse
         $options_html = '';
         foreach ($brandings as $idx => $pos) {
             $posName = esc_html($pos['positionName'] ?? '');
@@ -2281,35 +2283,65 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                     $w = esc_html($method['maxPrintingSizeWidth'] ?? '');
                     $h = esc_html($method['maxPrintingSizeHeight'] ?? '');
                     
+                    // Check for inclusive branding (some API responses use different keys)
+                    $is_inclusive = !empty($method['isInclusive']) || !empty($method['inclusive']) || !empty($method['isFree']);
+                    
                     $val = $posCode . '|' . $code;
-                    $label = $posName . ' - ' . $name . ' (' . $dept . ')';
-                    if ($w && $h) {
-                        $label .= ' - ' . $w . 'x' . $h . 'mm';
+                    $label = $posName . ' - ' . $name;
+                    
+                    if ($dept) {
+                        $label .= ' (' . $dept . ')';
                     }
-                    $options_html .= '<option value="' . $val . '" data-pos-name="' . $posName . '" data-branding-name="' . esc_attr($name) . '">' . esc_html($label) . '</option>';
+                    
+                    if ($w && $h) {
+                        $label .= ' [' . $w . 'x' . $h . 'mm]';
+                    }
+                    
+                    if ($is_inclusive) {
+                        $label .= ' — ' . __('Included', 'bytemash-woo-sync');
+                    }
+                    
+                    $options_html .= '<option value="' . $val . '" 
+                        data-pos-name="' . $posName . '" 
+                        data-branding-name="' . esc_attr($name) . '"
+                        data-inclusive="' . ($is_inclusive ? '1' : '0') . '">' . esc_html($label) . '</option>';
                 }
             }
         }
+
+        // First initial row
+        echo '<div class="bytemash-branding-row initial-row">';
+        echo '<div class="bytemash-select-wrapper">';
+        echo '<select name="bytemash_master_branding[]" class="bytemash-master-branding-select">';
+        echo '<option value="">' . esc_html__('— Choose Position & Method —', 'bytemash-woo-sync') . '</option>';
         echo $options_html;
         echo '</select>';
-        echo '<button type="button" class="bytemash-remove-branding" style="display:none; background:none; border:none; color:red; cursor:pointer; font-size:18px;">&times;</button>';
         echo '</div>';
+        echo '<button type="button" class="bytemash-remove-branding" title="' . esc_attr__('Remove', 'bytemash-woo-sync') . '" style="display:none;">&times;</button>';
         echo '</div>';
         
-        echo '<button type="button" id="bytemash-add-branding-option" class="button" style="margin-top: 5px;">' . esc_html__('+ Add Another Branding Option', 'bytemash-woo-sync') . '</button>';
+        echo '</div>'; // End repeater container
+        
+        echo '<div class="bytemash-branding-actions">';
+        echo '<button type="button" id="bytemash-add-branding-option" class="bytemash-add-btn">';
+        echo '<span class="icon">+</span> ' . esc_html__('Add Another Position', 'bytemash-woo-sync');
+        echo '</button>';
+        echo '</div>';
         
         // Hidden template for JS
         echo '<script type="text/template" id="bytemash-branding-row-template">';
-        echo '<div class="bytemash-branding-row" style="margin-bottom: 10px; display: flex; align-items: center; gap: 10px;">';
-        echo '<select name="bytemash_master_branding[]" class="bytemash-master-branding-select" style="flex: 1; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">';
-        echo '<option value="">' . esc_html__('— Select Branding —', 'bytemash-woo-sync') . '</option>';
+        echo '<div class="bytemash-branding-row" style="display:none;">'; // Start hidden for transition
+        echo '<div class="bytemash-select-wrapper">';
+        echo '<select name="bytemash_master_branding[]" class="bytemash-master-branding-select">';
+        echo '<option value="">' . esc_html__('— Choose Position & Method —', 'bytemash-woo-sync') . '</option>';
         echo $options_html;
         echo '</select>';
-        echo '<button type="button" class="bytemash-remove-branding" style="background:none; border:none; color:red; cursor:pointer; font-size:18px;">&times;</button>';
+        echo '</div>';
+        echo '<button type="button" class="bytemash-remove-branding" title="' . esc_attr__('Remove', 'bytemash-woo-sync') . '">&times;</button>';
         echo '</div>';
         echo '</script>';
         
-        echo '</div>';
+        echo '</div>'; // End main container
     }
 
     /**
@@ -5886,7 +5918,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                 }
 
                 $accordion_id = 'amrod-accordion-group-' . $group['ids'][0];
-                $is_expanded  = $is_active || ($has_grandchildren && !$parent_navigation);
+                $is_expanded  = false;
             ?>
                 <div class="amrod-accordion-item"
                      style="margin-bottom: 8px; border: 1px solid #e9ecef; border-radius: 8px; overflow: hidden; background: #fff; box-shadow: 0 1px 3px rgba(0,0,0,0.05); transition: all 0.3s ease;">
@@ -5919,7 +5951,7 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                     <?php if ($has_grandchildren): ?>
                         <div class="amrod-accordion-content"
                              id="<?php echo esc_attr($accordion_id); ?>"
-                             style="max-height: <?php echo $is_expanded ? '1000px' : '0'; ?>; overflow: hidden; transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1), padding 0.4s ease; padding: <?php echo $is_expanded ? '12px 16px' : '0 16px'; ?>; background: #f8f9fa;">
+                             style="max-height: <?php echo $is_expanded ? '2000px' : '0'; ?>; overflow: hidden; transition: max-height 0.4s cubic-bezier(0.4, 0, 0.2, 1), padding 0.4s ease; padding: <?php echo $is_expanded ? '12px 16px 20px 16px' : '0 16px'; ?>; background: #f8f9fa;">
                             <ul style="list-style: none; margin: 0; padding: 0;">
                             <?php foreach ($grandchildren_grouped as $gc_name => $gc_group):
                                 $gc_count = 0;
@@ -6058,8 +6090,8 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                                     }
                                 }
                             });
-                            content.style.maxHeight = content.scrollHeight + 'px';
-                            content.style.padding   = '12px 16px';
+                            content.style.maxHeight = content.scrollHeight + 20 + 'px';
+                            content.style.padding   = '12px 16px 20px 16px';
                             toggle.classList.add('rotated');
                         }
                     });
@@ -6072,8 +6104,8 @@ define('WP_DEBUG_DISPLAY', false);</pre>
                     if (content) {
                         var isExpanded = content.style.maxHeight && content.style.maxHeight !== '0px' && content.style.maxHeight !== '0';
                         if (isExpanded) {
-                            content.style.maxHeight = content.scrollHeight + 'px';
-                            content.style.padding   = '12px 16px';
+                            content.style.maxHeight = content.scrollHeight + 20 + 'px';
+                            content.style.padding   = '12px 16px 20px 16px';
                             toggle.classList.add('rotated');
                         }
                     }
@@ -6467,6 +6499,23 @@ define('WP_DEBUG_DISPLAY', false);</pre>
     }
     
     /**
+     * Render quote quantity field separately (to allow reordering)
+     */
+    public function render_quote_quantity_field() {
+        if (!$this->is_quote_mode_enabled()) {
+            return;
+        }
+        
+        // Add quantity field
+        echo '<div class="bytemash-quote-quantity-container" style="margin-top: 25px; margin-bottom: 20px; clear: both;">';
+        echo '<div class="bytemash-quote-quantity-field">';
+        echo '<label for="bytemash-quote-quantity" style="display: block; margin-bottom: 8px; font-weight: 600; font-size: 14px; text-transform: uppercase; color: #4a5568;">' . esc_html__('Quantity', 'bytemash-woo-sync') . '</label>';
+        echo '<input type="number" id="bytemash-quote-quantity" name="bytemash_quote_quantity" value="1" min="1" step="1" style="width: 100px; padding: 0px 12px; border: 1px solid #cbd5e0; border-radius: 8px; font-size: 16px; outline: none;">';
+        echo '</div>';
+        echo '</div>';
+    }
+    
+    /**
      * Replace add to cart button with quote request button
      */
     public function maybe_replace_add_to_cart_with_quote_button() {
@@ -6481,12 +6530,15 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         }
         $quote_button_rendered = true;
         
-        // Add quote request button after the add to cart button (which is hidden by CSS)
-        echo '<div class="bytemash-quote-submit" style="margin: 20px 0; clear: both; display: block !important;">';
-        echo '<button type="button" id="bytemash-request-quote-btn" class="button alt" style="width: 100%; padding: 15px; font-size: 16px; display: block !important; visibility: visible !important;">';
+        // Add quote request button container
+        echo '<div class="bytemash-quote-submit-container" style="margin: 20px 0 30px 0; clear: both; display: block !important;">';
+        
+        // Submit button
+        echo '<button type="button" id="bytemash-request-quote-btn" class="button alt" style="width: 100%; padding: 15px; font-size: 16px; font-weight: 600; display: block !important; visibility: visible !important; border-radius: 8px;">';
         echo esc_html__('Make Quote Request', 'bytemash-woo-sync');
         echo '</button>';
-        echo '<div id="bytemash-quote-request-message" style="margin-top: 10px; display: none;"></div>';
+        
+        echo '<div id="bytemash-quote-request-message" style="margin-top: 15px; display: none;"></div>';
         echo '</div>';
     }
     

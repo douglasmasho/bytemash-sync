@@ -40,6 +40,9 @@ class ByteMash_Quote_Admin {
             return;
         }
 
+        // Enqueue WordPress Media Library
+        wp_enqueue_media();
+
         $css_file = BYTEMASH_WOO_SYNC_PLUGIN_DIR . 'assets/css/quote-admin.css';
         $css_version = BYTEMASH_WOO_SYNC_VERSION . '.' . (file_exists($css_file) ? filemtime($css_file) : time());
 
@@ -606,6 +609,7 @@ class ByteMash_Quote_Admin {
             check_admin_referer('bytemash_quote_settings_action');
             update_option('bytemash_quote_from_email', sanitize_email($_POST['from_email']));
             update_option('bytemash_quote_admin_email', sanitize_text_field($_POST['admin_email']));
+            update_option('bytemash_quote_email_logo', sanitize_text_field($_POST['email_logo'])); // Added logo
             update_option('bytemash_quote_email_subject', sanitize_text_field($_POST['email_subject']));
             update_option('bytemash_quote_email_template', wp_kses_post($_POST['email_template']));
             update_option('bytemash_quote_customer_subject', sanitize_text_field($_POST['customer_subject']));
@@ -616,6 +620,7 @@ class ByteMash_Quote_Admin {
 
         $admin_email = get_option('bytemash_quote_admin_email', get_option('admin_email'));
         $from_email  = get_option('bytemash_quote_from_email', get_option('admin_email'));
+        $email_logo  = get_option('bytemash_quote_email_logo', ''); // Added logo
         $subject = get_option('bytemash_quote_email_subject', 'New Quote Request from {site_name}');
         $template = get_option('bytemash_quote_email_template', "New quote request received.\n\nCustomer: {customer_name}\nQuote #: {quote_number}\n\nPlease check the admin dashboard for details.");
         
@@ -639,7 +644,7 @@ class ByteMash_Quote_Admin {
                 </ol>
             </div>
             
-            <form method="post" action="">
+            <form method="post" action="" id="bytemash-quote-settings-form">
                 <?php wp_nonce_field('bytemash_quote_settings_action'); ?>
                 
                 <table class="form-table">
@@ -668,6 +673,23 @@ class ByteMash_Quote_Admin {
                         <td>
                             <input type="email" name="from_email" id="from_email" value="<?php echo esc_attr($from_email); ?>" class="regular-text">
                             <p class="description"><?php esc_html_e('The email address that all quote emails will be sent FROM (e.g. sales@yourdomain.com).', 'bytemash-woo-sync'); ?></p>
+                        </td>
+                    </tr>
+                    
+                    <tr>
+                        <th scope="row"><label for="email_logo"><?php esc_html_e('Email Branding Logo', 'bytemash-woo-sync'); ?></label></th>
+                        <td>
+                            <div class="bytemash-email-logo-preview" style="margin-bottom: 10px; max-width: 200px;">
+                                <?php if ($email_logo) : ?>
+                                    <img src="<?php echo esc_url($email_logo); ?>" style="max-width: 100%; border: 1px solid #ddd; border-radius: 4px; padding: 5px; background: #fff;" />
+                                <?php endif; ?>
+                            </div>
+                            <input type="hidden" name="email_logo" id="email_logo_input" value="<?php echo esc_attr($email_logo); ?>">
+                            <button type="button" class="button" id="bytemash_upload_logo_btn"><?php echo $email_logo ? esc_html__('Change Logo', 'bytemash-woo-sync') : esc_html__('Select Logo', 'bytemash-woo-sync'); ?></button>
+                            <?php if ($email_logo) : ?>
+                                <button type="button" class="button" id="bytemash_remove_logo_btn" style="color: #d63638;"><?php esc_html_e('Remove Logo', 'bytemash-woo-sync'); ?></button>
+                            <?php endif; ?>
+                            <p class="description"><?php esc_html_e('This logo will appear at the top of all quote request emails sent to admins and customers.', 'bytemash-woo-sync'); ?></p>
                         </td>
                     </tr>
                     
@@ -726,6 +748,42 @@ class ByteMash_Quote_Admin {
                     <button type="submit" name="bytemash_save_quote_settings" class="button button-primary"><?php esc_html_e('Save Settings', 'bytemash-woo-sync'); ?></button>
                 </p>
             </form>
+            
+            <script>
+            jQuery(document).ready(function($) {
+                // Upload Logo Button
+                $('#bytemash_upload_logo_btn').on('click', function(e) {
+                    e.preventDefault();
+                    
+                    var custom_uploader = wp.media({
+                        title: '<?php esc_attr_e('Select Branding Logo', 'bytemash-woo-sync'); ?>',
+                        button: {
+                            text: '<?php esc_attr_e('Use this Logo', 'bytemash-woo-sync'); ?>'
+                        },
+                        multiple: false
+                    }).on('select', function() {
+                        var attachment = custom_uploader.state().get('selection').first().toJSON();
+                        $('#email_logo_input').val(attachment.url);
+                        $('.bytemash-email-logo-preview').html('<img src="' + attachment.url + '" style="max-width: 100%; border: 1px solid #ddd; border-radius: 4px; padding: 5px; background: #fff;" />');
+                        $('#bytemash_upload_logo_btn').text('<?php esc_attr_e('Change Logo', 'bytemash-woo-sync'); ?>');
+                        
+                        // Add remove button if missing
+                        if ($('#bytemash_remove_logo_btn').length === 0) {
+                            $('#bytemash_upload_logo_btn').after(' <button type="button" class="button" id="bytemash_remove_logo_btn" style="color: #d63638;"><?php esc_attr_e('Remove Logo', 'bytemash-woo-sync'); ?></button>');
+                        }
+                    }).open();
+                });
+                
+                // Remove Logo Button
+                $(document).on('click', '#bytemash_remove_logo_btn', function(e) {
+                    e.preventDefault();
+                    $('#email_logo_input').val('');
+                    $('.bytemash-email-logo-preview').empty();
+                    $('#bytemash_upload_logo_btn').text('<?php esc_attr_e('Select Logo', 'bytemash-woo-sync'); ?>');
+                    $(this).remove();
+                });
+            });
+            </script>
         </div>
         <?php
     }
@@ -761,7 +819,22 @@ class ByteMash_Quote_Admin {
             'From: ' . $site_name . ' <' . $from_email . '>'
         );
         
-        $sent = wp_mail($to, $subject, wpautop($message), $headers);
+        // Wrap the message in professional HTML styling
+        $email_logo  = get_option('bytemash_quote_email_logo', '');
+        
+        ob_start();
+        wc_get_template('emails/email-header.php', array('email_heading' => $subject));
+        
+        if ($email_logo) {
+            echo '<div style="text-align:center; margin-bottom: 20px;"><img src="' . esc_url($email_logo) . '" style="max-width: 200px; height: auto;" /></div>';
+        }
+        
+        echo wpautop($message);
+        
+        wc_get_template('emails/email-footer.php');
+        $html_message = ob_get_clean();
+        
+        $sent = wp_mail($to, $subject, $html_message, $headers);
 
         if ($sent) {
             $order->add_order_note(sprintf(__('Email sent to customer: %s', 'bytemash-woo-sync'), $subject));

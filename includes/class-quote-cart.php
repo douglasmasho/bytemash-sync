@@ -600,44 +600,80 @@ class ByteMash_Quote_Cart {
         }
     }
 
+    /**
+     * Send notification email to Admin and Customer when a quote is submitted.
+     */
     private function send_notification_email($order, $customer_name, $instructions, $files) {
         $admin_emails = get_option('bytemash_quote_admin_email', get_option('admin_email'));
-        
+        $from_email   = get_option('bytemash_quote_from_email', get_option('admin_email'));
+        $email_logo   = get_option('bytemash_quote_email_logo', '');
+        $site_name    = wp_specialchars_decode(get_bloginfo('name'), ENT_QUOTES);
+
         // 1. Prepare shared replacements
         $replacements = array(
             '{customer_name}' => $customer_name,
             '{quote_number}'  => $order->get_order_number(),
-            '{site_name}'     => wp_specialchars_decode(get_bloginfo('name'), ENT_QUOTES)
-        );
-        
-        $from_email = get_option('bytemash_quote_from_email', get_option('admin_email'));
-        $headers = array(
-            'Content-Type: text/plain; charset=UTF-8',
-            'From: ' . $replacements['{site_name}'] . ' <' . $from_email . '>'
+            '{site_name}'     => $site_name
         );
 
-        // 2. Send to Admin(s)
+        // 2. Build the Common Product Table HTML
+        $product_table_html = $this->build_email_product_table($order);
+
+        // 3. Helper to wrap content in WC Email Template
+        $wrap_html = function($content, $subject) use ($email_logo) {
+            ob_start();
+            // Use WC Header
+            wc_get_template('emails/email-header.php', array('email_heading' => $subject));
+            
+            // Inject Logo if exists (WC header uses site logo by default, but we allow override)
+            if ($email_logo) {
+                echo '<div style="text-align:center; margin-bottom: 20px;"><img src="' . esc_url($email_logo) . '" style="max-width: 200px; height: auto;" /></div>';
+            }
+            
+            echo $content;
+            
+            // Use WC Footer
+            wc_get_template('emails/email-footer.php');
+            return ob_get_clean();
+        };
+
+        $headers = array(
+            'Content-Type: text/html; charset=UTF-8',
+            'From: ' . $site_name . ' <' . $from_email . '>'
+        );
+
+        // 4. Send to Admin(s)
         if (!empty($admin_emails)) {
             $admin_subject_tmpl = get_option('bytemash_quote_email_subject', 'New Quote Request #{quote_number}');
-            $admin_body_tmpl    = get_option('bytemash_quote_email_template', "New quote request received.\n\nCustomer: {customer_name}\nQuote #: {quote_number}\n\nPlease check the admin dashboard for details.");
+            $admin_body_tmpl    = get_option('bytemash_quote_email_template', "New quote request received.<br><br>Customer: {customer_name}<br>Quote #: {quote_number}<br><br>Please check the admin dashboard for details.");
             
             $admin_subject = str_replace(array_keys($replacements), array_values($replacements), $admin_subject_tmpl);
-            $admin_message = str_replace(array_keys($replacements), array_values($replacements), $admin_body_tmpl);
+            $admin_body    = str_replace(array_keys($replacements), array_values($replacements), $admin_body_tmpl);
             
-            // Append extra details for the admin only
-            $admin_message .= "\n\n--- Request Details ---\n";
-            $admin_message .= "Email: " . $order->get_billing_email() . "\n";
-            if ($instructions) {
-                $admin_message .= "Instructions: \n" . $instructions . "\n";
-            }
-            if (!empty($files)) {
-                $admin_message .= "\nUploaded Files:\n";
-                foreach ($files as $f) {
-                    $admin_message .= "- " . $f['label'] . ": " . $f['url'] . "\n";
+            // Build Admin Content
+            $admin_content = wpautop($admin_body);
+            $admin_content .= '<h2 style="color: #BA1219; border-bottom: 2px solid #eee; padding-bottom: 10px;">' . __('Quote Details', 'bytemash-woo-sync') . '</h2>';
+            $admin_content .= $product_table_html;
+            
+            if ($instructions || !empty($files)) {
+                $admin_content .= '<div style="background: #f9f9f9; padding: 15px; border-radius: 8px; margin-top: 20px;">';
+                if ($instructions) {
+                    $admin_content .= '<h3>' . __('Special Instructions', 'bytemash-woo-sync') . '</h3>';
+                    $admin_content .= wpautop(esc_html($instructions));
                 }
+                if (!empty($files)) {
+                    $admin_content .= '<h3>' . __('Attached Files', 'bytemash-woo-sync') . '</h3>';
+                    $admin_content .= '<ul style="padding-left: 20px;">';
+                    foreach ($files as $f) {
+                        $admin_content .= '<li><a href="' . esc_url($f['url']) . '">' . esc_html($f['label']) . '</a></li>';
+                    }
+                    $admin_content .= '</ul>';
+                }
+                $admin_content .= '</div>';
             }
+
+            $admin_message = $wrap_html($admin_content, $admin_subject);
             
-            // Split multiple emails
             $emails = array_map('trim', explode(',', $admin_emails));
             foreach ($emails as $email) {
                 if (is_email($email)) {
@@ -646,16 +682,125 @@ class ByteMash_Quote_Cart {
             }
         }
 
-        // 3. Send to Customer
+        // 5. Send to Customer
         $customer_email = $order->get_billing_email();
         if (is_email($customer_email)) {
             $customer_subject_tmpl = get_option('bytemash_quote_customer_subject', 'Quote Request Received - #{quote_number}');
-            $customer_body_tmpl    = get_option('bytemash_quote_customer_template', "Dear {customer_name},\n\nWe have received your quote request #{quote_number}.\n\nOur team is currently reviewing your requirements and will get back to you shortly with pricing and availability.\n\nBest regards,\nThe {site_name} Team");
+            $customer_body_tmpl    = get_option('bytemash_quote_customer_template', "Dear {customer_name},<br><br>We have received your quote request #{quote_number}.<br><br>Our team is currently reviewing your requirements and will get back to you shortly with pricing and availability.<br><br>Best regards,<br>The {site_name} Team");
             
             $customer_subject = str_replace(array_keys($replacements), array_values($replacements), $customer_subject_tmpl);
-            $customer_message = str_replace(array_keys($replacements), array_values($replacements), $customer_body_tmpl);
+            $customer_body    = str_replace(array_keys($replacements), array_values($replacements), $customer_body_tmpl);
             
+            $customer_content = wpautop($customer_body);
+            $customer_content .= '<h2 style="color: #BA1219; border-bottom: 2px solid #eee; padding-bottom: 10px;">' . __('Your Request Summary', 'bytemash-woo-sync') . '</h2>';
+            $customer_content .= $product_table_html;
+            
+            $customer_message = $wrap_html($customer_content, $customer_subject);
             wp_mail($customer_email, $customer_subject, $customer_message, $headers);
         }
+    }
+
+    /**
+     * Build an HTML table of products for the email.
+     */
+    private function build_email_product_table($order) {
+        ob_start();
+        ?>
+        <table cellspacing="0" cellpadding="10" border="0" style="width: 100%; border-collapse: collapse; margin-bottom: 25px; background-color: #ffffff; border: 1px solid #e2e8f0; border-radius: 8px;">
+            <thead>
+                <tr style="background-color: #f8fafc; border-bottom: 2px solid #e2e8f0;">
+                    <th align="left" style="padding: 15px; font-weight: bold; color: #475569; font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em;"><?php _e('Product Details', 'bytemash-woo-sync'); ?></th>
+                    <th align="center" style="padding: 15px; font-weight: bold; width: 80px; color: #475569; font-size: 14px; text-transform: uppercase; letter-spacing: 0.05em;"><?php _e('Qty', 'bytemash-woo-sync'); ?></th>
+                </tr>
+            </thead>
+            <tbody>
+                <?php foreach ($order->get_items() as $item_id => $item) : 
+                    $product = $item->get_product();
+                    if (!$product) continue;
+                    
+                    $product_id = $product->is_type('variation') ? $product->get_parent_id() : $product->get_id();
+                    $amrod_brandings = get_post_meta($product_id, '_amrod_brandings', true);
+                    
+                    // Fixed image call to override any theme filtration with explicit inline CSS
+                    $image = $product->get_image(
+                        array(80, 80), 
+                        array(
+                            'style' => 'width: 80px; max-width: 80px !important; height: auto; border-radius: 6px; border: 1px solid #e2e8f0; display: block;',
+                            'width' => '80',
+                            'height' => '80'
+                        )
+                    );
+                ?>
+                    <tr style="border-bottom: 1px solid #f1f5f9;">
+                        <td style="padding: 15px; vertical-align: top;">
+                            <table cellspacing="0" cellpadding="0" border="0" style="width: 100%;">
+                                <tr>
+                                    <td style="width: 80px; vertical-align: top; padding-right: 20px;">
+                                        <!-- Fixed size container for image -->
+                                        <div style="width: 80px; height: 80px; overflow: hidden; border-radius: 6px;">
+                                            <?php echo $image; ?>
+                                        </div>
+                                    </td>
+                                    <td style="vertical-align: top;">
+                                        <div style="font-weight: 700; font-size: 17px; color: #1e293b; margin-bottom: 4px;"><?php echo $item->get_name(); ?></div>
+                                        <?php if ($product->get_sku()) : ?>
+                                            <div style="font-size: 12px; color: #94a3b8; font-family: monospace; letter-spacing: 0.5px; margin-bottom: 8px;">SKU: <?php echo $product->get_sku(); ?></div>
+                                        <?php endif; ?>
+                                        
+                                        <?php 
+                                        $meta_data = $item->get_formatted_meta_data();
+                                        if (!empty($meta_data)) : ?>
+                                            <div style="margin-top: 8px; font-size: 13px; line-height: 1.5;">
+                                                <?php foreach ($meta_data as $meta) : 
+                                                    $display_value = $meta->display_value;
+                                                    
+                                                    // Try to resolve branding codes if this is a branding meta
+                                                    if (strpos($meta->key, 'Branding') !== false && !empty($amrod_brandings)) {
+                                                        $codes = array_map('trim', explode(',', strip_tags($meta->display_value)));
+                                                        $resolved_names = array();
+                                                        foreach ($codes as $code) {
+                                                            $name = $this->resolve_branding_code_to_name($code, $amrod_brandings);
+                                                            $resolved_names[] = $name ? '<strong>' . $name . '</strong> (' . $code . ')' : $code;
+                                                        }
+                                                        $display_value = implode(', ', $resolved_names);
+                                                    }
+                                                ?>
+                                                    <div style="margin-bottom: 4px; padding: 4px 8px; background-color: #f1f5f9; border-radius: 4px; color: #334155;">
+                                                        <strong style="color: #64748b;"><?php echo $meta->display_key; ?>:</strong> <?php echo $display_value; ?>
+                                                    </div>
+                                                <?php endforeach; ?>
+                                            </div>
+                                        <?php endif; ?>
+                                    </td>
+                                </tr>
+                            </table>
+                        </td>
+                        <td align="center" style="padding: 15px; vertical-align: middle; font-size: 18px; font-weight: 700; color: #BA1219;">
+                            <?php echo $item->get_quantity(); ?>
+                        </td>
+                    </tr>
+                <?php endforeach; ?>
+            </tbody>
+        </table>
+        <?php
+        return ob_get_clean();
+    }
+
+    /**
+     * Helper to resolve a branding code to its full name using Amrod meta.
+     */
+    private function resolve_branding_code_to_name($code, $amrod_brandings) {
+        if (empty($amrod_brandings) || !is_array($amrod_brandings)) return false;
+        
+        foreach ($amrod_brandings as $pos) {
+            if (!empty($pos['method']) && is_array($pos['method'])) {
+                foreach ($pos['method'] as $method) {
+                    if ($method['brandingCode'] === $code) {
+                        return $method['brandingName'];
+                    }
+                }
+            }
+        }
+        return false;
     }
 }

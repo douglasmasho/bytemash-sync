@@ -106,17 +106,20 @@ jQuery(document).ready(function($) {
      * Get quantity
      */
     function getQuantity() {
-        // Try both regular quantity input and quote-specific quantity
-        let quantityInput = $('input[name="quantity"]');
-        if (quantityInput.length === 0) {
-            quantityInput = $('#bytemash-quote-quantity');
+        // Try quote-specific quantity first, then regular quantity input
+        let $quantityInput = $('#bytemash-quote-quantity');
+        
+        if ($quantityInput.length === 0 || !$quantityInput.val()) {
+            $quantityInput = $('input[name="quantity"]');
         }
-        if (quantityInput.length > 0) {
-            const qty = parseInt(quantityInput.val());
-            const finalQty = qty > 0 ? qty : 1;
-            console.log('[Quote Request] Quantity found:', finalQty);
+        
+        if ($quantityInput.length > 0) {
+            const qty = parseInt($quantityInput.val());
+            const finalQty = (qty && qty > 0) ? qty : 1;
+            console.log('[Quote Request] Quantity found:', finalQty, 'from element:', $quantityInput.attr('id') || $quantityInput.attr('name'));
             return finalQty;
         }
+        
         console.log('[Quote Request] No quantity input found, defaulting to 1');
         return 1;
     }
@@ -348,22 +351,56 @@ jQuery(document).ready(function($) {
     // BRANDING REPEATER LOGIC
     $(document).on('click', '#bytemash-add-branding-option', function(e) {
         e.preventDefault();
-        const template = $('#bytemash-branding-row-template').html();
-        $('#bytemash-branding-repeater-container').append(template);
+        console.log('[Quote Request] Adding branding row');
         
-        // Show remove buttons if more than 1
+        const $container = $('#bytemash-branding-repeater-container');
+        const templateHtml = $('#bytemash-branding-row-template').html();
+        
+        if (!templateHtml) {
+            console.error('[Quote Request] Branding row template not found');
+            return;
+        }
+        
+        const $row = $(templateHtml);
+        $container.append($row);
+        
+        // Performance: Use slideDown for smooth entry
+        $row.slideDown(200);
+        
+        // Show all remove buttons when multiple rows exist
         $('.bytemash-remove-branding').show();
+        
+        // Toggle 'initial-row' class if needed for styling
+        updateBrandingRowStates();
     });
 
     $(document).on('click', '.bytemash-remove-branding', function(e) {
         e.preventDefault();
-        $(this).closest('.bytemash-branding-row').remove();
+        const $row = $(this).closest('.bytemash-branding-row');
         
-        // If only 1 remains, hide its remove button
-        const $rows = $('.bytemash-branding-row');
-        if ($rows.length === 1) {
-            $rows.find('.bytemash-remove-branding').hide();
-        }
+        $row.slideUp(200, function() {
+            $(this).remove();
+            updateBrandingRowStates();
+        });
     });
+    
+    /**
+     * Update branding row states (e.g. hiding remove button on single row)
+     */
+    function updateBrandingRowStates() {
+        const $rows = $('.bytemash-branding-row');
+        console.log('[Quote Request] Total branding rows:', $rows.length);
+        
+        if ($rows.length <= 1) {
+            $('.bytemash-remove-branding').hide();
+            $rows.addClass('initial-row');
+        } else {
+            $('.bytemash-remove-branding').show();
+            // Optional: remove initial-row class from all but the first if desired
+        }
+    }
+    
+    // Run once on load to ensure correct state
+    updateBrandingRowStates();
 });
 

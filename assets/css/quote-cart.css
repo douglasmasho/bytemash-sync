@@ -368,3 +368,164 @@
         flex-direction: column;
     }
 }
+
+/* Premium Branding Selection UI */
+.bytemash-branding-selection-container {
+    background: #ffffff;
+    border: 1px solid #e2e8f0;
+    border-radius: 12px;
+    padding: 20px;
+    margin: 20px 0;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+
+.bytemash-branding-title {
+    margin: 0 0 8px 0;
+    font-size: 16px;
+    font-weight: 600;
+    color: #1a202c;
+}
+
+.bytemash-branding-desc {
+    margin: 0 0 16px 0;
+    font-size: 13px;
+    color: #718096;
+    line-height: 1.5;
+}
+
+.bytemash-branding-repeater {
+    display: flex;
+    flex-direction: column;
+    gap: 12px;
+    margin-bottom: 16px;
+}
+
+.bytemash-branding-row {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    animation: fadeInSlide 0.3s ease-out;
+}
+
+@keyframes fadeInSlide {
+    from { opacity: 0; transform: translateY(-5px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.bytemash-select-wrapper {
+    flex: 1;
+    position: relative;
+}
+
+.bytemash-master-branding-select {
+    width: 100%;
+    padding: 10px 35px 10px 12px;
+    border: 1px solid #cbd5e0;
+    border-radius: 8px;
+    font-size: 14px;
+    color: #2d3748;
+    background-color: #fff;
+    cursor: pointer;
+    appearance: none;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 24 24' stroke='%234A5568'%3E%3Cpath stroke-linecap='round' stroke-linejoin='round' stroke-width='2' d='M19 9l-7 7-7-7'%3E%3C/path%3E%3C/svg%3E");
+    background-repeat: no-repeat;
+    background-position: right 10px center;
+    background-size: 16px;
+    transition: all 0.2s;
+}
+
+.bytemash-master-branding-select:hover {
+    border-color: #a0aec0;
+}
+
+.bytemash-master-branding-select:focus {
+    outline: none;
+    border-color: #4299e1;
+    box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.15);
+}
+
+.bytemash-remove-branding {
+    width: 32px;
+    height: 32px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: #fff;
+    border: 1px solid #fed7d7;
+    color: #e53e3e;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 18px;
+    transition: all 0.2s;
+    flex-shrink: 0;
+}
+
+.bytemash-remove-branding:hover {
+    background: #fff5f5;
+    border-color: #e53e3e;
+    transform: scale(1.1);
+}
+
+.bytemash-branding-actions {
+    display: flex;
+    justify-content: flex-start;
+}
+
+.bytemash-add-btn {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    background: #f7fafc;
+    border: 1px dashed #cbd5e0;
+    color: #4a5568;
+    padding: 8px 16px;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s;
+}
+
+.bytemash-add-btn:hover {
+    background: #edf2f7;
+    border-color: #a0aec0;
+    color: #2d3748;
+}
+
+.bytemash-add-btn .icon {
+    font-size: 16px;
+}
+
+/* Quote Quantity Field Styles */
+.bytemash-quote-quantity-field {
+    margin-bottom: 20px;
+}
+
+#bytemash-quote-quantity {
+    appearance: none;
+    -moz-appearance: textfield;
+    border: 1px solid #e2e8f0;
+    border-radius: 8px;
+    padding: 8px 12px;
+    font-size: 15px;
+    font-weight: 500;
+    color: #2d3748;
+    background: #fff;
+    width: 70px;
+    text-align: center;
+    transition: all 0.2s ease;
+    box-shadow: 0 1px 2px rgba(0,0,0,0.05);
+}
+
+#bytemash-quote-quantity:focus {
+    outline: none;
+    border-color: #4299e1;
+    box-shadow: 0 0 0 3px rgba(66, 153, 225, 0.1);
+}
+
+/* Hide spin arrows for cleaner look */
+#bytemash-quote-quantity::-webkit-outer-spin-button,
+#bytemash-quote-quantity::-webkit-inner-spin-button {
+    -webkit-appearance: none;
+    margin: 0;
+}
