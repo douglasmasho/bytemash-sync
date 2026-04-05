@@ -293,6 +293,7 @@ class ByteMash_Woo_Sync {
         // Hook into WooCommerce product images
         add_filter('woocommerce_product_get_image_id', array($this, 'use_external_image_url'), 10, 2);
         add_filter('wp_get_attachment_image_src', array($this, 'replace_with_external_url'), 10, 4);
+        add_filter('woocommerce_product_get_image', array($this, 'force_external_product_image_html'), 10, 5);
         add_filter('woocommerce_product_get_gallery_image_ids', array($this, 'use_external_gallery_urls'), 10, 2);
 		// Shop/archive thumbnails (broad theme coverage)
 		add_filter('woocommerce_get_product_thumbnail', array($this, 'archive_product_thumbnail_html'), 10, 3);
@@ -2717,12 +2718,18 @@ define('WP_DEBUG_DISPLAY', false);</pre>
             return $image_id;
         }
         
-        $external_url = get_post_meta($product->get_id(), '_thumbnail_external_url', true);
+        $product_id = $product->get_id();
+        $external_url = get_post_meta($product_id, '_thumbnail_external_url', true);
+        
+        // Fallback for variations that might use _amrod_variation_image
+        if (empty($external_url)) {
+            $external_url = get_post_meta($product_id, '_amrod_variation_image', true);
+        }
         
         if ($external_url) {
             // Return the URL as a fake attachment ID
             // This will be intercepted by replace_with_external_url filter
-            return 'external_' . $product->get_id();
+            return 'external_' . $product_id;
         }
         
         return $image_id;
@@ -2736,6 +2743,11 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         if (is_string($attachment_id) && strpos($attachment_id, 'external_') === 0) {
             $product_id = str_replace('external_', '', $attachment_id);
             $external_url = get_post_meta($product_id, '_thumbnail_external_url', true);
+            
+            // Fallback for variations
+            if (empty($external_url)) {
+                $external_url = get_post_meta($product_id, '_amrod_variation_image', true);
+            }
             
             if ($external_url) {
                 return array($external_url, 1024, 1024, false);
@@ -2759,6 +2771,51 @@ define('WP_DEBUG_DISPLAY', false);</pre>
         }
         
         return $image;
+    }
+
+    /**
+     * Force correct <img> HTML for external products when get_image() is called.
+     * This handles cases where wp_get_attachment_image might fail due to fake string IDs.
+     */
+    public function force_external_product_image_html($html, $product, $size, $attr, $placeholder) {
+        if (!is_object($product) || !method_exists($product, 'get_id')) {
+            return $html;
+        }
+
+        $product_id = $product->get_id();
+        $external_url = get_post_meta($product_id, '_thumbnail_external_url', true);
+        if (empty($external_url)) {
+            $external_url = get_post_meta($product_id, '_amrod_variation_image', true);
+        }
+
+        // Fallback to parent if variation has no image
+        if (empty($external_url) && $product->is_type('variation')) {
+            $external_url = get_post_meta($product->get_parent_id(), '_thumbnail_external_url', true);
+        }
+
+        if (empty($external_url)) {
+            return $html;
+        }
+
+        // Build <img> tag manually to ensure CDN URL is used
+        $classes = isset($attr['class']) ? $attr['class'] : 'attachment-woocommerce_thumbnail size-woocommerce_thumbnail';
+        $style = isset($attr['style']) ? $attr['style'] : '';
+        
+        $attributes_str = '';
+        foreach ($attr as $name => $value) {
+            if (!in_array($name, array('class', 'style', 'src', 'alt'))) {
+                $attributes_str .= sprintf(' %s="%s"', esc_attr($name), esc_attr($value));
+            }
+        }
+
+        return sprintf(
+            '<img src="%s" class="%s" style="%s" alt="%s" %s />',
+            esc_url($external_url),
+            esc_attr($classes),
+            esc_attr($style),
+            esc_attr($product->get_name()),
+            $attributes_str
+        );
     }
     
     /**

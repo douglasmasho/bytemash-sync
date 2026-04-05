@@ -462,7 +462,7 @@ class ByteMash_Quote_Admin {
                                     <label><?php esc_html_e('Message:', 'bytemash-woo-sync'); ?></label>
                                     <?php 
                                     // Simple Template Loading
-                                    $template = get_option('bytemash_quote_email_template', "Dear {customer_name},\n\nThank you for your quote request #{quote_number}.\n\nWe have reviewed your requirements and...\n\nBest regards,\n{site_name}");
+                                    $template = get_option('bytemash_quote_customer_template', "Dear {customer_name},\n\nThank you for your quote request #{quote_number}.\n\nWe have reviewed your requirements and...\n\nBest regards,\n{site_name}");
                                     $replacements = array(
                                         '{customer_name}' => $order->get_billing_first_name(),
                                         '{quote_number}' => $order->get_order_number(),

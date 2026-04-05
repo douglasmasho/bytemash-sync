@@ -747,6 +747,40 @@ class ByteMash_Quote_Cart {
                             'height' => '80'
                         )
                     );
+
+                    // Robust Fallback: If for some reason the filtered get_image() is still empty, manually resolve it
+                    if (empty($image)) {
+                        $img_src = get_post_meta($product->get_id(), '_thumbnail_external_url', true);
+                        if (empty($img_src)) {
+                            $img_src = get_post_meta($product->get_id(), '_amrod_variation_image', true);
+                        }
+                        // Fallback to parent
+                        if (empty($img_src) && $product->is_type('variation')) {
+                            $parent_id = $product->get_parent_id();
+                            $img_src = get_post_meta($parent_id, '_thumbnail_external_url', true);
+                            if (empty($img_src)) {
+                                $attachment_id = get_post_thumbnail_id($parent_id);
+                                if ($attachment_id) {
+                                    $arr = wp_get_attachment_image_src($attachment_id, 'thumbnail');
+                                    if ($arr) $img_src = $arr[0];
+                                }
+                            }
+                        }
+                        
+                        if (!empty($img_src)) {
+                            $image = sprintf(
+                                '<img src="%s" style="width: 80px; max-width: 80px !important; height: auto; border-radius: 6px; border: 1px solid #e2e8f0; display: block;" width="80" height="80" />',
+                                esc_url($img_src)
+                            );
+                        } else {
+                            // Final fallback to WC placeholder
+                            $placeholder_url = wc_placeholder_img_src('thumbnail');
+                            $image = sprintf(
+                                '<img src="%s" style="width: 80px; max-width: 80px !important; height: auto; border-radius: 6px; border: 1px solid #e2e8f0; display: block;" width="80" height="80" />',
+                                esc_url($placeholder_url)
+                            );
+                        }
+                    }
                 ?>
                     <tr style="border-bottom: 1px solid #f1f5f9;">
                         <td style="padding: 15px; vertical-align: top;">
