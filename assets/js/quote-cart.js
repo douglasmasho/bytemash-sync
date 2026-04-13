@@ -1,6 +1,37 @@
 jQuery(document).ready(function($) {
     'use strict';
 
+    // Global Icon Update Logic (runs on any page where assets are enqueued)
+    function updateQuoteCartIconCount(cart) {
+        if (!cart) {
+            const cartStr = localStorage.getItem('bytemash_quote_cart');
+            try {
+                cart = cartStr ? JSON.parse(cartStr) : [];
+            } catch (e) {
+                cart = [];
+            }
+        }
+        
+        const count = Array.isArray(cart) ? cart.length : 0;
+        $('.bytemash-quote-cart-count').text(count);
+        
+        // Optionally hide if zero, but user usually wants to see 0
+        if (count > 0) {
+            $('.bytemash-quote-cart-count').addClass('has-items');
+        } else {
+            $('.bytemash-quote-cart-count').removeClass('has-items');
+        }
+    }
+
+    // Initial count update
+    updateQuoteCartIconCount();
+
+    // Listen for updates from other scripts (like single product page)
+    $(document.body).on('bytemash_quote_cart_updated', function(e, cart) {
+        updateQuoteCartIconCount(cart);
+    });
+
+    // Cart Page Logic (only runs on the actual cart page)
     if (typeof bytemashQuoteCart === 'undefined' || $('#bytemash-quote-cart-app').length === 0) {
         return;
     }

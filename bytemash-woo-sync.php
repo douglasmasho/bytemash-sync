@@ -193,10 +193,10 @@ class ByteMash_Woo_Sync {
             add_filter('woocommerce_available_variation', array($this, 'include_all_variations_in_available_data'), 10, 3);
             add_filter('woocommerce_variation_is_visible', array($this, 'make_all_variations_visible_in_quote_mode_visibility'), 10, 4);
         }
-        // When quote mode is OFF: No quote buttons, no quote hooks - just normal WooCommerce
-        
+        // Register shortcodes
+        add_shortcode('bytemash_quote_cart_icon', array($this, 'render_quote_cart_icon'));
+
         // CRITICAL: Always inject external variation images for color swatches to work
-        // This is needed for normal product display, not just quote mode
         add_filter('woocommerce_available_variation', array($this, 'inject_external_variation_images'), 20, 3);
     }
 
@@ -6521,6 +6521,40 @@ define('WP_DEBUG_DISPLAY', false);</pre>
     /**
      * Check if quote mode is enabled
      */
+    /**
+     * Render a floating or inline quote cart icon with item count.
+     * Use [bytemash_quote_cart_icon] shortcode.
+     */
+    public function render_quote_cart_icon($atts) {
+        if (!$this->is_quote_mode_enabled()) {
+            return '';
+        }
+
+        // Ensure assets are loaded
+        $quote_cart = ByteMash_Quote_Cart::get_instance();
+        $quote_cart->enqueue_assets();
+
+        $cart_page_id = get_option('bytemash_quote_cart_page_id');
+        $cart_url = $cart_page_id ? get_permalink($cart_page_id) : '#';
+
+        ob_start();
+        ?>
+        <div class="bytemash-quote-cart-icon-wrapper">
+            <a href="<?php echo esc_url($cart_url); ?>" class="bytemash-quote-cart-icon-link" title="<?php esc_attr_e('View Quote Cart', 'bytemash-woo-sync'); ?>">
+                <div class="bytemash-quote-cart-icon-container">
+                    <svg xmlns="http://www.w3.org/2000/svg" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" class="bytemash-cart-svg">
+                        <circle cx="9" cy="21" r="1"></circle>
+                        <circle cx="20" cy="21" r="1"></circle>
+                        <path d="M1 1h4l2.68 13.39a2 2 0 0 0 2 1.61h9.72a2 2 0 0 0 2-1.61L23 6H6"></path>
+                    </svg>
+                    <span class="bytemash-quote-cart-count">0</span>
+                </div>
+            </a>
+        </div>
+        <?php
+        return ob_get_clean();
+    }
+
     private function is_quote_mode_enabled() {
         return get_option('bytemash_quote_mode_enabled', false) === true || get_option('bytemash_quote_mode_enabled', false) === '1';
     }

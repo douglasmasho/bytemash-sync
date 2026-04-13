@@ -529,3 +529,72 @@
     -webkit-appearance: none;
     margin: 0;
 }
+
+/* Quote Cart Icon Shortcode Styles */
+.bytemash-quote-cart-icon-wrapper {
+    display: inline-block;
+    vertical-align: middle;
+    margin: 0 10px;
+    position: relative;
+    line-height: normal; /* Reset for theme compatibility */
+}
+
+.bytemash-quote-cart-icon-link {
+    text-decoration: none !important;
+    display: block;
+}
+
+.bytemash-quote-cart-icon-container {
+    position: relative;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 44px;
+    height: 44px;
+    background: #ffffff;
+    border-radius: 50%;
+    color: #1e293b;
+    transition: all 0.3s cubic-bezier(0.25, 0.46, 0.45, 0.94);
+    border: 1px solid #e2e8f0;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.05);
+}
+
+.bytemash-quote-cart-icon-container:hover {
+    background: #fafafa;
+    color: #BA1219;
+    border-color: #BA1219;
+    transform: translateY(-2px);
+    box-shadow: 0 5px 15px rgba(186, 18, 25, 0.15);
+}
+
+.bytemash-cart-svg {
+    width: 22px;
+    height: 22px;
+}
+
+.bytemash-quote-cart-count {
+    position: absolute;
+    top: -2px;
+    right: -2px;
+    background: #BA1219;
+    color: #ffffff;
+    font-size: 11px;
+    font-weight: 700;
+    min-width: 20px;
+    height: 20px;
+    border-radius: 10px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0 4px;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+    border: 2px solid #ffffff;
+    opacity: 0; /* Hidden when 0 if desired, or just low opacity */
+    transform: scale(0);
+    transition: all 0.3s cubic-bezier(0.175, 0.885, 0.32, 1.275);
+}
+
+.bytemash-quote-cart-count.has-items {
+    opacity: 1;
+    transform: scale(1);
+}
