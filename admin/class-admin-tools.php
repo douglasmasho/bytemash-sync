@@ -198,8 +198,109 @@ class ByteMash_Admin_Tools {
             </div>
             
             <div class="bytemash-card" style="margin-top: 20px; max-width: 800px;">
+                <h2><?php esc_html_e('Reassign Product Categories', 'bytemash-woo-sync'); ?></h2>
+                <p>
+                    <?php esc_html_e('Re-attaches every product to its Amrod categories using the category data already stored locally from the last sync - no Amrod API call, and it works even when a normal sync would skip a product because its Amrod data hasn\'t changed.', 'bytemash-woo-sync'); ?>
+                </p>
+                <p>
+                    <?php esc_html_e('Use this after category assignments were cleared or lost (e.g. a category cleanup that also removed product-category links) and a regular re-sync would just skip everything as "unchanged".', 'bytemash-woo-sync'); ?>
+                </p>
+                <p>
+                    <button type="button"
+                            id="bytemash_reassign_categories_btn"
+                            class="button button-primary"
+                            data-nonce="<?php echo esc_attr(wp_create_nonce('bytemash_woo_sync_nonce')); ?>">
+                        <span class="dashicons dashicons-category"></span>
+                        <?php esc_html_e('Reassign Product Categories', 'bytemash-woo-sync'); ?>
+                    </button>
+                </p>
+                <div id="bytemash_reassign_categories_progress" style="display:none; max-width:500px; margin-top:10px;">
+                    <div style="background:#f0f0f1;border-radius:4px;overflow:hidden;height:18px;">
+                        <div id="bytemash_reassign_categories_bar" style="background:#2563eb;height:100%;width:0%;transition:width .2s;"></div>
+                    </div>
+                </div>
+                <p id="bytemash_reassign_categories_result" class="description"></p>
+                <script>
+                jQuery(function($) {
+                    $('#bytemash_reassign_categories_btn').on('click', function() {
+                        var $btn = $(this);
+                        var nonce = $btn.data('nonce');
+                        var $result = $('#bytemash_reassign_categories_result');
+                        var $progress = $('#bytemash_reassign_categories_progress');
+                        var $bar = $('#bytemash_reassign_categories_bar');
+
+                        if (!window.confirm('<?php echo esc_js(__('Re-derive and re-attach categories for every product from locally stored Amrod data? This does not call the Amrod API. Continue?', 'bytemash-woo-sync')); ?>')) {
+                            return;
+                        }
+
+                        $btn.prop('disabled', true);
+                        $progress.show();
+                        $bar.css('width', '0%');
+                        $result.text('').removeClass('notice notice-error notice-success inline');
+
+                        $.post(ajaxurl, {
+                            action: 'bytemash_reassign_product_categories',
+                            nonce: nonce
+                        }).done(function(res) {
+                            if (!res.success || !res.data || !res.data.sync_id) {
+                                $result.text((res.data && res.data.message) || '<?php echo esc_js(__('Could not start.', 'bytemash-woo-sync')); ?>').addClass('notice notice-error inline').css({padding:'8px 12px', display:'inline-block'});
+                                $btn.prop('disabled', false);
+                                return;
+                            }
+
+                            var syncId = res.data.sync_id;
+                            var total = res.data.total;
+                            var retriesLeft = 3;
+
+                            function nextBatch() {
+                                $.post(ajaxurl, {
+                                    action: 'bytemash_process_category_reassignment_batch',
+                                    sync_id: syncId,
+                                    batch_size: 50,
+                                    nonce: nonce
+                                }).done(function(res) {
+                                    if (!res.success) {
+                                        $result.text((res.data && res.data.message) || '<?php echo esc_js(__('Batch failed.', 'bytemash-woo-sync')); ?>').addClass('notice notice-error inline').css({padding:'8px 12px', display:'inline-block'});
+                                        $btn.prop('disabled', false);
+                                        return;
+                                    }
+
+                                    retriesLeft = 3;
+                                    var d = res.data;
+                                    var pct = total > 0 ? Math.round((d.total_checked / total) * 100) : 100;
+                                    $bar.css('width', pct + '%');
+                                    $result.text(d.total_checked + ' / ' + total + ' <?php echo esc_js(__('checked -', 'bytemash-woo-sync')); ?> ' + d.assigned + ' <?php echo esc_js(__('assigned,', 'bytemash-woo-sync')); ?> ' + d.skipped + ' <?php echo esc_js(__('skipped (no stored category data),', 'bytemash-woo-sync')); ?> ' + d.errors + ' <?php echo esc_js(__('errors', 'bytemash-woo-sync')); ?>');
+
+                                    if (d.done) {
+                                        $result.addClass('notice notice-success inline').css({padding:'8px 12px', display:'inline-block'});
+                                        $btn.prop('disabled', false);
+                                    } else {
+                                        setTimeout(nextBatch, 200);
+                                    }
+                                }).fail(function() {
+                                    if (retriesLeft > 0) {
+                                        retriesLeft--;
+                                        setTimeout(nextBatch, 1000);
+                                        return;
+                                    }
+                                    $result.text('<?php echo esc_js(__('Request failed after retries. Click the button again to resume from where it left off is not supported - please restart.', 'bytemash-woo-sync')); ?>').addClass('notice notice-error inline').css({padding:'8px 12px', display:'inline-block'});
+                                    $btn.prop('disabled', false);
+                                });
+                            }
+
+                            nextBatch();
+                        }).fail(function() {
+                            $result.text('<?php echo esc_js(__('Request failed. Please try again.', 'bytemash-woo-sync')); ?>').addClass('notice notice-error inline').css({padding:'8px 12px', display:'inline-block'});
+                            $btn.prop('disabled', false);
+                        });
+                    });
+                });
+                </script>
+            </div>
+
+            <div class="bytemash-card" style="margin-top: 20px; max-width: 800px;">
                 <h2><?php esc_html_e('Delete All Products', 'bytemash-woo-sync'); ?></h2>
-                
+
                 <p>
                     <strong><?php esc_html_e('Current Products:', 'bytemash-woo-sync'); ?></strong> 
                     <?php echo number_format($total_products); ?> products

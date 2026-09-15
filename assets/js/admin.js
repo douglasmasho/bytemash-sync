@@ -1233,8 +1233,8 @@
                         context: contextLabel
                     },
                     success: function(response) {
-                        if (response.success && response.data && response.data.sync_id) {
-                            // Start batch processing with progress tracking
+                        if (response.success && response.data && response.data.sync_id && !response.data.done) {
+                            // Not finished in a single pass - start batch processing with progress tracking
                             const syncId = response.data.sync_id;
                             processCleanupBatches(syncId, $messageTarget, opts, resolve, reject);
                         } else if (response.success) {

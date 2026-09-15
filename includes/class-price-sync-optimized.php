@@ -512,6 +512,46 @@ class ByteMash_Price_Sync_Optimized {
         
         $sql = "INSERT INTO {$wpdb->postmeta} (post_id, meta_key, meta_value) VALUES " . implode(',', $values);
         $wpdb->query($sql);
+
+        // Also update the WooCommerce lookup table (wc_product_meta_lookup) directly.
+        // Postmeta above is the source of truth, but the storefront's price sorting/
+        // filtering queries read min_price/max_price/onsale from this lookup table,
+        // and it is NOT kept in sync by the postmeta writes above. Without this,
+        // prices only appear correct on the single-product page - price-sorted or
+        // price-filtered shop listings keep showing the old price until WooCommerce's
+        // background lookup-table rebuild (wc_update_product_lookup_tables(), queued
+        // in restore_woocommerce_events()) eventually gets around to it, which can be
+        // delayed indefinitely if WP-Cron/Action Scheduler is unreliable.
+        $lookup_table = $wpdb->prefix . 'wc_product_meta_lookup';
+        $has_lookup_table = ($wpdb->get_var("SHOW TABLES LIKE '" . esc_sql($lookup_table) . "'") === $lookup_table);
+        if ($has_lookup_table) {
+            foreach ($updates as $update) {
+                $product_id = (int) $update['product_id'];
+                $regular_price = $update['regular_price'];
+                $sale_price = $update['sale_price'];
+                $price = $update['price'];
+                $onsale = ($sale_price !== '' && $sale_price !== null && (float) $sale_price < (float) $regular_price) ? 1 : 0;
+
+                // Only touch simple-product rows here - a variable product's parent
+                // min/max reflect its variations' range, not its own _price meta, so
+                // leave that aggregation to WooCommerce's own rebuild.
+                if (get_post_type($product_id) === 'product_variation') {
+                    continue;
+                }
+                $parent_id = wp_get_post_parent_id($product_id);
+                if ($parent_id) {
+                    continue;
+                }
+
+                $wpdb->query($wpdb->prepare(
+                    "UPDATE {$lookup_table} SET min_price = %s, max_price = %s, onsale = %d WHERE product_id = %d",
+                    $price,
+                    $price,
+                    $onsale,
+                    $product_id
+                ));
+            }
+        }
     }
     
     /**

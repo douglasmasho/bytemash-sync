@@ -653,12 +653,16 @@ class ByteMash_Admin_Dashboard {
     private static function get_amrod_product_count() {
         global $wpdb;
         
+        // Count every Amrod-synced product regardless of status (not just 'publish')
+        // so this matches what's actually in the database - a product that ended up
+        // draft/private/pending (e.g. a WooCommerce save error, or a theme/plugin
+        // filter) should still show up here instead of silently vanishing from the count.
         $count = $wpdb->get_var("
             SELECT COUNT(DISTINCT p.ID)
             FROM {$wpdb->posts} p
             INNER JOIN {$wpdb->postmeta} pm ON p.ID = pm.post_id
             WHERE p.post_type = 'product'
-            AND p.post_status = 'publish'
+            AND p.post_status NOT IN ('trash', 'auto-draft')
             AND pm.meta_key = '_amrod_simple_code'
         ");
         

@@ -159,109 +159,31 @@ class ByteMash_DB_Migration {
         $success_count = 0;
         
         // Index 1: Composite index for meta_key + meta_value lookups (SKU, hash, modified date)
-        $index_name = 'meta_key_value';
-        if (!$this->index_exists($wpdb->postmeta, $index_name)) {
-            $sql = "ALTER TABLE {$wpdb->postmeta} ADD INDEX $index_name (meta_key(191), meta_value(191))";
-            $result = $wpdb->query($sql);
-            
-            if ($result === false) {
-                $errors[] = "Failed to create index: $index_name";
-                $this->logger->log('error', 'Failed to create index', array(
-                    'index' => $index_name,
-                    'error' => $wpdb->last_error,
-                ), 'db_migration');
-            } else {
-                $success_count++;
-                $this->logger->log('success', 'Created performance index', array(
-                    'index' => $index_name,
-                ), 'db_migration');
-            }
-        } else {
-            $success_count++;
-        }
-        
+        $this->add_postmeta_index_safely('meta_key_value', $errors, $success_count);
+
         // Index 2: Specific index for bytemash modified date queries
-        $index_name = 'bytemash_modified';
-        if (!$this->index_exists($wpdb->postmeta, $index_name)) {
-            $sql = "ALTER TABLE {$wpdb->postmeta} ADD INDEX $index_name (meta_key(191), meta_value(191))";
-            $result = $wpdb->query($sql);
-            
-            if ($result === false) {
-                $errors[] = "Failed to create index: $index_name";
-                $this->logger->log('error', 'Failed to create index', array(
-                    'index' => $index_name,
-                    'error' => $wpdb->last_error,
-                ), 'db_migration');
-            } else {
-                $success_count++;
-                $this->logger->log('success', 'Created performance index', array(
-                    'index' => $index_name,
-                ), 'db_migration');
-            }
-        } else {
-            $success_count++;
-        }
+        $this->add_postmeta_index_safely('bytemash_modified', $errors, $success_count);
         
-        // Unique key: For ON DUPLICATE KEY UPDATE support
-        // This allows single-query meta updates instead of UPDATE + INSERT
-        $index_name = 'unique_postmeta';
-        if (!$this->index_exists($wpdb->postmeta, $index_name)) {
-            // Check if there are duplicate entries first
-            $duplicates = $wpdb->get_var("
-                SELECT COUNT(*) 
-                FROM {$wpdb->postmeta} pm1
-                INNER JOIN {$wpdb->postmeta} pm2 
-                    ON pm1.post_id = pm2.post_id 
-                    AND pm1.meta_key = pm2.meta_key 
-                    AND pm1.meta_id != pm2.meta_id
-            ");
-            
-            if ($duplicates > 0) {
-                $this->logger->log('warning', 'Found duplicate postmeta entries, cleaning up before adding unique key', array(
-                    'duplicates' => $duplicates,
-                ), 'db_migration');
-                
-                // Remove duplicates, keeping the most recent meta_id
-                $wpdb->query("
-                    DELETE pm1 FROM {$wpdb->postmeta} pm1
-                    INNER JOIN {$wpdb->postmeta} pm2 
-                    WHERE pm1.post_id = pm2.post_id 
-                    AND pm1.meta_key = pm2.meta_key 
-                    AND pm1.meta_id < pm2.meta_id
-                ");
-            }
-            
-            // Now add the unique key
-            $sql = "ALTER TABLE {$wpdb->postmeta} ADD UNIQUE KEY $index_name (post_id, meta_key(191))";
-            $result = $wpdb->query($sql);
-            
-            if ($result === false) {
-                // If it fails, it might be because WordPress already has a similar constraint
-                // Check the error message
-                if (strpos($wpdb->last_error, 'Duplicate entry') !== false || 
-                    strpos($wpdb->last_error, 'already exists') !== false) {
-                    // Index already exists in some form, that's okay
-                    $success_count++;
-                    $this->logger->log('info', 'Unique key already exists or similar constraint present', array(
-                        'index' => $index_name,
-                    ), 'db_migration');
-                } else {
-                    $errors[] = "Failed to create unique key: $index_name - " . $wpdb->last_error;
-                    $this->logger->log('error', 'Failed to create unique key', array(
-                        'index' => $index_name,
-                        'error' => $wpdb->last_error,
-                    ), 'db_migration');
-                }
-            } else {
-                $success_count++;
-                $this->logger->log('success', 'Created unique key for ON DUPLICATE KEY UPDATE', array(
-                    'index' => $index_name,
-                ), 'db_migration');
-            }
-        } else {
-            $success_count++;
-        }
-        
+        // NOTE: This migration used to also add a UNIQUE KEY on
+        // (post_id, meta_key) to wp_postmeta "for ON DUPLICATE KEY UPDATE
+        // support". That has been removed entirely:
+        //   1. It's unsafe - WordPress core and other plugins routinely
+        //      store multiple meta rows with the same key for the same
+        //      post (galleries, repeaters, etc.), so enforcing uniqueness
+        //      on a real site's postmeta table will hit "duplicate" data
+        //      that isn't actually a bug and shouldn't be deleted.
+        //   2. Nothing in this codebase actually uses
+        //      "INSERT ... ON DUPLICATE KEY UPDATE" anymore - meta bulk
+        //      updates use DELETE+INSERT instead - so the key was dead
+        //      weight.
+        //   3. On a real WooCommerce store, wp_postmeta can have millions
+        //      of rows; the duplicate-scan self-join plus the ALTER TABLE
+        //      ADD UNIQUE KEY here could run for a very long time and,
+        //      depending on the MySQL/MariaDB version's ALTER algorithm,
+        //      lock the whole table (which every WooCommerce page reads
+        //      from) for the duration - this is what made first activation
+        //      on a real store hang the entire site.
+
         if (empty($errors)) {
             return array('success' => true);
         } else {
@@ -273,8 +195,51 @@ class ByteMash_DB_Migration {
     }
     
     /**
+     * Add a (meta_key(191), meta_value(191)) index to wp_postmeta, preferring
+     * a non-locking ALTER on InnoDB (MySQL 5.6+ / MariaDB 10.0+) so building
+     * the index on a large, real-world postmeta table doesn't block reads
+     * and writes to it (which every WooCommerce page depends on) for the
+     * duration. Falls back to a plain ALTER for older servers that don't
+     * understand the ALGORITHM/LOCK clauses.
+     *
+     * @param string $index_name
+     * @param array  $errors        Passed by reference, appended on failure
+     * @param int    $success_count Passed by reference, incremented on success
+     */
+    private function add_postmeta_index_safely($index_name, array &$errors, &$success_count) {
+        global $wpdb;
+
+        if ($this->index_exists($wpdb->postmeta, $index_name)) {
+            $success_count++;
+            return;
+        }
+
+        $columns = '(meta_key(191), meta_value(191))';
+        $result = $wpdb->query("ALTER TABLE {$wpdb->postmeta} ADD INDEX $index_name $columns, ALGORITHM=INPLACE, LOCK=NONE");
+
+        if ($result === false) {
+            // Older MySQL/MariaDB (or a storage engine other than InnoDB)
+            // may not support the ALGORITHM/LOCK clauses - retry plainly.
+            $result = $wpdb->query("ALTER TABLE {$wpdb->postmeta} ADD INDEX $index_name $columns");
+        }
+
+        if ($result === false) {
+            $errors[] = "Failed to create index: $index_name";
+            $this->logger->log('error', 'Failed to create index', array(
+                'index' => $index_name,
+                'error' => $wpdb->last_error,
+            ), 'db_migration');
+        } else {
+            $success_count++;
+            $this->logger->log('success', 'Created performance index', array(
+                'index' => $index_name,
+            ), 'db_migration');
+        }
+    }
+
+    /**
      * Check if an index exists on a table
-     * 
+     *
      * @param string $table_name Table name
      * @param string $index_name Index name
      * @return bool True if index exists

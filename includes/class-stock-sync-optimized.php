@@ -305,6 +305,10 @@ class ByteMash_Stock_Sync_Optimized {
         $lookup_table = $wpdb->prefix . 'wc_product_meta_lookup';
         $has_lookup_table = ($wpdb->get_var("SHOW TABLES LIKE '" . esc_sql($lookup_table) . "'") === $lookup_table);
 
+        // Parent (variable product) IDs touched by variation updates in this batch -
+        // their aggregate stock status is recomputed from all children after the loop.
+        $touched_parents = array();
+
         foreach ($updates as $update) {
             $product_id = (int) $update['product_id'];
             $stock_qty = (int) $update['stock'];
@@ -333,22 +337,57 @@ class ByteMash_Stock_Sync_Optimized {
                 ));
             }
             
-            // Handle variation-to-parent status sync
+            // Handle variation-to-parent status sync: just remember the parent, the
+            // real status is recomputed from ALL of its children after this loop
+            // (a single variation going in stock must not force siblings' 0 stock
+            // to be ignored, and a variation going OUT of stock must be able to
+            // pull the parent back to 'outofstock' when it was the last one in stock).
             $post = get_post($product_id);
-            if ($post && $post->post_type === 'product_variation' && $post->post_parent > 0 && $stock_qty > 0) {
-                update_post_meta($post->post_parent, '_stock_status', 'instock');
-                if ($has_lookup_table) {
-                    $wpdb->query($wpdb->prepare(
-                        "UPDATE {$lookup_table} SET stock_status = 'instock' WHERE product_id = %d",
-                        $post->post_parent
-                    ));
-                }
+            if ($post && $post->post_type === 'product_variation' && $post->post_parent > 0) {
+                $touched_parents[(int) $post->post_parent] = true;
             }
-            
+
             wp_cache_delete($product_id, 'post_meta');
             clean_post_cache($product_id);
             if (function_exists('wc_delete_product_transients')) {
                 wc_delete_product_transients($product_id);
+            }
+        }
+
+        // Recompute each touched parent's stock status from its current children
+        // rather than only ever pushing it to 'instock'.
+        if (!empty($touched_parents)) {
+            foreach (array_keys($touched_parents) as $parent_id) {
+                $child_ids = get_posts(array(
+                    'post_type'      => 'product_variation',
+                    'post_parent'    => $parent_id,
+                    'post_status'    => array('publish', 'private'),
+                    'fields'         => 'ids',
+                    'posts_per_page' => -1,
+                ));
+
+                $parent_status = 'outofstock';
+                foreach ($child_ids as $child_id) {
+                    if (get_post_meta($child_id, '_stock_status', true) === 'instock') {
+                        $parent_status = 'instock';
+                        break;
+                    }
+                }
+
+                update_post_meta($parent_id, '_stock_status', $parent_status);
+                wp_cache_delete($parent_id, 'post_meta');
+                clean_post_cache($parent_id);
+                if (function_exists('wc_delete_product_transients')) {
+                    wc_delete_product_transients($parent_id);
+                }
+
+                if ($has_lookup_table) {
+                    $wpdb->query($wpdb->prepare(
+                        "UPDATE {$lookup_table} SET stock_status = %s WHERE product_id = %d",
+                        $parent_status,
+                        $parent_id
+                    ));
+                }
             }
         }
     }

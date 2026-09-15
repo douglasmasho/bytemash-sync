@@ -37,6 +37,21 @@ class ByteMash_Admin_Settings {
         $show_dimensions = get_option('bytemash_show_dimension_details', true);
         $full_sync_frequency = get_option('bytemash_full_sync_frequency', 'daily_at_0130');
         $incremental_frequency = get_option('bytemash_incremental_sync_frequency', 'every_5_hours');
+        // Sentinel distinguishes "never configured yet" (seed once from
+        // whatever top-level categories exist today, so upgrading doesn't
+        // blank an existing site's menu) from "admin explicitly emptied it".
+        $mega_menu_top_order_sentinel = '__bytemash_not_set__';
+        $mega_menu_top_order = get_option('bytemash_mega_menu_top_order', $mega_menu_top_order_sentinel);
+        if ($mega_menu_top_order === $mega_menu_top_order_sentinel) {
+            $seed_terms = get_terms(array(
+                'taxonomy' => 'product_cat',
+                'hide_empty' => false,
+                'parent' => 0,
+                'fields' => 'ids',
+            ));
+            $mega_menu_top_order = is_wp_error($seed_terms) ? array() : array_map('intval', (array) $seed_terms);
+            update_option('bytemash_mega_menu_top_order', $mega_menu_top_order, false);
+        }
         
         // Get sync status
         $scheduler = new ByteMash_Sync_Scheduler();
@@ -162,6 +177,7 @@ class ByteMash_Admin_Settings {
                 </div>
             <?php else : ?>
                 <!-- Authenticated - Show Settings -->
+                <?php wp_enqueue_script('jquery-ui-sortable'); ?>
                 
                 <div class="bytemash-authenticated-header">
                     <div class="auth-success-badge">
@@ -323,20 +339,733 @@ class ByteMash_Admin_Settings {
                     <p class="description">
                         <?php esc_html_e('Use this tool to remove all WooCommerce categories that were created by the Amrod sync (identified by Amrod category metadata). This is helpful when you need to clear duplicates before running a fresh sync.', 'bytemash-woo-sync'); ?>
                     </p>
-                    <form method="post" action="" onsubmit="return confirm('<?php echo esc_js(__('This will delete all synced Amrod categories and detach them from products. Continue?', 'bytemash-woo-sync')); ?>');">
+                    <form id="bytemash-delete-categories-form" method="post" action="">
                         <?php wp_nonce_field('bytemash_delete_categories_action', 'bytemash_delete_categories_nonce'); ?>
                         <p class="submit">
-                            <button type="submit" name="bytemash_delete_categories" class="button button-secondary" style="background: #dc3545; border-color: #dc3545; color: #fff;">
+                            <button type="button" id="bytemash-delete-categories-btn" class="button button-secondary" data-nonce="<?php echo esc_attr(wp_create_nonce('bytemash_woo_sync_nonce')); ?>" style="background: #dc3545; border-color: #dc3545; color: #fff;">
                                 <span class="dashicons dashicons-trash"></span>
                                 <?php esc_html_e('Delete Synced Categories', 'bytemash-woo-sync'); ?>
                             </button>
+                            <noscript>
+                                <button type="submit" name="bytemash_delete_categories" class="button button-secondary" style="background: #dc3545; border-color: #dc3545; color: #fff;" onclick="return confirm('<?php echo esc_js(__('This will delete all synced Amrod categories and detach them from products. Continue?', 'bytemash-woo-sync')); ?>');">
+                                    <?php esc_html_e('Delete Synced Categories (no JS)', 'bytemash-woo-sync'); ?>
+                                </button>
+                            </noscript>
                         </p>
+                        <div id="bytemash-delete-categories-progress" style="display:none;">
+                            <div style="background:#f0f0f1;border-radius:4px;overflow:hidden;max-width:400px;height:18px;">
+                                <div id="bytemash-delete-categories-bar" style="background:#dc3545;height:100%;width:0%;transition:width .2s;"></div>
+                            </div>
+                            <p id="bytemash-delete-categories-status" class="description" style="margin-top:6px;"></p>
+                        </div>
                     </form>
+                    <script>
+                    (function($){
+                        $(function(){
+                            $('#bytemash-delete-categories-btn').on('click', function(){
+                                if (!window.confirm('<?php echo esc_js(__('This will delete all synced Amrod categories and detach them from products. This runs in small batches and cannot be undone. Continue?', 'bytemash-woo-sync')); ?>')) {
+                                    return;
+                                }
+
+                                var $btn = $(this);
+                                var nonce = $btn.data('nonce');
+                                var ajaxUrl = (typeof bytemashWooSync !== 'undefined' ? bytemashWooSync.ajax_url : ajaxurl);
+                                var $progress = $('#bytemash-delete-categories-progress');
+                                var $bar = $('#bytemash-delete-categories-bar');
+                                var $status = $('#bytemash-delete-categories-status');
+
+                                $btn.prop('disabled', true);
+                                $progress.show();
+                                $bar.css('width', '0%');
+                                $status.text('<?php echo esc_js(__('Finding synced categories...', 'bytemash-woo-sync')); ?>');
+
+                                $.post(ajaxUrl, {
+                                    action: 'bytemash_get_synced_category_ids',
+                                    nonce: nonce
+                                }).done(function(res){
+                                    if (!res.success || !res.data || !res.data.term_ids) {
+                                        $status.text((res.data && res.data.message) || '<?php echo esc_js(__('Could not load categories.', 'bytemash-woo-sync')); ?>');
+                                        $btn.prop('disabled', false);
+                                        return;
+                                    }
+
+                                    var ids = res.data.term_ids;
+                                    var total = ids.length;
+
+                                    if (total === 0) {
+                                        $status.text('<?php echo esc_js(__('No synced categories found - nothing to delete.', 'bytemash-woo-sync')); ?>');
+                                        $btn.prop('disabled', false);
+                                        return;
+                                    }
+
+                                    var batchSize = 10;
+                                    var processed = 0;
+                                    var deleted = 0;
+                                    var totalFailed = 0;
+                                    var retriesLeft = 3;
+
+                                    function nextBatch(){
+                                        var chunk = ids.slice(processed, processed + batchSize);
+
+                                        if (chunk.length === 0) {
+                                            $bar.css('width', '100%');
+                                            var doneMsg = '<?php echo esc_js(__('Done -', 'bytemash-woo-sync')); ?> ' + deleted + ' <?php echo esc_js(__('categories deleted.', 'bytemash-woo-sync')); ?>';
+                                            if (totalFailed > 0) {
+                                                doneMsg += ' ' + totalFailed + ' <?php echo esc_js(__('could not be deleted - check the sync logs for details.', 'bytemash-woo-sync')); ?>';
+                                            }
+                                            $status.text(doneMsg);
+                                            setTimeout(function(){
+                                                window.location.href = <?php echo wp_json_encode(add_query_arg('categories-deleted', 'true', admin_url('admin.php?page=bytemash-amrod-settings'))); ?>;
+                                            }, 800);
+                                            return;
+                                        }
+
+                                        $.post(ajaxUrl, {
+                                            action: 'bytemash_delete_categories_batch',
+                                            nonce: nonce,
+                                            term_ids: chunk
+                                        }).done(function(res){
+                                            retriesLeft = 3;
+                                            if (res.success && res.data) {
+                                                deleted += res.data.deleted || 0;
+                                                if (res.data.failed && res.data.failed.length) {
+                                                    totalFailed += res.data.failed.length;
+                                                }
+                                            }
+                                            processed += chunk.length;
+                                            var pct = Math.round((processed / total) * 100);
+                                            $bar.css('width', pct + '%');
+                                            $status.text(processed + ' / ' + total + ' <?php echo esc_js(__('checked,', 'bytemash-woo-sync')); ?> ' + deleted + ' <?php echo esc_js(__('deleted', 'bytemash-woo-sync')); ?>');
+                                            nextBatch();
+                                        }).fail(function(xhr){
+                                            // Transient failures (timeout, brief server hiccup) get a
+                                            // few automatic retries of the SAME chunk before giving up,
+                                            // instead of stopping on the first blip.
+                                            if (retriesLeft > 0) {
+                                                retriesLeft--;
+                                                $status.text(processed + ' / ' + total + ' <?php echo esc_js(__('checked - a batch had trouble, retrying...', 'bytemash-woo-sync')); ?>');
+                                                setTimeout(nextBatch, 1000);
+                                                return;
+                                            }
+                                            var detail = xhr && xhr.status ? (' (HTTP ' + xhr.status + (xhr.statusText ? ' ' + xhr.statusText : '') + ')') : '';
+                                            $status.text('<?php echo esc_js(__('A batch failed after retries', 'bytemash-woo-sync')); ?>' + detail + '. <?php echo esc_js(__('Deleted', 'bytemash-woo-sync')); ?> ' + deleted + ' <?php echo esc_js(__('so far. Click the button again to retry the remaining categories.', 'bytemash-woo-sync')); ?>');
+                                            $btn.prop('disabled', false);
+                                        });
+                                    }
+
+                                    nextBatch();
+                                }).fail(function(){
+                                    $status.text('<?php echo esc_js(__('Request failed. Please try again.', 'bytemash-woo-sync')); ?>');
+                                    $btn.prop('disabled', false);
+                                });
+                            });
+                        });
+                    })(jQuery);
+                    </script>
+                </div>
+
+                <div class="bytemash-settings-section" style="margin-bottom: 30px; background: #fff; padding: 20px; border: 1px solid #ccd0d4; box-shadow: 0 1px 1px rgba(0,0,0,.04);">
+                    <h2 style="margin-top: 0;"><?php esc_html_e('🔀 Merge Duplicate Categories', 'bytemash-woo-sync'); ?></h2>
+                    <p class="description">
+                        <?php esc_html_e('Scan for categories that share the same name under the same parent (e.g. multiple "Writing Instruments" categories). For each group, the category with the most products is kept; the others are merged into it - their products are moved over and the duplicate categories are deleted.', 'bytemash-woo-sync'); ?>
+                    </p>
+
+                    <p>
+                        <button type="button" id="bytemash-scan-duplicates-btn" class="button button-primary" data-nonce="<?php echo esc_attr(wp_create_nonce('bytemash_woo_sync_nonce')); ?>">
+                            <span class="dashicons dashicons-search"></span>
+                            <?php esc_html_e('Scan for Duplicate Categories', 'bytemash-woo-sync'); ?>
+                        </button>
+                    </p>
+
+                    <div id="bytemash-duplicates-results" style="display:none;">
+                        <div style="margin-bottom:10px;display:flex;align-items:center;gap:14px;">
+                            <label style="display:flex;align-items:center;gap:6px;font-weight:600;">
+                                <input type="checkbox" id="bytemash-duplicates-select-all">
+                                <?php esc_html_e('Select all groups', 'bytemash-woo-sync'); ?>
+                            </label>
+                            <button type="button" id="bytemash-merge-duplicates-btn" class="button button-secondary" style="background:#d63638;border-color:#d63638;color:#fff;margin-left:auto;" disabled>
+                                <span class="dashicons dashicons-randomize"></span>
+                                <?php esc_html_e('Merge Selected', 'bytemash-woo-sync'); ?>
+                                (<span id="bytemash-duplicates-selected-count">0</span>)
+                            </button>
+                        </div>
+                        <div id="bytemash-duplicates-list"></div>
+                        <div id="bytemash-merge-progress" style="display:none;max-width:600px;margin:10px 0;">
+                            <div style="background:#f0f0f1;border-radius:4px;overflow:hidden;height:18px;">
+                                <div id="bytemash-merge-bar" style="background:#d63638;height:100%;width:0%;transition:width .2s;"></div>
+                            </div>
+                        </div>
+                        <p class="description" id="bytemash-merge-status"></p>
+                    </div>
+                    <p class="description" id="bytemash-scan-status"></p>
+
+                    <script>
+                    (function($){
+                        function esc(str){
+                            return $('<div>').text(str == null ? '' : String(str)).html();
+                        }
+
+                        $(function(){
+                            var ajaxUrl = (typeof bytemashWooSync !== 'undefined' ? bytemashWooSync.ajax_url : ajaxurl);
+                            var $scanBtn = $('#bytemash-scan-duplicates-btn');
+                            var $scanStatus = $('#bytemash-scan-status');
+                            var $results = $('#bytemash-duplicates-results');
+                            var $list = $('#bytemash-duplicates-list');
+                            var $selectAll = $('#bytemash-duplicates-select-all');
+                            var $mergeBtn = $('#bytemash-merge-duplicates-btn');
+                            var $selectedCount = $('#bytemash-duplicates-selected-count');
+                            var $mergeProgress = $('#bytemash-merge-progress');
+                            var $mergeBar = $('#bytemash-merge-bar');
+                            var $mergeStatus = $('#bytemash-merge-status');
+                            var groups = [];
+
+                            function renderGroups(){
+                                if (!groups.length) {
+                                    $results.hide();
+                                    $scanStatus.text('<?php echo esc_js(__('No duplicate categories found.', 'bytemash-woo-sync')); ?>');
+                                    return;
+                                }
+
+                                $scanStatus.text('');
+                                var html = '';
+                                groups.forEach(function(group, idx){
+                                    var canonical = null;
+                                    group.terms.forEach(function(t){ if (t.id === group.canonical_id) canonical = t; });
+                                    html += '<div class="bytemash-dup-group" data-group-index="' + idx + '" style="border:1px solid #ccd0d4;border-radius:6px;padding:10px 12px;margin-bottom:8px;background:#f6f7f7;">';
+                                    html += '<label style="display:flex;align-items:center;gap:8px;font-weight:600;">';
+                                    html += '<input type="checkbox" class="bytemash-dup-group-select" data-group-index="' + idx + '" checked>';
+                                    html += esc(group.name) + (group.parent ? ' <span style="font-weight:400;opacity:.7;">(' + '<?php echo esc_js(__('subcategory', 'bytemash-woo-sync')); ?>' + ')</span>' : '');
+                                    html += ' <span style="font-weight:400;opacity:.7;">- ' + group.terms.length + ' <?php echo esc_js(__('categories found', 'bytemash-woo-sync')); ?></span>';
+                                    html += '</label>';
+                                    html += '<ul style="margin:8px 0 0 26px;">';
+                                    group.terms.forEach(function(t){
+                                        var isCanonical = (t.id === group.canonical_id);
+                                        html += '<li>';
+                                        html += isCanonical
+                                            ? '<strong>' + '<?php echo esc_js(__('Keep', 'bytemash-woo-sync')); ?>' + ':</strong> '
+                                            : '<span style="color:#d63638;">' + '<?php echo esc_js(__('Merge away', 'bytemash-woo-sync')); ?>' + ':</span> ';
+                                        html += 'ID ' + t.id + ' (' + t.count + ' <?php echo esc_js(__('products', 'bytemash-woo-sync')); ?>)';
+                                        html += '</li>';
+                                    });
+                                    html += '</ul>';
+                                    html += '</div>';
+                                });
+                                $list.html(html);
+                                $results.show();
+                                updateSelectionState();
+                            }
+
+                            function updateSelectionState(){
+                                var count = $list.find('.bytemash-dup-group-select:checked').length;
+                                var total = $list.find('.bytemash-dup-group-select').length;
+                                $selectedCount.text(count);
+                                $mergeBtn.prop('disabled', count === 0);
+                                $selectAll.prop('checked', total > 0 && count === total);
+                                $selectAll.prop('indeterminate', count > 0 && count < total);
+                            }
+
+                            $scanBtn.on('click', function(){
+                                $scanBtn.prop('disabled', true);
+                                $scanStatus.text('<?php echo esc_js(__('Scanning...', 'bytemash-woo-sync')); ?>');
+                                $results.hide();
+                                $mergeStatus.text('').removeClass('notice notice-error notice-success inline');
+
+                                $.post(ajaxUrl, {
+                                    action: 'bytemash_scan_duplicate_categories',
+                                    nonce: $scanBtn.data('nonce')
+                                }).done(function(res){
+                                    $scanBtn.prop('disabled', false);
+                                    if (!res.success || !res.data) {
+                                        $scanStatus.text((res.data && res.data.message) || '<?php echo esc_js(__('Scan failed.', 'bytemash-woo-sync')); ?>');
+                                        return;
+                                    }
+                                    groups = res.data.groups || [];
+                                    renderGroups();
+                                }).fail(function(){
+                                    $scanBtn.prop('disabled', false);
+                                    $scanStatus.text('<?php echo esc_js(__('Request failed. Please try again.', 'bytemash-woo-sync')); ?>');
+                                });
+                            });
+
+                            $selectAll.on('change', function(){
+                                $list.find('.bytemash-dup-group-select').prop('checked', $(this).is(':checked'));
+                                updateSelectionState();
+                            });
+
+                            $list.on('change', '.bytemash-dup-group-select', updateSelectionState);
+
+                            $mergeBtn.on('click', function(){
+                                var selectedIndexes = $list.find('.bytemash-dup-group-select:checked').map(function(){
+                                    return parseInt($(this).data('group-index'), 10);
+                                }).get();
+
+                                if (!selectedIndexes.length) { return; }
+
+                                var totalDupCategories = 0;
+                                selectedIndexes.forEach(function(idx){ totalDupCategories += groups[idx].duplicate_ids.length; });
+
+                                if (!window.confirm('<?php echo esc_js(__('Merge', 'bytemash-woo-sync')); ?> ' + selectedIndexes.length + ' <?php echo esc_js(__('group(s),', 'bytemash-woo-sync')); ?> ' + totalDupCategories + ' <?php echo esc_js(__('duplicate categories in total. Products move to the kept category; the duplicates are deleted. This cannot be undone. Continue?', 'bytemash-woo-sync')); ?>')) {
+                                    return;
+                                }
+
+                                var nonce = $scanBtn.data('nonce');
+                                $mergeBtn.prop('disabled', true);
+                                $selectAll.prop('disabled', true);
+                                $mergeProgress.show();
+                                $mergeBar.css('width', '0%');
+                                $mergeStatus.text('').removeClass('notice notice-error notice-success inline');
+
+                                // Flatten every selected group into individual [canonical_id, duplicate_id]
+                                // pairs and send only a FEW per request, regardless of how many
+                                // duplicates any single group has - keeps each request small and fast
+                                // instead of asking the server to merge dozens of categories (each
+                                // touching the product/category relationships table) in one go.
+                                var pairs = [];
+                                selectedIndexes.forEach(function(idx){
+                                    groups[idx].duplicate_ids.forEach(function(dupId){
+                                        pairs.push([groups[idx].canonical_id, dupId]);
+                                    });
+                                });
+
+                                var chunkSize = 3;
+                                var processedPairs = 0;
+                                var totalPairs = pairs.length;
+                                var totalMerged = 0;
+                                var totalFailed = 0;
+                                var retriesLeft = 3;
+
+                                function nextChunk(){
+                                    if (processedPairs >= totalPairs) {
+                                        var doneMsg = totalMerged + ' <?php echo esc_js(__('categories merged.', 'bytemash-woo-sync')); ?>';
+                                        if (totalFailed > 0) {
+                                            doneMsg += ' ' + totalFailed + ' <?php echo esc_js(__('could not be merged - check the sync logs for details.', 'bytemash-woo-sync')); ?>';
+                                        }
+                                        $mergeStatus.text(doneMsg).addClass('notice notice-success inline').css({padding:'6px 10px', display:'inline-block'});
+                                        setTimeout(function(){ window.location.reload(); }, 1200);
+                                        return;
+                                    }
+
+                                    var chunk = pairs.slice(processedPairs, processedPairs + chunkSize);
+
+                                    $.post(ajaxUrl, {
+                                        action: 'bytemash_merge_categories_batch',
+                                        nonce: nonce,
+                                        pairs: JSON.stringify(chunk)
+                                    }).done(function(res){
+                                        retriesLeft = 3;
+                                        if (res.success && res.data) {
+                                            totalMerged += res.data.merged || 0;
+                                            if (res.data.failed && res.data.failed.length) {
+                                                totalFailed += res.data.failed.length;
+                                            }
+                                        }
+                                        processedPairs += chunk.length;
+                                        $mergeBar.css('width', Math.round((processedPairs / totalPairs) * 100) + '%');
+                                        $mergeStatus.text(processedPairs + ' / ' + totalPairs + ' <?php echo esc_js(__('checked,', 'bytemash-woo-sync')); ?> ' + totalMerged + ' <?php echo esc_js(__('merged', 'bytemash-woo-sync')); ?>');
+                                        nextChunk();
+                                    }).fail(function(xhr){
+                                        if (retriesLeft > 0) {
+                                            retriesLeft--;
+                                            $mergeStatus.text(processedPairs + ' / ' + totalPairs + ' <?php echo esc_js(__('checked - a batch had trouble, retrying...', 'bytemash-woo-sync')); ?>');
+                                            setTimeout(nextChunk, 1500);
+                                            return;
+                                        }
+                                        var detail = xhr && xhr.status ? (' (HTTP ' + xhr.status + ')') : '';
+                                        $mergeStatus.text('<?php echo esc_js(__('A batch failed after retries', 'bytemash-woo-sync')); ?>' + detail + '. <?php echo esc_js(__('Merged', 'bytemash-woo-sync')); ?> ' + totalMerged + ' <?php echo esc_js(__('so far. Scan again to retry the rest.', 'bytemash-woo-sync')); ?>').addClass('notice notice-error inline').css({padding:'6px 10px', display:'inline-block'});
+                                        $mergeBtn.prop('disabled', false);
+                                        $selectAll.prop('disabled', false);
+                                    });
+                                }
+
+                                nextChunk();
+                            });
+                        });
+                    })(jQuery);
+                    </script>
                 </div>
 
             <form method="post" action="" class="bytemash-settings-form">
                 <?php wp_nonce_field('bytemash_settings_action', 'bytemash_settings_nonce'); ?>
                 
+                <div class="bytemash-settings-section">
+                    <h2><?php esc_html_e('Mega Menu: Category Order', 'bytemash-woo-sync'); ?></h2>
+                    <p class="description">
+                        <?php esc_html_e('This menu only shows categories explicitly added here - a sync creating or updating categories never changes this list. Drag and drop to reorder. Use the pencil icon to rename a category (the new name is protected from being overwritten by future syncs). The trash icon and "Delete Selected" only remove a category from THIS MENU - they do NOT delete the category, its products, or its subcategories from WooCommerce, and removed categories can be added back below at any time.', 'bytemash-woo-sync'); ?>
+                    </p>
+                    <?php
+                    $top_terms = get_terms(array(
+                        'taxonomy' => 'product_cat',
+                        'hide_empty' => false,
+                        'parent' => 0,
+                        'orderby' => 'name',
+                        'order' => 'ASC',
+                    ));
+                    if (!is_wp_error($top_terms) && !empty($top_terms)) {
+                        $term_by_id = array();
+                        foreach ($top_terms as $t) {
+                            if (!$t instanceof WP_Term || $t->slug === 'uncategorized') {
+                                continue;
+                            }
+                            $term_by_id[(int) $t->term_id] = $t;
+                        }
+
+                        // Strict inclusion: the menu list is ONLY what's in
+                        // the saved order, in that order. Anything else
+                        // (including brand new categories from a sync) is
+                        // "available to add" instead of being auto-included.
+                        $ordered_terms = array();
+                        if (is_array($mega_menu_top_order)) {
+                            foreach ($mega_menu_top_order as $tid) {
+                                $tid = (int) $tid;
+                                if ($tid && isset($term_by_id[$tid])) {
+                                    $ordered_terms[] = $term_by_id[$tid];
+                                    unset($term_by_id[$tid]);
+                                }
+                            }
+                        }
+                        // Whatever's left in $term_by_id was never added to
+                        // the menu (or was removed from it) - offer it below.
+                        $available_terms = array_values($term_by_id);
+                        ?>
+                        <input type="hidden" id="bytemash_mega_menu_top_order" name="mega_menu_top_order" value="<?php echo esc_attr(wp_json_encode(wp_list_pluck($ordered_terms, 'term_id'))); ?>">
+                        <div style="margin:12px 0 8px;display:flex;align-items:center;gap:14px;max-width:520px;">
+                            <label style="display:flex;align-items:center;gap:6px;font-weight:600;">
+                                <input type="checkbox" id="bytemash-mega-menu-select-all">
+                                <?php esc_html_e('Select all', 'bytemash-woo-sync'); ?>
+                            </label>
+                            <button type="button"
+                                    id="bytemash-mega-menu-bulk-delete-btn"
+                                    class="button button-secondary"
+                                    data-nonce="<?php echo esc_attr(wp_create_nonce('bytemash_woo_sync_nonce')); ?>"
+                                    disabled
+                                    style="background:#d63638;border-color:#d63638;color:#fff;margin-left:auto;">
+                                <span class="dashicons dashicons-hidden" aria-hidden="true"></span>
+                                <?php esc_html_e('Remove Selected from Menu', 'bytemash-woo-sync'); ?>
+                                (<span id="bytemash-mega-menu-selected-count">0</span>)
+                            </button>
+                        </div>
+                        <ul id="bytemash-mega-menu-sortable" style="margin: 12px 0; max-width: 520px;">
+                            <?php foreach ($ordered_terms as $t) : ?>
+                                <li data-term-id="<?php echo esc_attr((int) $t->term_id); ?>" style="background:#f6f7f7;border:1px solid #ccd0d4;padding:10px 12px;margin:0 0 8px;border-radius:6px;display:flex;align-items:center;gap:10px;">
+                                    <input type="checkbox" class="bytemash-cat-select" data-term-id="<?php echo esc_attr((int) $t->term_id); ?>">
+                                    <span class="dashicons dashicons-move" aria-hidden="true" style="cursor:move;"></span>
+                                    <strong class="bytemash-cat-name-display"><?php echo esc_html($t->name); ?></strong>
+                                    <input type="text"
+                                           class="bytemash-cat-name-input regular-text"
+                                           value="<?php echo esc_attr($t->name); ?>"
+                                           style="display:none;max-width:220px;">
+                                    <code style="margin-left:auto;opacity:.7;"><?php echo esc_html($t->term_id); ?></code>
+                                    <button type="button"
+                                            class="button-link bytemash-cat-rename-btn"
+                                            data-term-id="<?php echo esc_attr((int) $t->term_id); ?>"
+                                            title="<?php esc_attr_e('Rename this category', 'bytemash-woo-sync'); ?>"
+                                            style="color:#2563eb;padding:0;">
+                                        <span class="dashicons dashicons-edit" aria-hidden="true"></span>
+                                        <span class="screen-reader-text"><?php esc_html_e('Rename category', 'bytemash-woo-sync'); ?></span>
+                                    </button>
+                                    <button type="button"
+                                            class="button-link bytemash-cat-rename-save-btn"
+                                            data-term-id="<?php echo esc_attr((int) $t->term_id); ?>"
+                                            title="<?php esc_attr_e('Save name', 'bytemash-woo-sync'); ?>"
+                                            style="display:none;color:#00a32a;padding:0;">
+                                        <span class="dashicons dashicons-yes" aria-hidden="true"></span>
+                                        <span class="screen-reader-text"><?php esc_html_e('Save name', 'bytemash-woo-sync'); ?></span>
+                                    </button>
+                                    <button type="button"
+                                            class="button-link bytemash-cat-rename-cancel-btn"
+                                            title="<?php esc_attr_e('Cancel', 'bytemash-woo-sync'); ?>"
+                                            style="display:none;color:#646970;padding:0;">
+                                        <span class="dashicons dashicons-no" aria-hidden="true"></span>
+                                        <span class="screen-reader-text"><?php esc_html_e('Cancel', 'bytemash-woo-sync'); ?></span>
+                                    </button>
+                                    <button type="button"
+                                            class="button-link bytemash-cat-delete-btn"
+                                            data-term-id="<?php echo esc_attr((int) $t->term_id); ?>"
+                                            data-term-name="<?php echo esc_attr($t->name); ?>"
+                                            title="<?php esc_attr_e('Remove from mega menu (does not delete the category)', 'bytemash-woo-sync'); ?>"
+                                            style="color:#d63638;padding:0;">
+                                        <span class="dashicons dashicons-hidden" aria-hidden="true"></span>
+                                        <span class="screen-reader-text"><?php esc_html_e('Remove from mega menu', 'bytemash-woo-sync'); ?></span>
+                                    </button>
+                                </li>
+                            <?php endforeach; ?>
+                        </ul>
+                        <div id="bytemash-mega-menu-bulk-progress" style="display:none;max-width:520px;margin-bottom:10px;">
+                            <div style="background:#f0f0f1;border-radius:4px;overflow:hidden;height:18px;">
+                                <div id="bytemash-mega-menu-bulk-bar" style="background:#d63638;height:100%;width:0%;transition:width .2s;"></div>
+                            </div>
+                        </div>
+                        <p class="description" id="bytemash-mega-menu-delete-status"></p>
+
+                        <?php if (!empty($available_terms)) : ?>
+                        <div style="margin-top:18px;max-width:520px;">
+                            <h3 style="margin-bottom:6px;"><?php esc_html_e('Available Categories (not in menu)', 'bytemash-woo-sync'); ?></h3>
+                            <p class="description" style="margin-top:0;">
+                                <?php esc_html_e('These exist in WooCommerce (including any new ones from a recent sync) but are not shown in the mega menu. Add one to make it appear.', 'bytemash-woo-sync'); ?>
+                            </p>
+                            <ul id="bytemash-mega-menu-hidden-list">
+                                <?php foreach ($available_terms as $t) : ?>
+                                    <li data-term-id="<?php echo esc_attr((int) $t->term_id); ?>" style="background:#f6f7f7;border:1px dashed #ccd0d4;padding:8px 12px;margin:0 0 6px;border-radius:6px;display:flex;align-items:center;gap:10px;opacity:.85;">
+                                        <span><?php echo esc_html($t->name); ?></span>
+                                        <code style="margin-left:auto;opacity:.7;"><?php echo esc_html($t->term_id); ?></code>
+                                        <button type="button"
+                                                class="button-link bytemash-cat-unhide-btn"
+                                                data-term-id="<?php echo esc_attr((int) $t->term_id); ?>"
+                                                title="<?php esc_attr_e('Add to mega menu', 'bytemash-woo-sync'); ?>"
+                                                style="color:#2563eb;padding:0;">
+                                            <span class="dashicons dashicons-plus-alt2" aria-hidden="true"></span>
+                                            <?php esc_html_e('Add to Menu', 'bytemash-woo-sync'); ?>
+                                        </button>
+                                    </li>
+                                <?php endforeach; ?>
+                            </ul>
+                        </div>
+                        <?php endif; ?>
+
+                        <script>
+                        (function($){
+                            function syncOrder(){
+                                var ids = [];
+                                $('#bytemash-mega-menu-sortable li').each(function(){
+                                    var id = parseInt($(this).data('term-id'), 10);
+                                    if (!isNaN(id)) ids.push(id);
+                                });
+                                $('#bytemash_mega_menu_top_order').val(JSON.stringify(ids));
+                            }
+                            $(function(){
+                                $('#bytemash-mega-menu-sortable').sortable({
+                                    axis: 'y',
+                                    handle: '.dashicons-move',
+                                    update: syncOrder
+                                });
+                                syncOrder();
+
+                                // Inline rename
+                                var $renameStatus = $('#bytemash-mega-menu-delete-status');
+
+                                function enterEditMode($li){
+                                    $li.find('.bytemash-cat-name-display').hide();
+                                    $li.find('.bytemash-cat-rename-btn, .bytemash-cat-delete-btn').hide();
+                                    $li.find('.bytemash-cat-name-input').show().trigger('focus').select();
+                                    $li.find('.bytemash-cat-rename-save-btn, .bytemash-cat-rename-cancel-btn').show();
+                                }
+
+                                function exitEditMode($li, newName){
+                                    var $display = $li.find('.bytemash-cat-name-display');
+                                    var $input = $li.find('.bytemash-cat-name-input');
+                                    if (typeof newName === 'string') {
+                                        $display.text(newName);
+                                        $input.val(newName);
+                                        $li.find('.bytemash-cat-delete-btn').data('term-name', newName);
+                                    } else {
+                                        $input.val($display.text());
+                                    }
+                                    $display.show();
+                                    $li.find('.bytemash-cat-rename-btn, .bytemash-cat-delete-btn').show();
+                                    $input.hide();
+                                    $li.find('.bytemash-cat-rename-save-btn, .bytemash-cat-rename-cancel-btn').hide();
+                                }
+
+                                $('#bytemash-mega-menu-sortable').on('click', '.bytemash-cat-rename-btn', function(){
+                                    enterEditMode($(this).closest('li'));
+                                });
+
+                                $('#bytemash-mega-menu-sortable').on('click', '.bytemash-cat-rename-cancel-btn', function(){
+                                    exitEditMode($(this).closest('li'));
+                                });
+
+                                $('#bytemash-mega-menu-sortable').on('keydown', '.bytemash-cat-name-input', function(e){
+                                    if (e.key === 'Enter') {
+                                        e.preventDefault();
+                                        $(this).closest('li').find('.bytemash-cat-rename-save-btn').trigger('click');
+                                    } else if (e.key === 'Escape') {
+                                        e.preventDefault();
+                                        exitEditMode($(this).closest('li'));
+                                    }
+                                });
+
+                                $('#bytemash-mega-menu-sortable').on('click', '.bytemash-cat-rename-save-btn', function(){
+                                    var $btn = $(this);
+                                    var $li = $btn.closest('li');
+                                    var termId = parseInt($btn.data('term-id'), 10);
+                                    var newName = $.trim($li.find('.bytemash-cat-name-input').val());
+                                    var oldName = $li.find('.bytemash-cat-name-display').text();
+
+                                    if (!termId || newName === '') { return; }
+
+                                    if (newName === oldName) {
+                                        exitEditMode($li, newName);
+                                        return;
+                                    }
+
+                                    $li.find('.bytemash-cat-name-input').prop('disabled', true);
+                                    $li.find('.bytemash-cat-rename-save-btn, .bytemash-cat-rename-cancel-btn').prop('disabled', true);
+                                    $renameStatus.text('').removeClass('notice notice-error notice-success inline');
+
+                                    $.post((typeof bytemashWooSync !== 'undefined' ? bytemashWooSync.ajax_url : ajaxurl), {
+                                        action: 'bytemash_rename_category',
+                                        nonce: (typeof bytemashWooSync !== 'undefined' ? bytemashWooSync.nonce : ''),
+                                        term_id: termId,
+                                        name: newName
+                                    }).done(function(res){
+                                        $li.find('.bytemash-cat-name-input, .bytemash-cat-rename-save-btn, .bytemash-cat-rename-cancel-btn').prop('disabled', false);
+                                        if (res.success) {
+                                            exitEditMode($li, res.data.name || newName);
+                                            $renameStatus.text(res.data.message || '<?php echo esc_js(__('Category renamed.', 'bytemash-woo-sync')); ?>').addClass('notice notice-success inline').css({padding:'6px 10px', display:'inline-block'});
+                                        } else {
+                                            $renameStatus.text((res.data && res.data.message) || '<?php echo esc_js(__('Could not rename category.', 'bytemash-woo-sync')); ?>').addClass('notice notice-error inline').css({padding:'6px 10px', display:'inline-block'});
+                                        }
+                                    }).fail(function(){
+                                        $li.find('.bytemash-cat-name-input, .bytemash-cat-rename-save-btn, .bytemash-cat-rename-cancel-btn').prop('disabled', false);
+                                        $renameStatus.text('<?php echo esc_js(__('Request failed. Please try again.', 'bytemash-woo-sync')); ?>').addClass('notice notice-error inline').css({padding:'6px 10px', display:'inline-block'});
+                                    });
+                                });
+
+                                $('#bytemash-mega-menu-sortable').on('click', '.bytemash-cat-delete-btn', function(){
+                                    var $btn = $(this);
+                                    var $li = $btn.closest('li');
+                                    var termId = parseInt($btn.data('term-id'), 10);
+                                    var termName = $btn.data('term-name');
+                                    var $status = $('#bytemash-mega-menu-delete-status');
+
+                                    if (!termId) { return; }
+                                    if (!window.confirm('<?php echo esc_js(__('Remove', 'bytemash-woo-sync')); ?> "' + termName + '" <?php echo esc_js(__('from the mega menu? The category, its products and subcategories are NOT deleted - you can add it back to the menu later.', 'bytemash-woo-sync')); ?>')) {
+                                        return;
+                                    }
+
+                                    $btn.prop('disabled', true);
+                                    $li.css('opacity', 0.5);
+                                    $status.text('').removeClass('notice notice-error notice-success inline');
+
+                                    $.post((typeof bytemashWooSync !== 'undefined' ? bytemashWooSync.ajax_url : ajaxurl), {
+                                        action: 'bytemash_hide_category_from_menu',
+                                        nonce: (typeof bytemashWooSync !== 'undefined' ? bytemashWooSync.nonce : ''),
+                                        term_id: termId
+                                    }).done(function(res){
+                                        if (res.success) {
+                                            $li.remove();
+                                            syncOrder();
+                                            $status.text(res.data.message || '<?php echo esc_js(__('Removed from the mega menu.', 'bytemash-woo-sync')); ?>').addClass('notice notice-success inline').css({padding:'6px 10px', display:'inline-block'});
+                                        } else {
+                                            $btn.prop('disabled', false);
+                                            $li.css('opacity', 1);
+                                            $status.text((res.data && res.data.message) || '<?php echo esc_js(__('Could not remove category from menu.', 'bytemash-woo-sync')); ?>').addClass('notice notice-error inline').css({padding:'6px 10px', display:'inline-block'});
+                                        }
+                                    }).fail(function(){
+                                        $btn.prop('disabled', false);
+                                        $li.css('opacity', 1);
+                                        $status.text('<?php echo esc_js(__('Request failed. Please try again.', 'bytemash-woo-sync')); ?>').addClass('notice notice-error inline').css({padding:'6px 10px', display:'inline-block'});
+                                    });
+                                });
+
+                                $('#bytemash-mega-menu-hidden-list').on('click', '.bytemash-cat-unhide-btn', function(){
+                                    var $btn = $(this);
+                                    var $li = $btn.closest('li');
+                                    var termId = parseInt($btn.data('term-id'), 10);
+                                    var $status = $('#bytemash-mega-menu-delete-status');
+
+                                    if (!termId) { return; }
+
+                                    $btn.prop('disabled', true);
+                                    $status.text('').removeClass('notice notice-error notice-success inline');
+
+                                    $.post((typeof bytemashWooSync !== 'undefined' ? bytemashWooSync.ajax_url : ajaxurl), {
+                                        action: 'bytemash_unhide_category_from_menu',
+                                        nonce: (typeof bytemashWooSync !== 'undefined' ? bytemashWooSync.nonce : ''),
+                                        term_id: termId
+                                    }).done(function(res){
+                                        if (res.success) {
+                                            $status.text(res.data.message || '<?php echo esc_js(__('Added back to the mega menu.', 'bytemash-woo-sync')); ?>').addClass('notice notice-success inline').css({padding:'6px 10px', display:'inline-block'});
+                                            setTimeout(function(){ window.location.reload(); }, 700);
+                                        } else {
+                                            $btn.prop('disabled', false);
+                                            $status.text((res.data && res.data.message) || '<?php echo esc_js(__('Could not update.', 'bytemash-woo-sync')); ?>').addClass('notice notice-error inline').css({padding:'6px 10px', display:'inline-block'});
+                                        }
+                                    }).fail(function(){
+                                        $btn.prop('disabled', false);
+                                        $status.text('<?php echo esc_js(__('Request failed. Please try again.', 'bytemash-woo-sync')); ?>').addClass('notice notice-error inline').css({padding:'6px 10px', display:'inline-block'});
+                                    });
+                                });
+
+                                // Bulk selection + remove from menu
+                                var $selectAll = $('#bytemash-mega-menu-select-all');
+                                var $bulkBtn = $('#bytemash-mega-menu-bulk-delete-btn');
+                                var $selectedCount = $('#bytemash-mega-menu-selected-count');
+                                var $bulkProgress = $('#bytemash-mega-menu-bulk-progress');
+                                var $bulkBar = $('#bytemash-mega-menu-bulk-bar');
+                                var $status = $('#bytemash-mega-menu-delete-status');
+
+                                function updateSelectionState(){
+                                    var count = $('#bytemash-mega-menu-sortable .bytemash-cat-select:checked').length;
+                                    var totalBoxes = $('#bytemash-mega-menu-sortable .bytemash-cat-select').length;
+                                    $selectedCount.text(count);
+                                    $bulkBtn.prop('disabled', count === 0);
+                                    $selectAll.prop('checked', totalBoxes > 0 && count === totalBoxes);
+                                    $selectAll.prop('indeterminate', count > 0 && count < totalBoxes);
+                                }
+
+                                $selectAll.on('change', function(){
+                                    $('#bytemash-mega-menu-sortable .bytemash-cat-select').prop('checked', $(this).is(':checked'));
+                                    updateSelectionState();
+                                });
+
+                                $('#bytemash-mega-menu-sortable').on('change', '.bytemash-cat-select', updateSelectionState);
+
+                                $bulkBtn.on('click', function(){
+                                    var $btn = $(this);
+                                    var $checked = $('#bytemash-mega-menu-sortable .bytemash-cat-select:checked');
+                                    var ids = $checked.map(function(){ return parseInt($(this).data('term-id'), 10); }).get();
+
+                                    if (!ids.length) { return; }
+                                    if (!window.confirm('<?php echo esc_js(__('Remove', 'bytemash-woo-sync')); ?> ' + ids.length + ' <?php echo esc_js(__('selected categories from the mega menu? They are NOT deleted - products and subcategories are untouched, and you can add them back later.', 'bytemash-woo-sync')); ?>')) {
+                                        return;
+                                    }
+
+                                    var ajaxUrl = (typeof bytemashWooSync !== 'undefined' ? bytemashWooSync.ajax_url : ajaxurl);
+                                    var nonce = (typeof bytemashWooSync !== 'undefined' ? bytemashWooSync.nonce : $btn.data('nonce'));
+
+                                    $btn.prop('disabled', true);
+                                    $selectAll.prop('disabled', true);
+                                    $('#bytemash-mega-menu-sortable .bytemash-cat-select, #bytemash-mega-menu-sortable .bytemash-cat-delete-btn').prop('disabled', true);
+                                    $status.text('').removeClass('notice notice-error notice-success inline');
+
+                                    $.post(ajaxUrl, {
+                                        action: 'bytemash_hide_categories_from_menu_batch',
+                                        nonce: nonce,
+                                        term_ids: ids
+                                    }).done(function(res){
+                                        if (res.success) {
+                                            ids.forEach(function(id){
+                                                $('#bytemash-mega-menu-sortable li[data-term-id="' + id + '"]').remove();
+                                            });
+                                            syncOrder();
+                                            $status.text(ids.length + ' <?php echo esc_js(__('categories removed from the mega menu.', 'bytemash-woo-sync')); ?>').addClass('notice notice-success inline').css({padding:'6px 10px', display:'inline-block'});
+                                            $selectAll.prop('disabled', false).prop('checked', false);
+                                            $('#bytemash-mega-menu-sortable .bytemash-cat-delete-btn').prop('disabled', false);
+                                            updateSelectionState();
+                                        } else {
+                                            $status.text((res.data && res.data.message) || '<?php echo esc_js(__('Could not update menu.', 'bytemash-woo-sync')); ?>').addClass('notice notice-error inline').css({padding:'6px 10px', display:'inline-block'});
+                                            $btn.prop('disabled', false);
+                                            $selectAll.prop('disabled', false);
+                                            $('#bytemash-mega-menu-sortable .bytemash-cat-delete-btn').prop('disabled', false);
+                                        }
+                                    }).fail(function(){
+                                        $status.text('<?php echo esc_js(__('Request failed. Please try again.', 'bytemash-woo-sync')); ?>').addClass('notice notice-error inline').css({padding:'6px 10px', display:'inline-block'});
+                                        $btn.prop('disabled', false);
+                                        $selectAll.prop('disabled', false);
+                                        $('#bytemash-mega-menu-sortable .bytemash-cat-delete-btn').prop('disabled', false);
+                                    });
+                                });
+                            });
+                        })(jQuery);
+                        </script>
+                        <?php
+                    } else {
+                        echo '<p class="description"><em>' . esc_html__('No top-level categories found.', 'bytemash-woo-sync') . '</em></p>';
+                    }
+                    ?>
+                </div>
+
                 <div class="bytemash-settings-section">
                     <h2><?php esc_html_e('Connection Info', 'bytemash-woo-sync'); ?></h2>
                     
@@ -1191,6 +1920,18 @@ class ByteMash_Admin_Settings {
         
         foreach ($sync_attributes as $option_name => $value) {
             update_option($option_name, $value);
+        }
+
+        // Save mega menu category order (top-level)
+        if (isset($_POST['mega_menu_top_order'])) {
+            $decoded = json_decode(wp_unslash($_POST['mega_menu_top_order']), true);
+            if (!is_array($decoded)) {
+                $decoded = array();
+            }
+            $decoded = array_values(array_filter(array_map('intval', $decoded)));
+            update_option('bytemash_mega_menu_top_order', $decoded, false);
+            delete_transient('bf_mega_menu_standard');
+            delete_transient('bf_mega_menu_accordion');
         }
         
         // Save quote mode setting

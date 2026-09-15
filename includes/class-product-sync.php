@@ -1279,6 +1279,12 @@ class ByteMash_Product_Sync {
                 'sku' => $parent_sku,
                 'existing_signature' => $existing_signature,
             ), 'product_sync');
+
+            // See the matching comment in the simple-product skip path above -
+            // always re-verify/repair category assignment from the stored
+            // snapshot even when the rest of the update is skipped.
+            $this->reassign_categories_from_snapshot($product_id);
+
             return array(
                 'success' => true,
                 'product_id' => $product_id,
@@ -1387,13 +1393,11 @@ class ByteMash_Product_Sync {
         $this->sync_product_meta($product_id, $product_data);
         }
 
-        if (!empty($payload_signature)) {
-            update_post_meta($product_id, '_amrod_payload_signature', $payload_signature, false);
-        }
-        if (!empty($payload_snapshot)) {
-            $this->save_payload_snapshot($product_id, $payload_snapshot);
-        }
-        
+        // Note: the payload signature is written further below, AFTER variations
+        // have been processed - not here - so that a variant creation/update
+        // failure causes the next sync to retry this product instead of being
+        // permanently skipped as "unchanged".
+
         if ($should_update_variations) {
         // Create product attributes (Size and Color)
         $attribute_data = $this->create_product_attributes($product_data['variants']);
@@ -1449,7 +1453,26 @@ class ByteMash_Product_Sync {
             'variation_errors' => $variation_errors,
             'variations_skipped' => $variation_skipped,
         ), 'product_sync');
-        
+
+        // Only persist the signature (which future syncs use to skip this product
+        // as "unchanged") when every variation was processed without error. If any
+        // variation failed, leave the previous/no signature in place so the next
+        // sync run retries this product instead of silently skipping it forever.
+        if ($variation_errors === 0) {
+            if (!empty($payload_signature)) {
+                update_post_meta($product_id, '_amrod_payload_signature', $payload_signature, false);
+            }
+            if (!empty($payload_snapshot)) {
+                $this->save_payload_snapshot($product_id, $payload_snapshot);
+            }
+        } else {
+            $this->logger->log('warning', 'Not saving payload signature due to variation errors - product will be retried next sync', array(
+                'product_id' => $product_id,
+                'sku' => $parent_sku,
+                'variation_errors' => $variation_errors,
+            ), 'product_sync');
+        }
+
         $should_convert_to_simple =
             !$api_has_variants ||
             ($should_update_variations && $variation_count === 0 && $variation_skipped === 0);
@@ -1997,6 +2020,16 @@ class ByteMash_Product_Sync {
                     'sku' => $sku,
                     'existing_signature' => $existing_signature,
                 ), 'product_sync');
+
+                // Even when the Amrod payload itself is unchanged (so the
+                // rest of the update is skipped for speed), still verify and
+                // repair this product's category assignment from the stored
+                // snapshot. This is a cheap, local, API-free check - it's
+                // what makes category assignment self-healing on every sync
+                // instead of only being fixed the next time this specific
+                // product's data happens to change.
+                $this->reassign_categories_from_snapshot($product_id);
+
                 return array(
                     'success' => true,
                     'product_id' => $product_id,
@@ -2010,8 +2043,14 @@ class ByteMash_Product_Sync {
 
             $existing_product = wc_get_product($product_id);
             $product = $existing_product ?: new WC_Product_Simple();
+                } elseif ($product_id) {
+            // A matching product was found by SKU but $force bypassed the
+            // "unchanged" skip check above - load it so save() updates this
+            // product instead of creating a duplicate with the same SKU.
+            $existing_product = wc_get_product($product_id);
+            $product = $existing_product ?: new WC_Product_Simple();
                 } else {
-            // Create new simple product
+            // No existing product found - create a new simple product
             $product = new WC_Product_Simple();
                 }
                 
@@ -4558,6 +4597,355 @@ class ByteMash_Product_Sync {
     }
 
     /**
+     * Locate an existing WooCommerce category by Amrod category ID
+     *
+     * @param string|int $id Amrod category ID
+     * @return WP_Term|null
+     */
+    private function get_category_term_by_amrod_id($id) {
+        $id = sanitize_text_field((string) $id);
+
+        if ($id === '') {
+            return null;
+        }
+
+        $terms = get_terms(array(
+            'taxonomy' => 'product_cat',
+            'hide_empty' => false,
+            'number' => 1,
+            'meta_key' => 'amrod_category_id',
+            'meta_value' => $id,
+        ));
+
+        if (!empty($terms) && !is_wp_error($terms)) {
+            return $terms[0];
+        }
+
+        return null;
+    }
+
+    /**
+     * Check whether a WooCommerce category belongs to the given Amrod category ID
+     *
+     * @param int        $term_id   WooCommerce term ID
+     * @param string|int $amrod_id  Amrod category ID
+     * @return bool
+     */
+    private function category_term_has_amrod_id($term_id, $amrod_id) {
+        $term_id = (int) $term_id;
+        $amrod_id = sanitize_text_field((string) $amrod_id);
+
+        if ($term_id <= 0 || $amrod_id === '') {
+            return false;
+        }
+
+        $stored_id = get_term_meta($term_id, 'amrod_category_id', true);
+
+        return $stored_id !== '' && (string) $stored_id === (string) $amrod_id;
+    }
+
+    /**
+     * Decide whether a located term should be reused for the current path segment
+     *
+     * @param WP_Term    $term_object     Candidate term
+     * @param string     $current_path    Path segment being synced
+     * @param array      $meta            Amrod metadata (id, code, image)
+     * @param bool       $is_last_segment Whether this is the terminal category
+     * @return WP_Term|null
+     */
+    private function resolve_category_term_for_segment($term_object, $current_path, $meta, $is_last_segment) {
+        if (!$term_object instanceof WP_Term) {
+            return null;
+        }
+
+        // A top-level category is uniquely identified by its name/slug - there is
+        // no other branch it could be confused with, so a stored-path mismatch
+        // here is never a reason to reject the match (see the matching note in
+        // ensure_category_hierarchy()). Only nested segments need the stricter
+        // path/Amrod-ID check to avoid conflating same-named categories that
+        // live under different parents.
+        if ((int) $term_object->parent === 0) {
+            return $term_object;
+        }
+
+        $term_path = get_term_meta($term_object->term_id, '_amrod_category_path', true);
+
+        if ($term_path === $current_path || $term_path === '') {
+            return $term_object;
+        }
+
+        // Path changed but Amrod ID is unchanged — this is a rename, not a duplicate.
+        if ($is_last_segment && !empty($meta['id']) && $this->category_term_has_amrod_id($term_object->term_id, $meta['id'])) {
+            return $term_object;
+        }
+
+        return null;
+    }
+
+    /**
+     * Find groups of product_cat terms that share the same name under the
+     * same parent - i.e. duplicate categories, most commonly created by the
+     * historical path-mismatch bug in ensure_category_hierarchy() where
+     * Amrod sending a slightly different raw path/code for a top-level
+     * category (even between products in the same sync) caused a brand new
+     * category to be created instead of reusing the existing one.
+     *
+     * @return array List of groups: [{ name, parent, canonical_id, duplicate_ids, terms: [{id, count, slug}] }]
+     */
+    public function find_duplicate_category_groups() {
+        $terms = get_terms(array(
+            'taxonomy' => 'product_cat',
+            'hide_empty' => false,
+        ));
+
+        if (is_wp_error($terms) || empty($terms)) {
+            return array();
+        }
+
+        $groups = array();
+
+        foreach ($terms as $term) {
+            if (!$term instanceof WP_Term || $term->slug === 'uncategorized') {
+                continue;
+            }
+            $key = (int) $term->parent . '|' . strtolower(trim($term->name));
+            if (!isset($groups[$key])) {
+                $groups[$key] = array(
+                    'name' => $term->name,
+                    'parent' => (int) $term->parent,
+                    'terms' => array(),
+                );
+            }
+            $groups[$key]['terms'][] = array(
+                'id' => (int) $term->term_id,
+                'slug' => $term->slug,
+                'count' => (int) $term->count,
+            );
+        }
+
+        $duplicate_groups = array();
+
+        foreach ($groups as $group) {
+            if (count($group['terms']) < 2) {
+                continue;
+            }
+
+            // Prefer the term with the most products already attached (most
+            // likely the one customers/menus already rely on); tie-break on
+            // the lowest term ID (oldest / first created).
+            usort($group['terms'], function ($a, $b) {
+                if ($a['count'] !== $b['count']) {
+                    return $b['count'] <=> $a['count'];
+                }
+                return $a['id'] <=> $b['id'];
+            });
+
+            $canonical = $group['terms'][0];
+            $duplicates = array_slice($group['terms'], 1);
+
+            $duplicate_groups[] = array(
+                'name' => $group['name'],
+                'parent' => $group['parent'],
+                'canonical_id' => $canonical['id'],
+                'duplicate_ids' => wp_list_pluck($duplicates, 'id'),
+                'terms' => $group['terms'],
+            );
+        }
+
+        return $duplicate_groups;
+    }
+
+    /**
+     * Merge one duplicate product_cat term into a canonical term: every
+     * product tagged with the duplicate gets tagged with the canonical term
+     * instead (products already carrying the canonical term are left as-is,
+     * not double-assigned), then the duplicate term is deleted.
+     *
+     * Uses direct term_relationships SQL rather than wp_set_object_terms()
+     * per product so merging a category with thousands of attached products
+     * stays fast and can't time out.
+     *
+     * @param int $duplicate_term_id
+     * @param int $canonical_term_id
+     * @return true|WP_Error
+     */
+    public function merge_category_term($duplicate_term_id, $canonical_term_id) {
+        $duplicate_term_id = (int) $duplicate_term_id;
+        $canonical_term_id = (int) $canonical_term_id;
+
+        if ($duplicate_term_id <= 0 || $canonical_term_id <= 0) {
+            return new WP_Error('invalid_term', __('Invalid category term(s)', 'bytemash-woo-sync'));
+        }
+
+        if ($duplicate_term_id === $canonical_term_id) {
+            return new WP_Error('same_term', __('Cannot merge a category into itself', 'bytemash-woo-sync'));
+        }
+
+        $dup_term = get_term($duplicate_term_id, 'product_cat');
+        $canonical_term = get_term($canonical_term_id, 'product_cat');
+
+        if (!$dup_term instanceof WP_Term || !$canonical_term instanceof WP_Term) {
+            return new WP_Error('term_not_found', __('Category term not found', 'bytemash-woo-sync'));
+        }
+
+        global $wpdb;
+        $dup_ttid = (int) $dup_term->term_taxonomy_id;
+        $canonical_ttid = (int) $canonical_term->term_taxonomy_id;
+
+        // Products already carrying the canonical term would collide with the
+        // unique (object_id, term_taxonomy_id) key if we tried to just
+        // repoint their duplicate-term row - drop those duplicate rows first.
+        $wpdb->query($wpdb->prepare(
+            "DELETE dup FROM {$wpdb->term_relationships} dup
+             INNER JOIN {$wpdb->term_relationships} canon
+               ON canon.object_id = dup.object_id AND canon.term_taxonomy_id = %d
+             WHERE dup.term_taxonomy_id = %d",
+            $canonical_ttid,
+            $dup_ttid
+        ));
+
+        // Every remaining product only had the duplicate term - repoint it to
+        // the canonical term in one query instead of one save per product.
+        $wpdb->query($wpdb->prepare(
+            "UPDATE {$wpdb->term_relationships} SET term_taxonomy_id = %d WHERE term_taxonomy_id = %d",
+            $canonical_ttid,
+            $dup_ttid
+        ));
+
+        wp_update_term_count_now(array($dup_ttid, $canonical_ttid), 'product_cat');
+        clean_term_cache(array($duplicate_term_id, $canonical_term_id), 'product_cat');
+
+        $delete_result = wp_delete_term($duplicate_term_id, 'product_cat');
+
+        if (is_wp_error($delete_result)) {
+            return $delete_result;
+        }
+
+        $this->logger->log('warning', 'Merged duplicate category into canonical category', array(
+            'duplicate_term_id' => $duplicate_term_id,
+            'duplicate_name' => $dup_term->name,
+            'canonical_term_id' => $canonical_term_id,
+            'canonical_name' => $canonical_term->name,
+        ), 'category_sync');
+
+        return true;
+    }
+
+    /**
+     * Re-derive and re-attach a product's categories using the category
+     * data captured in its own locally-stored payload snapshot (from the
+     * last time it was synced), with no Amrod API call and no dependency
+     * on the payload-unchanged signature skip - this exists specifically
+     * for repairing category assignments after they've been cleared out of
+     * the database directly (e.g. a cleanup that removed term_relationships
+     * rows), where a normal re-sync would just skip every product because
+     * its Amrod payload genuinely hasn't changed.
+     *
+     * @param int $product_id
+     * @return array { success: bool, message?: string, category_ids?: int[], skipped?: bool }
+     */
+    public function reassign_categories_from_snapshot($product_id) {
+        $product_id = (int) $product_id;
+
+        if (!$product_id || get_post_type($product_id) !== 'product') {
+            return array('success' => false, 'message' => 'Not a product');
+        }
+
+        $snapshot = $this->get_payload_snapshot($product_id);
+
+        if (empty($snapshot) || empty($snapshot['categories']) || !is_array($snapshot['categories'])) {
+            return array('success' => true, 'skipped' => true, 'message' => 'No stored category data for this product');
+        }
+
+        $category_ids = $this->sync_product_categories($snapshot['categories']);
+
+        if (empty($category_ids)) {
+            return array('success' => true, 'skipped' => true, 'message' => 'No categories resolved from stored data');
+        }
+
+        $result = wp_set_object_terms($product_id, $category_ids, 'product_cat', false);
+
+        if (is_wp_error($result)) {
+            return array('success' => false, 'message' => $result->get_error_message());
+        }
+
+        return array('success' => true, 'category_ids' => $category_ids);
+    }
+
+    /**
+     * Batch entry point for reassign_categories_from_snapshot(), used by the
+     * "Reassign Product Categories" admin tool. Processes a page of product
+     * IDs at a time so it can't time out on a large catalog.
+     *
+     * @param int[] $product_ids
+     * @return array { checked: int, assigned: int, skipped: int, errors: int }
+     */
+    public function reassign_categories_batch(array $product_ids) {
+        $checked = 0;
+        $assigned = 0;
+        $skipped = 0;
+        $errors = 0;
+
+        wp_defer_term_counting(true);
+
+        try {
+            foreach ($product_ids as $product_id) {
+                $checked++;
+                try {
+                    $result = $this->reassign_categories_from_snapshot($product_id);
+                    if (empty($result['success'])) {
+                        $errors++;
+                        $this->logger->log('error', 'Failed to reassign categories from snapshot', array(
+                            'product_id' => $product_id,
+                            'message' => $result['message'] ?? '',
+                        ), 'category_sync');
+                    } elseif (!empty($result['skipped'])) {
+                        $skipped++;
+                    } else {
+                        $assigned++;
+                    }
+                } catch (\Throwable $e) {
+                    $errors++;
+                    $this->logger->log('error', 'Exception reassigning categories from snapshot', array(
+                        'product_id' => $product_id,
+                        'error' => $e->getMessage(),
+                    ), 'category_sync');
+                }
+            }
+        } finally {
+            wp_defer_term_counting(false);
+        }
+
+        return array(
+            'checked' => $checked,
+            'assigned' => $assigned,
+            'skipped' => $skipped,
+            'errors' => $errors,
+        );
+    }
+
+    /**
+     * Get every product ID that has a stored Amrod payload snapshot -
+     * i.e. every candidate for reassign_categories_from_snapshot().
+     *
+     * @return int[]
+     */
+    public function get_products_with_payload_snapshot() {
+        global $wpdb;
+
+        $ids = $wpdb->get_col("
+            SELECT DISTINCT pm.post_id
+            FROM {$wpdb->postmeta} pm
+            INNER JOIN {$wpdb->posts} p ON p.ID = pm.post_id
+            WHERE pm.meta_key = '_amrod_payload_snapshot'
+              AND p.post_type = 'product'
+              AND p.post_status NOT IN ('trash', 'auto-draft')
+        ");
+
+        return array_map('intval', (array) $ids);
+    }
+
+    /**
      * Best-effort formatting for intermediate category segment names
      *
      * @param string $segment Path segment
@@ -4620,6 +5008,11 @@ class ByteMash_Product_Sync {
             // subcategories with the same name in different parent categories
             $existing_term = $this->get_category_term_by_path($current_path);
 
+            // Renamed categories keep the same Amrod ID but get a new path
+            if (!$existing_term instanceof WP_Term && $is_last_segment && !empty($meta['id'])) {
+                $existing_term = $this->get_category_term_by_amrod_id($meta['id']);
+            }
+
             $slug = sanitize_title($display_name ?: $segment);
 
             if (!$existing_term instanceof WP_Term) {
@@ -4630,13 +5023,7 @@ class ByteMash_Product_Sync {
                     $term_lookup = term_exists($slug, 'product_cat', $parent_id);
                     if ($term_lookup) {
                         $term_object = get_term(is_array($term_lookup) ? $term_lookup['term_id'] : $term_lookup, 'product_cat');
-                        if ($term_object instanceof WP_Term) {
-                            // Verify this term has the correct path metadata
-                            $term_path = get_term_meta($term_object->term_id, '_amrod_category_path', true);
-                            if ($term_path === $current_path || empty($term_path)) {
-                            $existing_term = $term_object;
-                        }
-                        }
+                        $existing_term = $this->resolve_category_term_for_segment($term_object, $current_path, $meta, $is_last_segment);
                     }
                 }
 
@@ -4647,14 +5034,8 @@ class ByteMash_Product_Sync {
                     $term_lookup = term_exists($slug, 'product_cat');
                     if ($term_lookup) {
                         $term_object = get_term(is_array($term_lookup) ? $term_lookup['term_id'] : $term_lookup, 'product_cat');
-                        if ($term_object instanceof WP_Term) {
-                            // Only use if it's also top-level and has matching path
-                            if ((int) $term_object->parent === 0) {
-                                $term_path = get_term_meta($term_object->term_id, '_amrod_category_path', true);
-                                if ($term_path === $current_path || empty($term_path)) {
-                            $existing_term = $term_object;
-                                }
-                            }
+                        if ($term_object instanceof WP_Term && (int) $term_object->parent === 0) {
+                            $existing_term = $this->resolve_category_term_for_segment($term_object, $current_path, $meta, $is_last_segment);
                         }
                     }
                 }
@@ -4664,39 +5045,74 @@ class ByteMash_Product_Sync {
                 if (!$existing_term && $display_name && $parent_id === 0) {
                     $term_object = get_term_by('name', $display_name, 'product_cat');
                     if ($term_object instanceof WP_Term && (int) $term_object->parent === 0) {
-                        $term_path = get_term_meta($term_object->term_id, '_amrod_category_path', true);
-                        if ($term_path === $current_path || empty($term_path)) {
-                        $existing_term = $term_object;
-                        }
+                        $existing_term = $this->resolve_category_term_for_segment($term_object, $current_path, $meta, $is_last_segment);
                     }
                 }
             }
 
             if ($existing_term instanceof WP_Term) {
                 $term_id = (int) $existing_term->term_id;
-
-                // Verify the existing term has the correct path - if not, it might be a different category
                 $existing_path = get_term_meta($term_id, '_amrod_category_path', true);
-                if (!empty($existing_path) && $existing_path !== $current_path) {
-                    // This term has a different path - it's a different category with the same name
-                    // We should create a new term instead of reusing this one
-                    $this->logger->log('warning', 'Found category with same name but different path - creating new category', array(
-                        'existing_path' => $existing_path,
-                        'new_path' => $current_path,
-                        'category_name' => $display_name,
-                        'parent_id' => $parent_id,
-                    ), 'category_sync');
-                    $existing_term = null; // Force creation of new category
-                } else {
-                // Correct parent if it changed
-                if ((int) $existing_term->parent !== (int) $parent_id) {
-                    wp_update_term($term_id, 'product_cat', array('parent' => $parent_id));
+
+                // A path mismatch only means "different category" for a NESTED
+                // segment, where the same leaf name can legitimately exist under
+                // two different parents (e.g. "Accessories" under both "Bags"
+                // and "Shirts"). At the top level (parent_id === 0) there is no
+                // such ambiguity - a top-level category is identified by its
+                // name, and Amrod's raw path/code string for it is free to
+                // change between syncs (or even between products in the same
+                // sync) without it being a different category. Treating every
+                // such change as "new category" is what was creating dozens of
+                // duplicate top-level categories with the same name.
+                if ($parent_id > 0 && !empty($existing_path) && $existing_path !== $current_path) {
+                    $is_rename = $is_last_segment
+                        && !empty($meta['id'])
+                        && $this->category_term_has_amrod_id($term_id, $meta['id']);
+
+                    if (!$is_rename) {
+                        // Different category with the same name in a different branch
+                        $this->logger->log('warning', 'Found category with same name but different path - creating new category', array(
+                            'existing_path' => $existing_path,
+                            'new_path' => $current_path,
+                            'category_name' => $display_name,
+                            'parent_id' => $parent_id,
+                        ), 'category_sync');
+                        $existing_term = null;
+                    } else {
+                        $this->logger->log('info', 'Category rename detected via Amrod ID', array(
+                            'term_id' => $term_id,
+                            'old_path' => $existing_path,
+                            'new_path' => $current_path,
+                            'amrod_id' => $meta['id'],
+                        ), 'category_sync');
+                    }
                 }
 
-                // Refresh name if API casing changed
-                if ($display_name && $existing_term->name !== $display_name) {
-                    wp_update_term($term_id, 'product_cat', array('name' => $display_name));
-                }
+                if ($existing_term instanceof WP_Term) {
+                    $term_id = (int) $existing_term->term_id;
+                    $update_args = array();
+
+                    if ((int) $existing_term->parent !== (int) $parent_id) {
+                        $update_args['parent'] = $parent_id;
+                    }
+
+                    $is_name_locked = (bool) get_term_meta($term_id, '_bytemash_lock_category_name', true);
+                    if (!$is_name_locked && $display_name && $existing_term->name !== $display_name) {
+                        $update_args['name'] = $display_name;
+                        if ($slug) {
+                            $update_args['slug'] = $slug;
+                        }
+                    } elseif (!$is_name_locked && $slug && $existing_term->slug !== $slug) {
+                        $update_args['slug'] = $slug;
+                    }
+
+                    if (!empty($update_args)) {
+                        wp_update_term($term_id, 'product_cat', $update_args);
+                    }
+
+                    if ($display_name) {
+                        update_term_meta($term_id, '_amrod_category_name', $display_name);
+                    }
                 }
             }
             
@@ -4713,12 +5129,27 @@ class ByteMash_Product_Sync {
                     if ($created->get_error_code() === 'term_exists') {
                         $existing_id = $created->get_error_data('term_exists');
                         $maybe_term = get_term($existing_id, 'product_cat');
+                        $resolved_term = $this->resolve_category_term_for_segment($maybe_term, $current_path, $meta, $is_last_segment);
 
-                        if ($maybe_term instanceof WP_Term) {
-                            $term_id = (int) $maybe_term->term_id;
+                        if (!$resolved_term instanceof WP_Term && $is_last_segment && !empty($meta['id'])) {
+                            $resolved_term = $this->get_category_term_by_amrod_id($meta['id']);
+                        }
 
-                            if ((int) $maybe_term->parent !== (int) $parent_id) {
-                                wp_update_term($term_id, 'product_cat', array('parent' => $parent_id));
+                        if ($resolved_term instanceof WP_Term) {
+                            $term_id = (int) $resolved_term->term_id;
+                            $update_args = array();
+
+                            if ((int) $resolved_term->parent !== (int) $parent_id) {
+                                $update_args['parent'] = $parent_id;
+                            }
+
+                            $is_name_locked = (bool) get_term_meta($term_id, '_bytemash_lock_category_name', true);
+                            if (!$is_name_locked && $display_name && $resolved_term->name !== $display_name) {
+                                $update_args['name'] = $display_name;
+                            }
+
+                            if (!empty($update_args)) {
+                                wp_update_term($term_id, 'product_cat', $update_args);
                             }
                         } else {
                             return array(
@@ -4746,6 +5177,9 @@ class ByteMash_Product_Sync {
 
             update_term_meta($term_id, '_amrod_category_path', $current_path);
             update_term_meta($term_id, '_amrod_category_path_normalized', $normalized_path);
+            if ($display_name) {
+                update_term_meta($term_id, '_amrod_category_name', $display_name);
+            }
 
             if ($is_last_segment) {
                 if (!empty($meta['code'])) {
@@ -5171,13 +5605,20 @@ class ByteMash_Product_Sync {
         $sku_snapshot = get_transient("bytemash_sync_{$sync_id}_product_skus");
         
         if (empty($sku_snapshot) || !is_array($sku_snapshot)) {
+            // No snapshot left to process. This is the normal terminal state once
+            // cleanup has already finished (e.g. it completed in a single pass
+            // because it ran with no batch limit) - treat it as success, not an
+            // error, so the UI doesn't report a failure for work that already
+            // completed.
             return array(
-                'success' => false,
-                'message' => __('No SKU snapshot found', 'bytemash-woo-sync'),
+                'success' => true,
+                'checked' => 0,
+                'deleted' => 0,
+                'skipped' => 0,
                 'done' => true,
             );
         }
-        
+
         $result = $this->cleanup_products_not_in_snapshot($sync_id, $batch_size);
         
         if (empty($result)) {
@@ -5480,6 +5921,10 @@ class ByteMash_Product_Sync {
             'sync_id' => $sync_id,
             'checked' => $result['checked'] ?? 0,
             'deleted' => $result['deleted'] ?? 0,
+            // cleanup_products_not_in_snapshot() is called above with no batch
+            // limit, so it always finishes the full reconciliation in this one
+            // call - there is nothing left to poll for.
+            'done' => empty($result['has_more']),
         );
     }
     
