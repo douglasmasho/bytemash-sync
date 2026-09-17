@@ -1283,7 +1283,11 @@ class ByteMash_Product_Sync {
             // See the matching comment in the simple-product skip path above -
             // always re-verify/repair category assignment from the stored
             // snapshot even when the rest of the update is skipped.
-            $this->reassign_categories_from_snapshot($product_id);
+            $this->log_category_reassignment_result(
+                $product_id,
+                $parent_sku,
+                $this->reassign_categories_from_snapshot($product_id)
+            );
 
             return array(
                 'success' => true,
@@ -2028,7 +2032,11 @@ class ByteMash_Product_Sync {
                 // what makes category assignment self-healing on every sync
                 // instead of only being fixed the next time this specific
                 // product's data happens to change.
-                $this->reassign_categories_from_snapshot($product_id);
+                $this->log_category_reassignment_result(
+                    $product_id,
+                    $sku,
+                    $this->reassign_categories_from_snapshot($product_id)
+                );
 
                 return array(
                     'success' => true,
@@ -4829,6 +4837,39 @@ class ByteMash_Product_Sync {
         ), 'category_sync');
 
         return true;
+    }
+
+    /**
+     * Log the outcome of a self-healing category reassignment call made
+     * from inside the payload-unchanged skip path, so it's actually visible
+     * in the sync logs whether this ran and what it did - otherwise a
+     * "product skipped" log line looks identical whether or not its
+     * categories were checked/repaired behind the scenes.
+     *
+     * @param int    $product_id
+     * @param string $sku
+     * @param array  $result Return value of reassign_categories_from_snapshot()
+     */
+    private function log_category_reassignment_result($product_id, $sku, $result) {
+        if (empty($result['success'])) {
+            $this->logger->log('error', 'Category self-heal failed during skipped sync', array(
+                'product_id' => $product_id,
+                'sku' => $sku,
+                'message' => $result['message'] ?? '',
+            ), 'category_sync');
+        } elseif (!empty($result['skipped'])) {
+            $this->logger->log('info', 'Category self-heal: nothing to do', array(
+                'product_id' => $product_id,
+                'sku' => $sku,
+                'reason' => $result['message'] ?? '',
+            ), 'category_sync');
+        } else {
+            $this->logger->log('info', 'Category self-heal: reassigned from stored snapshot', array(
+                'product_id' => $product_id,
+                'sku' => $sku,
+                'category_ids' => $result['category_ids'] ?? array(),
+            ), 'category_sync');
+        }
     }
 
     /**
