@@ -5013,6 +5013,39 @@ class ByteMash_Product_Sync {
     }
 
     /**
+     * Whether a synced category's name must be left as-is
+     *
+     * When $meta['preserve_names'] is set (category tree sync), an existing
+     * term keeps its current name - those names are the mega menu labels and
+     * may have been customised (e.g. "Corporate Gifts" shown as "Gifting").
+     * A differing name is locked the same way a manual admin rename is, so
+     * later product syncs don't revert it either.
+     *
+     * @param WP_Term $term         Existing term
+     * @param string  $display_name Name from Amrod
+     * @param array   $meta         Amrod metadata
+     * @return bool
+     */
+    private function is_category_name_locked($term, $display_name, $meta) {
+        $term_id = (int) $term->term_id;
+
+        if (get_term_meta($term_id, '_bytemash_lock_category_name', true)) {
+            return true;
+        }
+
+        if (empty($meta['preserve_names'])) {
+            return false;
+        }
+
+        if ($display_name !== '' && $term->name !== '' && $term->name !== $display_name) {
+            update_term_meta($term_id, '_bytemash_lock_category_name', 1);
+            update_term_meta($term_id, '_bytemash_custom_category_name', $term->name);
+        }
+
+        return true;
+    }
+
+    /**
      * Ensure full category hierarchy exists for a given path
      *
      * @param string $path Full category path from Amrod
@@ -5137,7 +5170,7 @@ class ByteMash_Product_Sync {
                         $update_args['parent'] = $parent_id;
                     }
 
-                    $is_name_locked = (bool) get_term_meta($term_id, '_bytemash_lock_category_name', true);
+                    $is_name_locked = $this->is_category_name_locked($existing_term, $display_name, $meta);
                     if (!$is_name_locked && $display_name && $existing_term->name !== $display_name) {
                         $update_args['name'] = $display_name;
                         if ($slug) {
@@ -5184,7 +5217,7 @@ class ByteMash_Product_Sync {
                                 $update_args['parent'] = $parent_id;
                             }
 
-                            $is_name_locked = (bool) get_term_meta($term_id, '_bytemash_lock_category_name', true);
+                            $is_name_locked = $this->is_category_name_locked($resolved_term, $display_name, $meta);
                             if (!$is_name_locked && $display_name && $resolved_term->name !== $display_name) {
                                 $update_args['name'] = $display_name;
                             }
@@ -5464,6 +5497,7 @@ class ByteMash_Product_Sync {
             'id' => $category_data['id'] ?? '',
             'code' => $category_code,
             'image' => $category_image,
+            'preserve_names' => !empty($category_data['preserve_names']),
         );
 
         try {

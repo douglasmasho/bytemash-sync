@@ -2240,46 +2240,44 @@ class ByteMash_Batch_Processor {
     
     /**
      * Recursively process categories
+     *
+     * Categories are resolved by their full Amrod path and ID (via
+     * ByteMash_Product_Sync::sync_single_category()), never by name alone.
+     * Amrod reuses leaf names across branches - e.g. "Drinkware" exists under
+     * both Corporate Gifts and Corporate Gifts > Specials - so a name lookup
+     * merges those branches and products end up in the wrong category.
      */
-    private function process_categories_recursive($categories, $parent_id = 0) {
+    private function process_categories_recursive($categories, $product_sync = null) {
         $count = 0;
-        
+
+        if (!$product_sync) {
+            $product_sync = new ByteMash_Product_Sync();
+        }
+
         foreach ($categories as $category) {
-            $cat_name = sanitize_text_field($category['categoryName'] ?? '');
-            
-            if (empty($cat_name)) {
+            if (empty($category['categoryName'])) {
                 continue;
             }
-            
-            // Check if category exists
-            $term = get_term_by('name', $cat_name, 'product_cat');
-            
-            if (!$term) {
-                $result = wp_insert_term($cat_name, 'product_cat', array(
-                    'parent' => $parent_id,
-                    'description' => sanitize_text_field($category['categoryPath'] ?? ''),
-                ));
-                
-                if (!is_wp_error($result)) {
-                    $term_id = $result['term_id'];
-                    
-                    // Store Amrod category metadata
-                    update_term_meta($term_id, 'amrod_category_id', $category['id']);
-                    update_term_meta($term_id, 'amrod_category_code', $category['categoryCode'] ?? '');
-                    
-                    if (!empty($category['categoryImage'])) {
-                        update_term_meta($term_id, 'thumbnail_id', $this->import_category_image($category['categoryImage'], $term_id));
+
+            // Never rename existing categories here - their names are the mega menu labels
+            $result = $product_sync->sync_single_category(array_merge($category, array('preserve_names' => true)));
+
+            if (!empty($result['success'])) {
+                $term_id = (int) $result['term_id'];
+
+                if (!empty($category['categoryImage']) && !get_term_meta($term_id, 'thumbnail_id', true)) {
+                    $thumbnail_id = $this->import_category_image($category['categoryImage'], $term_id);
+                    if ($thumbnail_id) {
+                        update_term_meta($term_id, 'thumbnail_id', $thumbnail_id);
                     }
-                    
-                    $count++;
                 }
-            } else {
-                $term_id = $term->term_id;
+
+                $count++;
             }
-            
+
             // Process children
             if (!empty($category['children']) && is_array($category['children'])) {
-                $count += $this->process_categories_recursive($category['children'], $term_id);
+                $count += $this->process_categories_recursive($category['children'], $product_sync);
             }
         }
         
